@@ -2,8 +2,8 @@ local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Tryin
 local library = Library.new()
 local loader = library:create_loader({
     title = "Stellar",
-    logo = "rbxassetid://134541145434432",
-    duration = 3,
+    logo = "rbxassetid://100228876632788",
+    duration = 4,
     auto_progress = true,
     callback = function()
         loadstring(game:HttpGet("https://pastefy.app/wak04cQa/raw"))()
