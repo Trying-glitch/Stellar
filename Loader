@@ -4,7 +4,7 @@ library:load()
 
 local loader = library:create_loader({
     title = "Stellar",
-    logo = 81641865823720,
+    logo = 82670770691632,
     duration = 4,
     auto_progress = true,
     callback = function()
