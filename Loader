@@ -1,12 +1,17 @@
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Trying-glitch/Stellar/refs/heads/main/Stellar%20UI.lua"))()
 local library = Library.new()
+library:set_background({
+    image = 76918987573625,
+    transparency = 0.2,
+})
+
+library:load()
+
 local loader = library:create_loader({
-    title = "Stellar",
-    logo = "rbxassetid://76918987573625",
-    duration = 4,
+    title = "Zeta Orionis",
+    logo = 76918987573625,
     auto_progress = true,
     callback = function()
         loadstring(game:HttpGet("https://pastefy.app/wak04cQa/raw"))()
-        library:load()
     end
 })
