@@ -8,8 +8,8 @@ library:set_background({
 library:load()
 
 local loader = library:create_loader({
-    title = "Zeta Orionis",
-    logo = 76918987573625,
+    title = "Stellar",
+    logo = 81641865823720,
     auto_progress = true,
     callback = function()
         loadstring(game:HttpGet("https://pastefy.app/wak04cQa/raw"))()
