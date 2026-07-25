@@ -536,7 +536,7 @@ function Library:create_loader(settings)
 
     local old_loader = CoreGui:FindFirstChild('StellarLoader')
     if old_loader then
-        Debris:AddItem(old_loader, 0)
+        old_loader:Destroy()
     end
 
     local LoaderGui = Instance.new('ScreenGui')
@@ -549,7 +549,7 @@ function Library:create_loader(settings)
     Container.Name = 'LoaderContainer'
     Container.AnchorPoint = Vector2.new(0.5, 0.5)
     Container.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Container.Size = UDim2.new(0, 260, 0, 150)
+    Container.Size = UDim2.new(0, 260, 0, 190)
     Container.BackgroundColor3 = Color3.fromRGB(6, 14, 28)
     Container.BorderSizePixel = 0
     Container.Parent = LoaderGui
@@ -578,16 +578,17 @@ function Library:create_loader(settings)
     local Logo = Instance.new('ImageLabel')
     Logo.Name = 'Logo'
     Logo.AnchorPoint = Vector2.new(0.5, 0)
-    Logo.Position = UDim2.new(0.5, 0, 0, 22)
-    Logo.Size = UDim2.new(0, 56, 0, 56)
+    Logo.Position = UDim2.new(0.5, 0, 0, 20)
+    Logo.Size = UDim2.new(0, 50, 0, 81) -- golden ratio, 1 : 1.618
     Logo.BackgroundTransparency = 1
+    Logo.ScaleType = Enum.ScaleType.Fit -- preserve aspect ratio, never stretch/squash
     Logo.Image = Util:resolve_asset_id(settings.logo) or "rbxassetid://0"
     Logo.Parent = Container
 
     local Title = Instance.new('TextLabel')
     Title.Name = 'Title'
     Title.AnchorPoint = Vector2.new(0.5, 0)
-    Title.Position = UDim2.new(0.5, 0, 0, 86)
+    Title.Position = UDim2.new(0.5, 0, 0, 108)
     Title.Size = UDim2.new(1, -20, 0, 24)
     Title.BackgroundTransparency = 1
     Title.Text = settings.title or "Loading"
@@ -599,7 +600,7 @@ function Library:create_loader(settings)
     local BarTrack = Instance.new('Frame')
     BarTrack.Name = 'BarTrack'
     BarTrack.AnchorPoint = Vector2.new(0.5, 1)
-    BarTrack.Position = UDim2.new(0.5, 0, 1, -24)
+    BarTrack.Position = UDim2.new(0.5, 0, 1, -20)
     BarTrack.Size = UDim2.new(1, -40, 0, 6)
     BarTrack.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
     BarTrack.BorderSizePixel = 0
@@ -759,7 +760,7 @@ function Library:create_ui()
     local old_Stellar = CoreGui:FindFirstChild('Stellar')
 
     if old_Stellar then
-        Debris:AddItem(old_Stellar, 0)
+        old_Stellar:Destroy()
     end
 
     local Stellar = Instance.new('ScreenGui')
