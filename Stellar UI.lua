@@ -78,25 +78,6 @@ local Util = setmetatable({
         local viewport_size_Y = workspace.CurrentCamera.ViewportSize.Y
 
         return self:map(viewport_size_Y, 0, 2560, 8, 56)
-    end,
-    resolve_asset_id = function(self: any, id: any)
-        if id == nil then
-            return nil
-        end
-
-        id = tostring(id)
-
-        if id:match('^rbxassetid://') or id:match('^rbxthumb://') or id:match('^http') then
-            return id
-        end
-
-        -- strip anything but digits in case a full marketplace URL was pasted in
-        local digits = id:match('(%d+)')
-        if not digits then
-            return nil
-        end
-
-        return 'rbxassetid://' .. digits
     end
 }, Util)
 
@@ -581,7 +562,7 @@ function Library:create_loader(settings)
     Logo.Position = UDim2.new(0.5, 0, 0, 22)
     Logo.Size = UDim2.new(0, 56, 0, 56)
     Logo.BackgroundTransparency = 1
-    Logo.Image = Util:resolve_asset_id(settings.logo) or "rbxassetid://0"
+    Logo.Image = settings.logo or "rbxassetid://0"
     Logo.Parent = Container
 
     local Title = Instance.new('TextLabel')
@@ -659,100 +640,6 @@ function Library:create_loader(settings)
     end
 
     return loader
-end
-
--- Customizes ONLY the main window's backdrop image — tabs, modules, toggles,
--- sliders etc. keep their own backgrounds untouched since they're separate
--- opaque frames layered on top of this.
---
--- settings = {
---     image = 100228876632788,        -- a single asset id (number or string, with or without "rbxassetid://")
---            or {111, 222, 333},       -- a table of ids — one is picked at random each call
---            or someFolderInstance,    -- a Folder containing ImageLabels/Decals/StringValues — one child is picked at random
---     transparency = 0.2,              -- 0 = fully visible image, 1 = invisible (default 0)
---     scale_type = Enum.ScaleType.Crop -- optional, defaults to Crop (fills & crops like a wallpaper)
--- }
-function Library:set_background(settings)
-    settings = settings or {}
-
-    local Stellar = CoreGui:FindFirstChild('Stellar')
-    if not Stellar then
-        warn('[Library] set_background called before create_ui/load — call library:load() first')
-        return nil
-    end
-
-    local Container = Stellar:FindFirstChild('Container')
-    if not Container then
-        return nil
-    end
-
-    local Background = Container:FindFirstChild('CustomBackground')
-    if not Background then
-        Background = Instance.new('ImageLabel')
-        Background.Name = 'CustomBackground'
-        Background.AnchorPoint = Vector2.new(0, 0)
-        Background.Position = UDim2.new(0, 0, 0, 0)
-        Background.Size = UDim2.new(1, 0, 1, 0)
-        Background.BackgroundTransparency = 1
-        Background.BorderSizePixel = 0
-        Background.ScaleType = Enum.ScaleType.Crop
-        Background.ZIndex = 0
-        Background.Image = ''
-        Background.ImageTransparency = 1
-        Background.Parent = Container
-        Background:SetAttribute('gg_background_layer', true)
-    end
-
-    -- Resolve settings.image into a single usable id, whether it's a raw id,
-    -- a table of ids, or a Folder of image options.
-    local source = settings.image
-    local resolved = nil
-
-    if typeof(source) == 'Instance' and source:IsA('Folder') then
-        local options = source:GetChildren()
-        if #options > 0 then
-            local pick = options[math.random(1, #options)]
-            if pick:IsA('ImageLabel') then
-                resolved = pick.Image
-            elseif pick:IsA('Decal') then
-                resolved = pick.Texture
-            elseif pick:IsA('StringValue') then
-                resolved = pick.Value
-            end
-        end
-    elseif typeof(source) == 'table' then
-        if #source > 0 then
-            resolved = source[math.random(1, #source)]
-        end
-    elseif source ~= nil then
-        resolved = source
-    end
-
-    resolved = Util:resolve_asset_id(resolved)
-
-    if not resolved then
-        Background.Image = ''
-        Background.ImageTransparency = 1
-        return Background
-    end
-
-    Background.Image = resolved
-    Background.ScaleType = settings.scale_type or Enum.ScaleType.Crop
-    Background.ImageTransparency = settings.transparency or 0
-
-    return Background
-end
-
--- Removes/hides the custom background image, reverting to the plain fill + gradient.
-function Library:clear_background()
-    local Stellar = CoreGui:FindFirstChild('Stellar')
-    local Container = Stellar and Stellar:FindFirstChild('Container')
-    local Background = Container and Container:FindFirstChild('CustomBackground')
-
-    if Background then
-        Background.Image = ''
-        Background.ImageTransparency = 1
-    end
 end
 
 function Library:create_ui()
