@@ -549,7 +549,8 @@ function Library:create_loader(settings)
     Container.Name = 'LoaderContainer'
     Container.AnchorPoint = Vector2.new(0.5, 0.5)
     Container.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Container.Size = UDim2.new(0, 260, 0, 190)
+    Container.Size = UDim2.new(0, 260, 0, 0)
+    Container.AutomaticSize = Enum.AutomaticSize.Y -- height hugs whatever's actually inside it
     Container.BackgroundColor3 = Color3.fromRGB(6, 14, 28)
     Container.BorderSizePixel = 0
     Container.Parent = LoaderGui
@@ -558,6 +559,24 @@ function Library:create_loader(settings)
     ContainerCorner.CornerRadius = UDim.new(0, 12)
     ContainerCorner.Parent = Container
 
+    local ContainerPadding = Instance.new('UIPadding')
+    ContainerPadding.PaddingTop = UDim.new(0, 24)
+    ContainerPadding.PaddingBottom = UDim.new(0, 22)
+    ContainerPadding.PaddingLeft = UDim.new(0, 20)
+    ContainerPadding.PaddingRight = UDim.new(0, 20)
+    ContainerPadding.Parent = Container
+
+    -- Stacks Logo -> Title -> BarTrack top to bottom, centered, with even
+    -- spacing between them. This is what keeps everything snug against the
+    -- logo instead of leaving dead space when the logo's size changes.
+    local ContainerLayout = Instance.new('UIListLayout')
+    ContainerLayout.FillDirection = Enum.FillDirection.Vertical
+    ContainerLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    ContainerLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    ContainerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    ContainerLayout.Padding = UDim.new(0, 14)
+    ContainerLayout.Parent = Container
+
     local ContainerStroke = Instance.new('UIStroke')
     ContainerStroke.Color = Color3.fromRGB(0, 170, 255)
     ContainerStroke.Thickness = 1.5
@@ -565,7 +584,7 @@ function Library:create_loader(settings)
     ContainerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     ContainerStroke.Parent = Container
 
-    -- Responsive scaling: 260x190 is comfortable on a ~1280px-wide viewport.
+    -- Responsive scaling: 260-wide is comfortable on a ~1280px-wide viewport.
     -- Scale proportionally on smaller/larger screens so it never looks
     -- oversized on a phone or tiny on a tablet/monitor.
     local LoaderScale = Instance.new('UIScale')
@@ -595,9 +614,8 @@ function Library:create_loader(settings)
 
     local Logo = Instance.new('ImageLabel')
     Logo.Name = 'Logo'
-    Logo.AnchorPoint = Vector2.new(0.5, 0)
-    Logo.Position = UDim2.new(0.5, 0, 0, 20)
-    Logo.Size = UDim2.new(0, 50, 0, 81) -- max bounds; actual shape is computed below
+    Logo.LayoutOrder = 1
+    Logo.Size = UDim2.new(0, 76, 0, 0) -- width drives the size; height is computed below
     Logo.BackgroundTransparency = 1
     Logo.ScaleType = Enum.ScaleType.Fit -- preserve aspect ratio, never stretch/squash
     Logo.Image = Util:resolve_asset_id(settings.logo) or "rbxassetid://0"
@@ -608,14 +626,13 @@ function Library:create_loader(settings)
     -- real dimensions (e.g. a 512x829 logo -> 512/829). Defaults to golden ratio.
     local LogoAspectRatio = Instance.new('UIAspectRatioConstraint')
     LogoAspectRatio.AspectRatio = settings.logo_aspect_ratio or (1 / 1.618)
-    LogoAspectRatio.DominantAxis = Enum.DominantAxis.Height
+    LogoAspectRatio.DominantAxis = Enum.DominantAxis.Width
     LogoAspectRatio.Parent = Logo
 
     local Title = Instance.new('TextLabel')
     Title.Name = 'Title'
-    Title.AnchorPoint = Vector2.new(0.5, 0)
-    Title.Position = UDim2.new(0.5, 0, 0, 108)
-    Title.Size = UDim2.new(1, -20, 0, 24)
+    Title.LayoutOrder = 2
+    Title.Size = UDim2.new(1, 0, 0, 24)
     Title.BackgroundTransparency = 1
     Title.Text = settings.title or "Loading"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -625,9 +642,8 @@ function Library:create_loader(settings)
 
     local BarTrack = Instance.new('Frame')
     BarTrack.Name = 'BarTrack'
-    BarTrack.AnchorPoint = Vector2.new(0.5, 1)
-    BarTrack.Position = UDim2.new(0.5, 0, 1, -20)
-    BarTrack.Size = UDim2.new(1, -40, 0, 6)
+    BarTrack.LayoutOrder = 3
+    BarTrack.Size = UDim2.new(1, 0, 0, 6)
     BarTrack.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
     BarTrack.BorderSizePixel = 0
     BarTrack.Parent = Container
