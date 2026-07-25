@@ -612,22 +612,23 @@ function Library:create_loader(settings)
         end
     end)
 
+    -- Auto-fits the logo to its real proportions. Pass settings.logo_aspect_ratio
+    -- = width / height if you know your image's real dimensions. This is computed
+    -- directly (rather than via a live UIAspectRatioConstraint) because that
+    -- constraint doesn't reliably resolve in time for UIListLayout + AutomaticSize
+    -- to pick it up — it was silently collapsing the logo to 0 height.
+    local logo_width = 76
+    local logo_aspect_ratio = settings.logo_aspect_ratio or (1 / 1.618)
+    local logo_height = math.floor(logo_width / logo_aspect_ratio)
+
     local Logo = Instance.new('ImageLabel')
     Logo.Name = 'Logo'
     Logo.LayoutOrder = 1
-    Logo.Size = UDim2.new(0, 76, 0, 0) -- width drives the size; height is computed below
+    Logo.Size = UDim2.new(0, logo_width, 0, logo_height)
     Logo.BackgroundTransparency = 1
     Logo.ScaleType = Enum.ScaleType.Fit -- preserve aspect ratio, never stretch/squash
     Logo.Image = Util:resolve_asset_id(settings.logo) or "rbxassetid://0"
     Logo.Parent = Container
-
-    -- Auto-fits the logo to its real proportions instead of forcing a fixed box.
-    -- Pass settings.logo_aspect_ratio = width / height if you know your image's
-    -- real dimensions (e.g. a 512x829 logo -> 512/829). Defaults to golden ratio.
-    local LogoAspectRatio = Instance.new('UIAspectRatioConstraint')
-    LogoAspectRatio.AspectRatio = settings.logo_aspect_ratio or (1 / 1.618)
-    LogoAspectRatio.DominantAxis = Enum.DominantAxis.Width
-    LogoAspectRatio.Parent = Logo
 
     local Title = Instance.new('TextLabel')
     Title.Name = 'Title'
