@@ -565,6 +565,24 @@ function Library:create_loader(settings)
     ContainerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     ContainerStroke.Parent = Container
 
+    -- Responsive scaling: 260x190 is comfortable on a ~1280px-wide viewport.
+    -- Scale proportionally on smaller/larger screens so it never looks
+    -- oversized on a phone or tiny on a tablet/monitor.
+    local LoaderScale = Instance.new('UIScale')
+    LoaderScale.Parent = Container
+
+    local function update_loader_scale()
+        local camera = workspace.CurrentCamera
+        if not camera then
+            return
+        end
+
+        LoaderScale.Scale = math.clamp(camera.ViewportSize.X / 1280, 0.65, 1.5)
+    end
+
+    update_loader_scale()
+    local scale_connection = workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(update_loader_scale)
+
     task.spawn(function()
         while ContainerStroke and ContainerStroke.Parent do
             TweenService:Create(ContainerStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.6}):Play()
@@ -579,11 +597,19 @@ function Library:create_loader(settings)
     Logo.Name = 'Logo'
     Logo.AnchorPoint = Vector2.new(0.5, 0)
     Logo.Position = UDim2.new(0.5, 0, 0, 20)
-    Logo.Size = UDim2.new(0, 50, 0, 81) -- golden ratio, 1 : 1.618
+    Logo.Size = UDim2.new(0, 50, 0, 81) -- max bounds; actual shape is computed below
     Logo.BackgroundTransparency = 1
     Logo.ScaleType = Enum.ScaleType.Fit -- preserve aspect ratio, never stretch/squash
     Logo.Image = Util:resolve_asset_id(settings.logo) or "rbxassetid://0"
     Logo.Parent = Container
+
+    -- Auto-fits the logo to its real proportions instead of forcing a fixed box.
+    -- Pass settings.logo_aspect_ratio = width / height if you know your image's
+    -- real dimensions (e.g. a 512x829 logo -> 512/829). Defaults to golden ratio.
+    local LogoAspectRatio = Instance.new('UIAspectRatioConstraint')
+    LogoAspectRatio.AspectRatio = settings.logo_aspect_ratio or (1 / 1.618)
+    LogoAspectRatio.DominantAxis = Enum.DominantAxis.Height
+    LogoAspectRatio.Parent = Logo
 
     local Title = Instance.new('TextLabel')
     Title.Name = 'Title'
@@ -630,6 +656,10 @@ function Library:create_loader(settings)
     end
 
     function loader:close(override_callback)
+        if scale_connection then
+            scale_connection:Disconnect()
+        end
+
         TweenService:Create(Container, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
         TweenService:Create(ContainerStroke, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {Transparency = 1}):Play()
         TweenService:Create(Title, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {TextTransparency = 1}):Play()
