@@ -1,19 +1,11 @@
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Trying-glitch/Stellar/refs/heads/main/Stellar%20UI.lua"))()
 local library = Library.new()
-
--- set the background before load() so it gets preloaded along with everything else
-library:set_background({
-    image = 100228876632788,
-    transparency = 0.2,
-})
-
-library:load()
-
 local loader = library:create_loader({
     title = "Stellar",
-    logo = 100228876632788,
+    logo = 76918987573625,
     auto_progress = true,
     callback = function()
         loadstring(game:HttpGet("https://pastefy.app/wak04cQa/raw"))()
+        library:load()
     end
 })
