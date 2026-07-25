@@ -402,7 +402,7 @@ function Library.SendNotification(settings)
     local InnerFrame = Instance.new("Frame")
     InnerFrame.Size = UDim2.new(1, 0, 0, 72)  -- Start with an initial height, width will adapt
     InnerFrame.Position = UDim2.new(0, 0, 0, 0)  -- Positioned inside the outer notification frame
-    InnerFrame.BackgroundColor3 = Color3.fromRGB(8, 8, 8) -- dark black
+    InnerFrame.BackgroundColor3 = Color3.fromRGB(12, 7, 4) -- dark warm brown, matches theme
     InnerFrame.BackgroundTransparency = 0
     InnerFrame.BorderSizePixel = 0
     InnerFrame.Name = "InnerFrame"
@@ -551,7 +551,7 @@ function Library:create_loader(settings)
     Container.Position = UDim2.new(0.5, 0, 0.5, 0)
     Container.Size = UDim2.new(0, 260, 0, 0)
     Container.AutomaticSize = Enum.AutomaticSize.Y -- height hugs whatever's actually inside it
-    Container.BackgroundColor3 = Color3.fromRGB(6, 14, 28)
+    Container.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
     Container.BorderSizePixel = 0
     Container.Parent = LoaderGui
 
@@ -578,7 +578,7 @@ function Library:create_loader(settings)
     ContainerLayout.Parent = Container
 
     local ContainerStroke = Instance.new('UIStroke')
-    ContainerStroke.Color = Color3.fromRGB(0, 170, 255)
+    ContainerStroke.Color = Color3.fromRGB(255, 185, 110)
     ContainerStroke.Thickness = 1.5
     ContainerStroke.Transparency = 0.15
     ContainerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -645,7 +645,7 @@ function Library:create_loader(settings)
     BarTrack.Name = 'BarTrack'
     BarTrack.LayoutOrder = 3
     BarTrack.Size = UDim2.new(1, 0, 0, 6)
-    BarTrack.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+    BarTrack.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
     BarTrack.BorderSizePixel = 0
     BarTrack.Parent = Container
 
@@ -656,7 +656,7 @@ function Library:create_loader(settings)
     local BarFill = Instance.new('Frame')
     BarFill.Name = 'BarFill'
     BarFill.Size = UDim2.new(0, 0, 1, 0)
-    BarFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    BarFill.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
     BarFill.BorderSizePixel = 0
     BarFill.Parent = BarTrack
 
@@ -822,7 +822,7 @@ function Library:create_ui()
     Container.AnchorPoint = Vector2.new(0.5, 0.5)
     Container.Name = 'Container'
     Container.BackgroundTransparency = 0 -- opaque container for solid dark gradient
-    Container.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+    Container.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
     Container.Position = UDim2.new(0.5, 0, 0.5, 0)
     Container.Size = UDim2.new(0, 0, 0, 0)
     Container.Active = true
@@ -869,7 +869,7 @@ function Library:create_ui()
     UICorner.Parent = Container
     
     local UIStroke = Instance.new('UIStroke')
-    UIStroke.Color = Color3.fromRGB(0, 170, 255)
+    UIStroke.Color = Color3.fromRGB(255, 185, 110)
     UIStroke.Transparency = 0.15
     UIStroke.Thickness = 1.5
     UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -891,7 +891,7 @@ function Library:create_ui()
     Handler.BorderColor3 = Color3.fromRGB(0, 0, 0)
     Handler.Size = UDim2.new(0, 698, 0, 479)
     Handler.BorderSizePixel = 0
-    Handler.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+    Handler.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
     Handler.Parent = Container
     
     local Tabs = Instance.new('ScrollingFrame')
@@ -904,7 +904,7 @@ function Library:create_ui()
     Tabs.BackgroundTransparency = 1
     Tabs.Position = UDim2.new(0.026097271591424942, 0, 0.1111111119389534, 0)
     Tabs.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Tabs.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+    Tabs.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
     Tabs.BorderSizePixel = 0
     Tabs.CanvasSize = UDim2.new(0, 0, 0.5, 0)
     Tabs.Parent = Handler
@@ -928,7 +928,7 @@ function Library:create_ui()
     ClientName.BorderSizePixel = 0
     ClientName.BorderColor3 = Color3.fromRGB(0, 0, 0)
     ClientName.TextSize = 13
-    ClientName.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+    ClientName.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
     ClientName.Parent = Handler
     
     local UIGradient = Instance.new('UIGradient')
@@ -963,7 +963,7 @@ Icon.BackgroundTransparency = 1
 Icon.Position = UDim2.new(0.025, 0, 0.055, 0)
 Icon.Size = UDim2.new(0, 18, 0, 18)
 Icon.BorderSizePixel = 0
-Icon.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+Icon.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
 
 -- Animation function
 local function AnimateGif(ImageLabel, Width, Height, Rows, Columns, NumberOfFrames, ImageID, FPS)
@@ -1025,7 +1025,7 @@ AnimateGif(Icon, 60, 40, 2, 3, 5, "rbxassetid://74080484918102", 10)
     Divider.BorderColor3 = Color3.fromRGB(0, 0, 0)
     Divider.Size = UDim2.new(0, 1, 0, 479)
     Divider.BorderSizePixel = 0
-    Divider.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    Divider.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
     Divider.Parent = Handler
     
     local Sections = Instance.new('Folder')
@@ -1044,7 +1044,7 @@ AnimateGif(Icon, 60, 40, 2, 3, 5, "rbxassetid://74080484918102", 10)
     Minimize.Size = UDim2.new(0, 24, 0, 24)
     Minimize.BorderSizePixel = 0
     Minimize.TextSize = 14
-    Minimize.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+    Minimize.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
     Minimize.Parent = Handler
     
     local UIScale = Instance.new('UIScale')
@@ -1250,7 +1250,7 @@ AnimateGif(Icon, 60, 40, 2, 3, 5, "rbxassetid://74080484918102", 10)
         Tab.Size = UDim2.new(0, 129, 0, 38)
         Tab.BorderSizePixel = 0
         Tab.TextSize = 14
-        Tab.BackgroundColor3 = Color3.fromRGB(6, 14, 28)
+        Tab.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
         Tab.Parent = Tabs
         Tab.LayoutOrder = self._tab
         
@@ -1307,7 +1307,7 @@ AnimateGif(Icon, 60, 40, 2, 3, 5, "rbxassetid://74080484918102", 10)
         LeftSection.BackgroundTransparency = 1
         LeftSection.Position = UDim2.new(0.2594326436519623, 0, 0.5, 0)
         LeftSection.BorderColor3 = Color3.fromRGB(0, 0, 0)
-        LeftSection.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+        LeftSection.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
         LeftSection.BorderSizePixel = 0
         LeftSection.CanvasSize = UDim2.new(0, 0, 0.5, 0)
         LeftSection.Visible = false
@@ -1334,7 +1334,7 @@ AnimateGif(Icon, 60, 40, 2, 3, 5, "rbxassetid://74080484918102", 10)
         RightSection.BackgroundTransparency = 1
         RightSection.Position = UDim2.new(0.6290000081062317, 0, 0.5, 0)
         RightSection.BorderColor3 = Color3.fromRGB(0, 0, 0)
-        RightSection.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+        RightSection.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
         RightSection.BorderSizePixel = 0
         RightSection.CanvasSize = UDim2.new(0, 0, 0.5, 0)
         RightSection.Visible = false
@@ -1385,7 +1385,7 @@ function TabManager:moduleparagraph(settings: any)
     Module.Name = 'ModuleParagraph'
     Module.Size = UDim2.new(0, 241, 0, 70)
     Module.BorderSizePixel = 0
-    Module.BackgroundColor3 = Color3.fromRGB(6, 14, 28)
+    Module.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
     Module.Parent = settings.section
 
     local UIListLayout = Instance.new('UIListLayout')
@@ -1397,7 +1397,7 @@ function TabManager:moduleparagraph(settings: any)
     UICorner.Parent = Module
     
     local UIStroke = Instance.new('UIStroke')
-    UIStroke.Color = Color3.fromRGB(0, 170, 255)
+    UIStroke.Color = Color3.fromRGB(255, 185, 110)
     UIStroke.Transparency = 0.15
     UIStroke.Thickness = 1.5
     UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -1481,7 +1481,7 @@ function TabManager:create_image(settings: any)
     Module.Name = 'ImageModule'
     Module.Size = UDim2.new(0, 241, 0, 140) 
     Module.BorderSizePixel = 0
-    Module.BackgroundColor3 = Color3.fromRGB(6, 14, 28)
+    Module.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
     Module.Parent = settings.section
 
     local UICorner = Instance.new('UICorner')
@@ -1489,7 +1489,7 @@ function TabManager:create_image(settings: any)
     UICorner.Parent = Module
     
     local UIStroke = Instance.new('UIStroke')
-    UIStroke.Color = Color3.fromRGB(0, 170, 255)
+    UIStroke.Color = Color3.fromRGB(255, 185, 110)
     UIStroke.Transparency = 0.15
     UIStroke.Thickness = 1.5
     UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -1543,7 +1543,7 @@ end
             Module.Name = 'Module'
             Module.Size = UDim2.new(0, 241, 0, 93)
             Module.BorderSizePixel = 0
-            Module.BackgroundColor3 = Color3.fromRGB(6, 14, 28)
+            Module.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
             Module.Parent = settings.section
 
             local UIListLayout = Instance.new('UIListLayout')
@@ -1555,7 +1555,7 @@ end
             UICorner.Parent = Module
             
             local UIStroke = Instance.new('UIStroke')
-            UIStroke.Color = Color3.fromRGB(0, 170, 255)
+            UIStroke.Color = Color3.fromRGB(255, 185, 110)
             UIStroke.Transparency = 0.15
             UIStroke.Thickness = 1.5
             UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -1705,7 +1705,7 @@ end
             Divider.Name = 'Divider'
             Divider.Size = UDim2.new(0, 241, 0, 1)
             Divider.BorderSizePixel = 0
-            Divider.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+            Divider.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
             Divider.Parent = Header
             
             local Divider = Instance.new('Frame')
@@ -1716,7 +1716,7 @@ end
             Divider.Name = 'Divider'
             Divider.Size = UDim2.new(0, 241, 0, 1)
             Divider.BorderSizePixel = 0
-            Divider.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+            Divider.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
             Divider.Parent = Header
             
             local Options = Instance.new('Frame')
@@ -1922,7 +1922,7 @@ end
             
                 -- Container Frame
                 local Paragraph = Instance.new('Frame')
-                Paragraph.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+                Paragraph.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
                 Paragraph.BackgroundTransparency = 0.1
                 Paragraph.Size = UDim2.new(0, 207, 0, 30) -- Initial size, auto-resized later
                 Paragraph.BorderSizePixel = 0
@@ -1980,7 +1980,7 @@ end
             
                 Paragraph.MouseLeave:Connect(function()
                     TweenService:Create(Paragraph, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+                        BackgroundColor3 = Color3.fromRGB(58, 32, 18)
                     }):Play()
                 end)
 
@@ -2006,7 +2006,7 @@ end
             
                 -- Container Frame
                 local TextFrame = Instance.new('Frame')
-                TextFrame.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+                TextFrame.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
                 TextFrame.BackgroundTransparency = 0.1
                 TextFrame.Size = UDim2.new(0, 207, 0, settings.CustomYSize) -- Initial size, auto-resized later
                 TextFrame.BorderSizePixel = 0
@@ -2050,7 +2050,7 @@ end
             
                 TextFrame.MouseLeave:Connect(function()
                     TweenService:Create(TextFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+                        BackgroundColor3 = Color3.fromRGB(58, 32, 18)
                     }):Play()
                 end)
 
@@ -3080,7 +3080,7 @@ end
                 FeatureButton.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
                 FeatureButton.TextSize = 11;
                 FeatureButton.Size = UDim2.new(1, -35, 0, 16)
-                FeatureButton.BackgroundColor3 = Color3.fromRGB(15, 45, 95)
+                FeatureButton.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
                 FeatureButton.TextColor3 = Color3.fromRGB(210, 210, 210)
                 FeatureButton.Text = "    " .. settings.title or "    " .. "Feature"
                 FeatureButton.AutoButtonColor = false
@@ -3147,7 +3147,7 @@ end
                 if not settings.disablecheck then
                     local Checkbox = Instance.new("TextButton")
                     Checkbox.Size = UDim2.new(0, 15, 0, 15)
-                    Checkbox.BackgroundColor3 = checked and Color3.fromRGB(255, 250, 250) or Color3.fromRGB(15, 45, 95)
+                    Checkbox.BackgroundColor3 = checked and Color3.fromRGB(255, 250, 250) or Color3.fromRGB(58, 32, 18)
                     Checkbox.Text = ""
                     Checkbox.Parent = RightContainer
                     Checkbox.LayoutOrder = 1;
@@ -3163,7 +3163,7 @@ end
             
                     local function toggleState()
                         checked = not checked
-                        Checkbox.BackgroundColor3 = checked and Color3.fromRGB(255, 250, 250) or Color3.fromRGB(15, 45, 95)
+                        Checkbox.BackgroundColor3 = checked and Color3.fromRGB(255, 250, 250) or Color3.fromRGB(58, 32, 18)
                         Library._config._flags[settings.flag].checked = checked
                         Config:save(game.GameId, Library._config)
                         if settings.callback then
