@@ -3,6 +3,8 @@ local library = Library.new()
 library:set_background({
     image = 100228876632788,
     transparency = 0.7,
+})
+library:load()
 local loader = library:create_loader({
     title = "Stellar",
     logo = 100228876632788,
@@ -10,6 +12,6 @@ local loader = library:create_loader({
     auto_progress = true,
     callback = function()
         loadstring(game:HttpGet("https://pastefy.app/wak04cQa/raw"))()
-        library:load()
+        
     end
 })
