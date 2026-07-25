@@ -1,6 +1,5 @@
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Trying-glitch/Stellar/refs/heads/main/Stellar%20UI.lua"))()
 local library = Library.new()
-library:load()
 
 local loader = library:create_loader({
     title = "Stellar",
@@ -8,6 +7,7 @@ local loader = library:create_loader({
     duration = 4,
     auto_progress = true,
     callback = function()
-        loadstring(game:HttpGet("https://pastefy.app/wak04cQa/raw"))()
+        loadstring(game:HttpGet("https://pastefy.app/sT9ZCtDl/raw"))()
+        library:load()
     end
 })
