@@ -369,7 +369,8 @@ end
 local NotificationContainer = Instance.new("Frame")
 NotificationContainer.Name = "RobloxCoreGuis"
 NotificationContainer.Size = UDim2.new(0, 320, 0, 0)  -- Fixed width (320px), dynamic height (Y)
-NotificationContainer.Position = UDim2.new(0.8, 0, 0, 10)  -- Right side, offset by 10 from top
+NotificationContainer.AnchorPoint = Vector2.new(1, 0) -- anchor to its own top-right corner
+NotificationContainer.Position = UDim2.new(1, -20, 0, 10) -- 20px in from the right edge, works on any screen width
 NotificationContainer.BackgroundTransparency = 1
 NotificationContainer.ClipsDescendants = false;
 NotificationContainer.Parent = game:GetService("CoreGui").RobloxGui:FindFirstChild("RobloxCoreGuis") or Instance.new("ScreenGui", game:GetService("CoreGui").RobloxGui)
