@@ -526,12 +526,22 @@ end
 
 -- Loader / splash screen shown while the main UI is preparing.
 -- settings = {
---     title = "My Script",       -- text under the logo
---     logo = "rbxassetid://0",   -- image id for the logo (optional)
---     duration = 2,              -- seconds for the auto-fill progress bar (optional)
---     auto_progress = true,      -- if true, bar fills on its own over `duration` then closes
+--     title = "My Script",              -- text under the logo while idle (used only if `stages` isn't given)
+--     logo = "rbxassetid://0",          -- image id for the logo (optional)
+--     logo_aspect_ratio = 1,            -- width / height of the logo image, for correct scaling (optional)
+--     accent_color = Color3.fromRGB(255, 185, 110), -- theme color for the glow / particles (optional)
+--     duration = 2.6,                   -- seconds for the auto-fill progress bar (optional)
+--     auto_progress = true,             -- if true, the loader advances on its own over `duration` then closes
+--     stages = {                        -- status text cycled through as the loader advances (optional)
+--         "Initializing",
+--         "Building folders",
+--         "Loading assets",
+--         "Preparing UI",
+--         "Ready",
+--     },
+--     dim_background = true,            -- darken the game behind the loader (optional)
 -- }
--- Returns an object with :set_progress(alpha) and :close() for manual control.
+-- Returns an object with :set_progress(alpha), :set_stage(text) and :close() for manual control.
 function Library:create_loader(settings)
     settings = settings or {}
 
@@ -540,54 +550,105 @@ function Library:create_loader(settings)
         old_loader:Destroy()
     end
 
+    local accent = settings.accent_color or Color3.fromRGB(255, 185, 110)
+    local stages = settings.stages or {settings.title or "Loading"}
+    local rng = Random.new()
+
     local LoaderGui = Instance.new('ScreenGui')
     LoaderGui.Name = 'StellarLoader'
     LoaderGui.ResetOnSpawn = false
     LoaderGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    LoaderGui.DisplayOrder = 1000
     LoaderGui.Parent = CoreGui
 
+    -- Full-screen dim so the game world recedes and the animation reads
+    -- clearly no matter what's behind it.
+    local Backdrop = Instance.new('Frame')
+    Backdrop.Name = 'Backdrop'
+    Backdrop.Size = UDim2.new(1, 0, 1, 0)
+    Backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    Backdrop.BackgroundTransparency = 1
+    Backdrop.BorderSizePixel = 0
+    Backdrop.ZIndex = 0
+    Backdrop.Parent = LoaderGui
+
+    if settings.dim_background ~= false then
+        TweenService:Create(Backdrop, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.55}):Play()
+    end
+
+    -- Ambient sparkles drifting slowly behind the logo. Purely decorative:
+    -- each one fades in, drifts upward, fades out, then respawns elsewhere.
+    local ParticleLayer = Instance.new('Frame')
+    ParticleLayer.Name = 'ParticleLayer'
+    ParticleLayer.Size = UDim2.new(1, 0, 1, 0)
+    ParticleLayer.BackgroundTransparency = 1
+    ParticleLayer.ZIndex = 1
+    ParticleLayer.Parent = LoaderGui
+
+    local particles_alive = true
+
+    local function spawn_ambient_particle()
+        local dot = Instance.new('Frame')
+        dot.AnchorPoint = Vector2.new(0.5, 0.5)
+        local size = rng:NextNumber(2, 4)
+        dot.Size = UDim2.new(0, size, 0, size)
+        dot.Position = UDim2.new(rng:NextNumber(0.35, 0.65), 0, rng:NextNumber(0.4, 0.7), 0)
+        dot.BackgroundColor3 = accent
+        dot.BackgroundTransparency = 1
+        dot.BorderSizePixel = 0
+        dot.Parent = ParticleLayer
+
+        local corner = Instance.new('UICorner')
+        corner.CornerRadius = UDim.new(1, 0)
+        corner.Parent = dot
+
+        task.spawn(function()
+            while particles_alive and dot and dot.Parent do
+                local target_y = dot.Position.Y.Scale - rng:NextNumber(0.05, 0.12)
+                TweenService:Create(dot, TweenInfo.new(rng:NextNumber(2, 3.2), Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+                    BackgroundTransparency = rng:NextNumber(0.25, 0.55),
+                    Position = UDim2.new(dot.Position.X.Scale, 0, target_y, 0)
+                }):Play()
+                task.wait(rng:NextNumber(2, 3.2))
+                if not (particles_alive and dot and dot.Parent) then break end
+
+                TweenService:Create(dot, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
+                task.wait(0.8)
+                if dot and dot.Parent then
+                    dot.Position = UDim2.new(rng:NextNumber(0.3, 0.7), 0, rng:NextNumber(0.55, 0.75), 0)
+                end
+            end
+        end)
+
+        return dot
+    end
+
+    local ambient_particles = {}
+    for _ = 1, 10 do
+        table.insert(ambient_particles, spawn_ambient_particle())
+    end
+
+    -- Logo -> status text, stacked and centered.
     local Container = Instance.new('Frame')
     Container.Name = 'LoaderContainer'
     Container.AnchorPoint = Vector2.new(0.5, 0.5)
     Container.Position = UDim2.new(0.5, 0, 0.5, 0)
     Container.Size = UDim2.new(0, 260, 0, 0)
-    Container.AutomaticSize = Enum.AutomaticSize.Y -- height hugs whatever's actually inside it
-    Container.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
-    Container.BorderSizePixel = 0
+    Container.AutomaticSize = Enum.AutomaticSize.Y
+    Container.BackgroundTransparency = 1
+    Container.ZIndex = 2
     Container.Parent = LoaderGui
 
-    local ContainerCorner = Instance.new('UICorner')
-    ContainerCorner.CornerRadius = UDim.new(0, 12)
-    ContainerCorner.Parent = Container
-
-    local ContainerPadding = Instance.new('UIPadding')
-    ContainerPadding.PaddingTop = UDim.new(0, 24)
-    ContainerPadding.PaddingBottom = UDim.new(0, 22)
-    ContainerPadding.PaddingLeft = UDim.new(0, 20)
-    ContainerPadding.PaddingRight = UDim.new(0, 20)
-    ContainerPadding.Parent = Container
-
-    -- Stacks Logo -> Title -> BarTrack top to bottom, centered, with even
-    -- spacing between them. This is what keeps everything snug against the
-    -- logo instead of leaving dead space when the logo's size changes.
     local ContainerLayout = Instance.new('UIListLayout')
     ContainerLayout.FillDirection = Enum.FillDirection.Vertical
     ContainerLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     ContainerLayout.VerticalAlignment = Enum.VerticalAlignment.Top
     ContainerLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    ContainerLayout.Padding = UDim.new(0, 14)
+    ContainerLayout.Padding = UDim.new(0, 16)
     ContainerLayout.Parent = Container
 
-    local ContainerStroke = Instance.new('UIStroke')
-    ContainerStroke.Color = Color3.fromRGB(255, 185, 110)
-    ContainerStroke.Thickness = 1.5
-    ContainerStroke.Transparency = 0.15
-    ContainerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    ContainerStroke.Parent = Container
-
-    -- Responsive scaling: 260-wide is comfortable on a ~1280px-wide viewport.
-    -- Scale proportionally on smaller/larger screens so it never looks
-    -- oversized on a phone or tiny on a tablet/monitor.
+    -- Responsive scaling: matches the old loader's behaviour so it never
+    -- looks oversized on a phone or tiny on a tablet/monitor.
     local LoaderScale = Instance.new('UIScale')
     LoaderScale.Parent = Container
 
@@ -603,88 +664,159 @@ function Library:create_loader(settings)
     update_loader_scale()
     local scale_connection = workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(update_loader_scale)
 
-    task.spawn(function()
-        while ContainerStroke and ContainerStroke.Parent do
-            TweenService:Create(ContainerStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.6}):Play()
-            task.wait(1.2)
-            if not (ContainerStroke and ContainerStroke.Parent) then break end
-            TweenService:Create(ContainerStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.15}):Play()
-            task.wait(1.2)
-        end
-    end)
-
-    -- Auto-fits the logo to its real proportions. Pass settings.logo_aspect_ratio
-    -- = width / height if you know your image's real dimensions. This is computed
-    -- directly (rather than via a live UIAspectRatioConstraint) because that
-    -- constraint doesn't reliably resolve in time for UIListLayout + AutomaticSize
-    -- to pick it up — it was silently collapsing the logo to 0 height.
-    local logo_width = 76
-    local logo_aspect_ratio = settings.logo_aspect_ratio or (1 / 1.618)
+    local logo_width = 84
+    local logo_aspect_ratio = settings.logo_aspect_ratio or 1
     local logo_height = math.floor(logo_width / logo_aspect_ratio)
+
+    local LogoHolder = Instance.new('Frame')
+    LogoHolder.Name = 'LogoHolder'
+    LogoHolder.LayoutOrder = 1
+    LogoHolder.Size = UDim2.new(0, logo_width, 0, logo_height)
+    LogoHolder.BackgroundTransparency = 1
+    LogoHolder.ZIndex = 2
+    LogoHolder.Parent = Container
 
     local Logo = Instance.new('ImageLabel')
     Logo.Name = 'Logo'
-    Logo.LayoutOrder = 1
-    Logo.Size = UDim2.new(0, logo_width, 0, logo_height)
+    Logo.AnchorPoint = Vector2.new(0.5, 0.5)
+    Logo.Position = UDim2.new(0.5, 0, 0.5, 0)
+    Logo.Size = UDim2.new(1, 0, 1, 0)
     Logo.BackgroundTransparency = 1
     Logo.ScaleType = Enum.ScaleType.Fit -- preserve aspect ratio, never stretch/squash
+    Logo.ImageColor3 = accent
     Logo.Image = Util:resolve_asset_id(settings.logo) or "rbxassetid://0"
-    Logo.Parent = Container
+    Logo.ImageTransparency = 1
+    Logo.ZIndex = 2
+    Logo.Parent = LogoHolder
+
+    local LogoScale = Instance.new('UIScale')
+    LogoScale.Scale = 0.4
+    LogoScale.Parent = Logo
 
     local Title = Instance.new('TextLabel')
     Title.Name = 'Title'
     Title.LayoutOrder = 2
-    Title.Size = UDim2.new(1, 0, 0, 24)
+    Title.Size = UDim2.new(1, 0, 0, 20)
     Title.BackgroundTransparency = 1
-    Title.Text = settings.title or "Loading"
+    Title.Text = ""
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.TextSize = 18
-    Title.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+    Title.TextTransparency = 1
+    Title.TextSize = 14
+    Title.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.Medium, Enum.FontStyle.Normal)
     Title.Parent = Container
 
-    local BarTrack = Instance.new('Frame')
-    BarTrack.Name = 'BarTrack'
-    BarTrack.LayoutOrder = 3
-    BarTrack.Size = UDim2.new(1, 0, 0, 6)
-    BarTrack.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-    BarTrack.BorderSizePixel = 0
-    BarTrack.Parent = Container
+    -- Logo blooms in with a little overshoot, then breathes gently for as
+    -- long as the loader is up.
+    TweenService:Create(Logo, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {ImageTransparency = 0}):Play()
+    TweenService:Create(LogoScale, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-    local BarTrackCorner = Instance.new('UICorner')
-    BarTrackCorner.CornerRadius = UDim.new(1, 0)
-    BarTrackCorner.Parent = BarTrack
+    local breathing = true
+    task.spawn(function()
+        task.wait(0.6)
+        while breathing and LogoScale and LogoScale.Parent do
+            TweenService:Create(LogoScale, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1.08}):Play()
+            task.wait(1.1)
+            if not breathing then break end
+            TweenService:Create(LogoScale, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
+            task.wait(1.1)
+        end
+    end)
 
-    local BarFill = Instance.new('Frame')
-    BarFill.Name = 'BarFill'
-    BarFill.Size = UDim2.new(0, 0, 1, 0)
-    BarFill.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
-    BarFill.BorderSizePixel = 0
-    BarFill.Parent = BarTrack
+    -- Small burst of particles radiating out from the logo once loading
+    -- finishes, plus a little pop on the logo itself.
+    local function burst()
+        for _ = 1, 14 do
+            local dot = Instance.new('Frame')
+            dot.AnchorPoint = Vector2.new(0.5, 0.5)
+            local size = rng:NextNumber(3, 6)
+            dot.Size = UDim2.new(0, size, 0, size)
+            dot.Position = UDim2.new(0.5, 0, 0.5, 0)
+            dot.BackgroundColor3 = accent
+            dot.BorderSizePixel = 0
+            dot.ZIndex = 3
+            dot.Parent = LogoHolder
 
-    local BarFillCorner = Instance.new('UICorner')
-    BarFillCorner.CornerRadius = UDim.new(1, 0)
-    BarFillCorner.Parent = BarFill
+            local corner = Instance.new('UICorner')
+            corner.CornerRadius = UDim.new(1, 0)
+            corner.Parent = dot
+
+            local angle = rng:NextNumber(0, math.pi * 2)
+            local distance = rng:NextNumber(28, 54)
+            local target = UDim2.new(0.5, math.cos(angle) * distance, 0.5, math.sin(angle) * distance)
+
+            TweenService:Create(dot, TweenInfo.new(rng:NextNumber(0.5, 0.8), Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Position = target,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(0, size * 0.3, 0, size * 0.3)
+            }):Play()
+
+            Debris:AddItem(dot, 1)
+        end
+
+        TweenService:Create(LogoScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1.18}):Play()
+        task.delay(0.25, function()
+            if LogoScale and LogoScale.Parent then
+                TweenService:Create(LogoScale, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
+            end
+        end)
+    end
+
+    local current_stage_index = 0
+
+    local function set_stage_text(text)
+        TweenService:Create(Title, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TextTransparency = 1}):Play()
+        task.delay(0.16, function()
+            if not (Title and Title.Parent) then
+                return
+            end
+
+            Title.Text = text
+            TweenService:Create(Title, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0}):Play()
+        end)
+    end
 
     local loader = {}
     loader._gui = LoaderGui
 
+    -- Manually jump to a specific status line, bypassing the alpha->stage mapping.
+    function loader:set_stage(text)
+        set_stage_text(text)
+    end
+
     function loader:set_progress(alpha)
         alpha = math.clamp(alpha, 0, 1)
-        TweenService:Create(BarFill, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(alpha, 0, 1, 0)}):Play()
+
+        local index = math.min(#stages, math.floor(alpha * #stages) + 1)
+        if index ~= current_stage_index then
+            current_stage_index = index
+            set_stage_text(stages[index])
+        end
+
+        if alpha >= 1 and current_stage_index == #stages then
+            burst()
+        end
     end
 
     function loader:close(override_callback)
+        breathing = false
+        particles_alive = false
+
         if scale_connection then
             scale_connection:Disconnect()
         end
 
-        TweenService:Create(Container, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(ContainerStroke, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {Transparency = 1}):Play()
-        TweenService:Create(Title, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {TextTransparency = 1}):Play()
-        TweenService:Create(Logo, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {ImageTransparency = 1}):Play()
-        TweenService:Create(BarFill, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(BarTrack, TweenInfo.new(0.35, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-        task.wait(0.35)
+        TweenService:Create(Backdrop, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+        TweenService:Create(Title, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {TextTransparency = 1}):Play()
+        TweenService:Create(Logo, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {ImageTransparency = 1}):Play()
+        TweenService:Create(LogoScale, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.6}):Play()
+
+        for _, dot in ambient_particles do
+            if dot and dot.Parent then
+                TweenService:Create(dot, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+            end
+        end
+
+        task.wait(0.4)
         LoaderGui:Destroy()
 
         local fn = override_callback or settings.callback
@@ -693,16 +825,19 @@ function Library:create_loader(settings)
         end
     end
 
+    set_stage_text(stages[1])
+    current_stage_index = 1
+
     if settings.auto_progress then
         task.spawn(function()
-            local duration = settings.duration or 2
+            local duration = settings.duration or 2.6
             local start = os.clock()
             while os.clock() - start < duration do
                 loader:set_progress((os.clock() - start) / duration)
                 task.wait(0.03)
             end
             loader:set_progress(1)
-            task.wait(0.3)
+            task.wait(0.5)
             loader:close()
         end)
     end
