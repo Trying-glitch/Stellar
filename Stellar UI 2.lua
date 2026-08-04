@@ -457,43 +457,54 @@ function Library:remove_table_value(__table: any, table_value: string)
     end
 end
 
--- Junkie Key System
+-- Official Junkie SDK Key System Integration
 function Library:create_key_system(settings)
     settings = settings or {}
-    local service_id = settings.service_id or "YOUR_JUNKIE_SERVICE_ID"
-    local key_link = settings.key_link or "https://junkie.dev/"
+    local service_name = settings.service or "Stellar"
+    local identifier = settings.identifier or "1173241"
+    local provider = settings.provider or "Lootlabs"
     local key_file = settings.key_file or "Stellar_Key.txt"
     local on_success = settings.callback or function() end
 
-    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    -- Load Junkie SDK dynamically
+    local Junkie = nil
+    pcall(function()
+        Junkie = loadstring(game:HttpGet("https://jnkie.com/sdk/library.lua"))()
+        Junkie.service = service_name
+        Junkie.identifier = identifier
+        Junkie.provider = provider
+    end)
 
     local function verify_key(key)
-        if not req then
-            return false, "HTTP Request function not supported by executor"
+        if not Junkie then
+            return false, "Failed to load Junkie SDK."
         end
 
-        local success, response = pcall(function()
-            return req({
-                Url = "https://api.junkie.dev/v1/keys/verify?service=" .. HttpService:UrlEncode(service_id) .. "&key=" .. HttpService:UrlEncode(key),
-                Method = "GET",
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                }
-            })
-        end)
-
-        if success and response and response.StatusCode == 200 then
-            local decoded = pcall(function() return HttpService:JSONDecode(response.Body) end) and HttpService:JSONDecode(response.Body) or {}
-            if decoded.valid or decoded.success then
-                return true, "Key successfully verified!"
+        local result = Junkie.check_key(key)
+        if result and result.valid then
+            if result.message == "KEYLESS" then
+                getgenv().SCRIPT_KEY = "KEYLESS"
+                return true, "Keyless mode"
+            elseif result.message == "KEY_VALID" then
+                getgenv().SCRIPT_KEY = key
+                return true, "Key valid"
             else
-                return false, decoded.message or "Invalid key provided."
+                getgenv().SCRIPT_KEY = key
+                return true, "Key verified"
             end
         end
 
-        return false, "Failed to connect to key server."
+        return false, "Invalid key"
     end
 
+    local function get_key_link()
+        if Junkie and Junkie.get_key_link then
+            return Junkie.get_key_link()
+        end
+        return "https://jnkie.com/"
+    end
+
+    -- Auto-check saved key if it exists
     if isfile and readfile and isfile(key_file) then
         local saved_key = readfile(key_file)
         if saved_key and #saved_key > 0 then
@@ -510,6 +521,7 @@ function Library:create_key_system(settings)
         end
     end
 
+    -- Create GUI for Key Verification
     local old_key_gui = CoreGui:FindFirstChild("StellarKeySystem")
     if old_key_gui then old_key_gui:Destroy() end
 
@@ -544,7 +556,7 @@ function Library:create_key_system(settings)
     Title.Size = UDim2.new(1, -20, 0, 24)
     Title.Position = UDim2.new(0, 10, 0, 12)
     Title.BackgroundTransparency = 1
-    Title.Text = settings.title or "Key System Verification"
+    Title.Text = settings.title or "Stellar Key System"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
     Title.TextSize = 16
     Title.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
@@ -603,19 +615,21 @@ function Library:create_key_system(settings)
     StatusLabel.Size = UDim2.new(1, -24, 0, 20)
     StatusLabel.Position = UDim2.new(0, 12, 0, 134)
     StatusLabel.BackgroundTransparency = 1
-    StatusLabel.Text = "Please enter your key to continue"
+    StatusLabel.Text = "Enter key to continue"
     StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
     StatusLabel.TextSize = 11
     StatusLabel.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
     StatusLabel.Parent = Container
 
+    -- Button Interactions
     GetKeyBtn.MouseButton1Click:Connect(function()
+        local link = get_key_link()
         if setclipboard or set_clipboard then
-            (setclipboard or set_clipboard)(key_link)
-            StatusLabel.Text = "Key link copied to clipboard!"
+            (setclipboard or set_clipboard)(link)
+            StatusLabel.Text = "Lootlabs key link copied to clipboard!"
             StatusLabel.TextColor3 = Color3.fromRGB(110, 255, 150)
         else
-            StatusLabel.Text = "Clipboard not supported by executor."
+            StatusLabel.Text = "Clipboard not supported."
             StatusLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
         end
     end)
