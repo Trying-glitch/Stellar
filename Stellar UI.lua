@@ -857,6 +857,215 @@ function Library:create_loader(settings)
     return loader
 end
 
+-- Official Junkie SDK Key System Integration
+function Library:create_key_system(settings)
+    settings = settings or {}
+    local service_name = settings.service or "Stellar"
+    local identifier = settings.identifier or "1173241"
+    local provider = settings.provider or "Stellar Key"
+    local key_file = settings.key_file or "Stellar_Key.txt"
+    local on_success = settings.callback or function() end
+
+    -- Load Junkie SDK dynamically
+    local Junkie = nil
+    pcall(function()
+        Junkie = loadstring(game:HttpGet("https://jnkie.com/sdk/library.lua"))()
+        Junkie.service = service_name
+        Junkie.identifier = identifier
+        Junkie.provider = provider
+    end)
+
+    local function verify_key(key)
+        if not Junkie then
+            return false, "Failed to load Junkie SDK."
+        end
+
+        local result = Junkie.check_key(key)
+        if result and result.valid then
+            if result.message == "KEYLESS" then
+                getgenv().SCRIPT_KEY = "KEYLESS"
+                return true, "Keyless mode"
+            elseif result.message == "KEY_VALID" then
+                getgenv().SCRIPT_KEY = key
+                return true, "Key valid"
+            else
+                getgenv().SCRIPT_KEY = key
+                return true, "Key verified"
+            end
+        end
+
+        return false, "Invalid key"
+    end
+
+    local function get_key_link()
+        if Junkie and Junkie.get_key_link then
+            return Junkie.get_key_link()
+        end
+        return "https://jnkie.com/"
+    end
+
+    -- Auto-check saved key if it exists
+    if isfile and readfile and isfile(key_file) then
+        local saved_key = readfile(key_file)
+        if saved_key and #saved_key > 0 then
+            local valid, msg = verify_key(saved_key)
+            if valid then
+                Library.SendNotification({
+                    title = "Key System",
+                    text = "Saved key auto-verified!",
+                    duration = 3
+                })
+                task.spawn(on_success)
+                return
+            end
+        end
+    end
+
+    -- Create GUI for Key Verification
+    local old_key_gui = CoreGui:FindFirstChild("StellarKeySystem")
+    if old_key_gui then old_key_gui:Destroy() end
+
+    local KeyGui = Instance.new("ScreenGui")
+    KeyGui.Name = "StellarKeySystem"
+    KeyGui.ResetOnSpawn = false
+    KeyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    KeyGui.Parent = CoreGui
+
+    local Container = Instance.new("Frame")
+    Container.Name = "KeyContainer"
+    Container.AnchorPoint = Vector2.new(0.5, 0.5)
+    Container.Position = UDim2.new(0.5, 0, 0.5, 0)
+    Container.Size = UDim2.new(0, 300, 0, 180)
+    Container.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
+    Container.BorderSizePixel = 0
+    Container.Parent = KeyGui
+
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 12)
+    Corner.Parent = Container
+
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Color3.fromRGB(255, 185, 110)
+    Stroke.Thickness = 1.5
+    Stroke.Transparency = 0.15
+    Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    Stroke.Parent = Container
+
+    local Title = Instance.new("TextLabel")
+    Title.Name = "Title"
+    Title.Size = UDim2.new(1, -20, 0, 24)
+    Title.Position = UDim2.new(0, 10, 0, 12)
+    Title.BackgroundTransparency = 1
+    Title.Text = settings.title or "Stellar Key System"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextSize = 16
+    Title.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+    Title.Parent = Container
+
+    local KeyBox = Instance.new("TextBox")
+    KeyBox.Name = "KeyBox"
+    KeyBox.Size = UDim2.new(1, -24, 0, 32)
+    KeyBox.Position = UDim2.new(0, 12, 0, 48)
+    KeyBox.BackgroundColor3 = Color3.fromRGB(25, 18, 12)
+    KeyBox.BorderSizePixel = 0
+    KeyBox.PlaceholderText = "Enter key here..."
+    KeyBox.Text = ""
+    KeyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    KeyBox.TextSize = 12
+    KeyBox.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+    KeyBox.ClearTextOnFocus = false
+    KeyBox.Parent = Container
+
+    local KeyBoxCorner = Instance.new("UICorner")
+    KeyBoxCorner.CornerRadius = UDim.new(0, 6)
+    KeyBoxCorner.Parent = KeyBox
+
+    local VerifyBtn = Instance.new("TextButton")
+    VerifyBtn.Name = "VerifyBtn"
+    VerifyBtn.Size = UDim2.new(0.46, 0, 0, 32)
+    VerifyBtn.Position = UDim2.new(0, 12, 0, 92)
+    VerifyBtn.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
+    VerifyBtn.Text = "Verify Key"
+    VerifyBtn.TextColor3 = Color3.fromRGB(12, 7, 4)
+    VerifyBtn.TextSize = 12
+    VerifyBtn.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+    VerifyBtn.Parent = Container
+
+    local VerifyCorner = Instance.new("UICorner")
+    VerifyCorner.CornerRadius = UDim.new(0, 6)
+    VerifyCorner.Parent = VerifyBtn
+
+    local GetKeyBtn = Instance.new("TextButton")
+    GetKeyBtn.Name = "GetKeyBtn"
+    GetKeyBtn.Size = UDim2.new(0.46, 0, 0, 32)
+    GetKeyBtn.Position = UDim2.new(0.54, 0, 0, 92)
+    GetKeyBtn.BackgroundColor3 = Color3.fromRGB(38, 24, 15)
+    GetKeyBtn.Text = "Get Key"
+    GetKeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    GetKeyBtn.TextSize = 12
+    GetKeyBtn.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+    GetKeyBtn.Parent = Container
+
+    local GetKeyCorner = Instance.new("UICorner")
+    GetKeyCorner.CornerRadius = UDim.new(0, 6)
+    GetKeyCorner.Parent = GetKeyBtn
+
+    local StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Name = "StatusLabel"
+    StatusLabel.Size = UDim2.new(1, -24, 0, 20)
+    StatusLabel.Position = UDim2.new(0, 12, 0, 134)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.Text = "Enter key to continue"
+    StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    StatusLabel.TextSize = 11
+    StatusLabel.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+    StatusLabel.Parent = Container
+
+    -- Button Interactions
+    GetKeyBtn.MouseButton1Click:Connect(function()
+        local link = get_key_link()
+        if setclipboard or set_clipboard then
+            (setclipboard or set_clipboard)(link)
+            StatusLabel.Text = "Lootlabs key link copied to clipboard!"
+            StatusLabel.TextColor3 = Color3.fromRGB(110, 255, 150)
+        else
+            StatusLabel.Text = "Clipboard not supported."
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
+        end
+    end)
+
+    VerifyBtn.MouseButton1Click:Connect(function()
+        local input_key = KeyBox.Text:gsub("%s+", "")
+        if #input_key == 0 then
+            StatusLabel.Text = "Please enter a key!"
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
+            return
+        end
+
+        StatusLabel.Text = "Checking key..."
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 220, 110)
+
+        task.spawn(function()
+            local valid, message = verify_key(input_key)
+            if valid then
+                StatusLabel.Text = message
+                StatusLabel.TextColor3 = Color3.fromRGB(110, 255, 150)
+
+                if writefile then
+                    writefile(key_file, input_key)
+                end
+
+                task.wait(1)
+                KeyGui:Destroy()
+                task.spawn(on_success)
+            else
+                StatusLabel.Text = message
+                StatusLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
+            end
+        end)
+    end)
+end
+
 -- Customizes ONLY the main window's backdrop image — tabs, modules, toggles,
 -- sliders etc. keep their own backgrounds untouched since they're separate
 -- opaque frames layered on top of this.
