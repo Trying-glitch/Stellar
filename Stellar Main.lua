@@ -107,7 +107,9 @@ local Stellar = {
 		__immortality_radius = 10,
 		__immortality_desync_types = {},
 		__auto_ability_enabled = false,
-		__ability_esp_enabled = false
+		__ability_esp_enabled = false,
+		__manual_spam_key = Enum.KeyCode.V,
+		__manual_spam_method = "Both"
 	},
 	__config = {
 		__curve_names = {
@@ -303,7 +305,6 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 Button.Activated:Connect(function()
-    -- Only allow clicks if the method allows it and manual spam is enabled
     if Stellar.__properties.__manual_spam_method == "Keybind Only" then return end
     if not Stellar.__properties.__manual_spam_enabled then return end
 
@@ -325,7 +326,6 @@ Button.Activated:Connect(function()
         end
     end
 end)
-
 
 -- Ability ESP System
 local billboardLabels = {}
@@ -1209,17 +1209,13 @@ function Stellar.autoparry.start()
 			if autoSpamConditionsMet and distance <= spamThresh then
 				Stellar.animation.play_grab_parry()
 				
-				-- Check for ComboCounter to further increase spam intensity during volleys
 				local comboCounter = ball:FindFirstChild("ComboCounter")
 				local comboVal = (comboCounter and (comboCounter:IsA("IntValue") or comboCounter:IsA("NumberValue"))) and comboCounter.Value or 0
-				
-				-- Scale dynamically using the existing ballSpeed variable and combo
 				local dynamicMultiplier = 1 + (ballSpeed / 120) + (comboVal * 0.1)
 
 				local batchAmount = Stellar.__properties.__spam_batch_amount
 				local baseBurstCount = (batchAmount == "FPS Priority" and 4) or (batchAmount == "Mobile Strong" and 15) or (batchAmount == "Extremely Fast" and 20) or 8
 				
-				-- Apply dynamic multiplier and dt (already passed in PreSimulation)
 				local burstCount = math.floor(baseBurstCount * dynamicMultiplier * (dt * 60))
 				if burstCount < 1 then burstCount = 1 end
 				
@@ -1276,27 +1272,25 @@ function Stellar.autoparry.start()
 			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
 			local ping = pingValue / 1000
 
-			local approachSpeed = velocity:Dot((playerPos - ballPos).Unit)
-			local tti = (approachSpeed > 0) and (distance / approachSpeed) or math.huge
-			
 			local isCurved = Stellar.detection.is_curved(ball)
-			-- Tighter base reaction window based on speed, maxing at a reasonable server delay
-local baseReaction = math.clamp(0.15 - (ballSpeed / 5000), 0.05, 0.15)
-local reactionWindow = baseReaction + (ping * 0.9) 
+			
+			-- ==========================================
+			-- SPEED-DIVISOR DISTANCE SCALING MODEL
+			-- ==========================================
+			-- Scales divisor dynamically using ping, accuracy multiplier, and trajectory curvature
+			local speedDivisor = math.clamp(3.8 - (ping * 2.5), 1.8, 4.0) * (Stellar.__properties.__divisor_multiplier or 1.0)
+			if isCurved then
+				speedDivisor = speedDivisor * 2.2 -- Increase divisor to shrink distance on curved trajectories
+			end
+			
+			-- Distance Threshold = (Speed / Divisor) + Base Buffer
+			local baseBuffer = isCurved and 8.0 or 12.0
+			local parryDistance = (ballSpeed / speedDivisor) + baseBuffer
+			
+			-- Hard fallback distance for extremely high ping or zero-range anomalies
+			local minEmergencyDistance = math.clamp(12 + (ping * 30), 10, 18)
 
--- Dynamic distance scaling (prevents parrying from too far away when the ball is slow)
-local distanceThreshold = math.clamp((ballSpeed * reactionWindow) * 0.8, 10, 25) + (Stellar.__properties.__accuracy / 20)
-
-if isCurved then
-	reactionWindow = reactionWindow * 0.35
-	distanceThreshold = math.clamp(distanceThreshold * 0.25, 4.0, 8.5)
-else
-	reactionWindow = reactionWindow + math.clamp(ballSpeed / 1000, 0, 0.1)
-end
-
--- Added a hard clamp to ensure 'distance' isn't wildly large if TTI spikes
-if (tti <= reactionWindow and distance <= (distanceThreshold * 1.5)) or distance <= math.clamp(12 + (ping * 30), 10, 18) then
-
+			if distance <= parryDistance or distance <= minEmergencyDistance then
 				local cachedCF = Stellar.curve.get_cframe()
 				if getgenv().AutoParryMode == "Keypress" then 
 					Stellar.parry.keypress(cachedCF) 
@@ -1371,17 +1365,14 @@ function Stellar.triggerbot.enable(enabled)
 	end
 end
 
--- Manual Spam Logic (Original Version)
+-- Manual Spam Logic (Fixed & Optimized)
 Stellar.manual_spam = {}
-local manualSpamActive = false
 local manualConnection = nil
 
 function Stellar.manual_spam.start()
 	Stellar.manual_spam.stop()
-	manualSpamActive = true
 	manualConnection = RunService.PreSimulation:Connect(function()
-		-- CHANGED: Removed the strict check for __gui_spam_active so keybinds can trigger it too
-		if not Stellar.__properties.__manual_spam_enabled then
+		if not Stellar.__properties.__manual_spam_enabled or not Stellar.__properties.__gui_spam_active then
 			Stellar.manual_spam.stop()
 			return
 		end
@@ -1405,28 +1396,22 @@ function Stellar.manual_spam.start()
 end
 
 function Stellar.manual_spam.stop()
-	manualSpamActive = false
 	if manualConnection then 
 		manualConnection:Disconnect()
 		manualConnection = nil 
 	end
 end
 
--- Keybind Toggler
-Stellar.__properties.__manual_spam_key = Enum.KeyCode.V -- You can change this to any key you want
-
+-- Keybind Toggler (Fixed State Desync & Robust Detection)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
     if input.KeyCode == Stellar.__properties.__manual_spam_key then
-        -- Only trigger if the method allows it and manual spam is enabled
         if Stellar.__properties.__manual_spam_method == "UI Button Only" then return end
         if not Stellar.__properties.__manual_spam_enabled then return end
         
-        -- Toggle the active state
         Stellar.__properties.__gui_spam_active = not Stellar.__properties.__gui_spam_active
         
-        -- Keep the visual UI button synced if it's on the screen
         if StatusText and Stroke then
             if Stellar.__properties.__gui_spam_active then
                 StatusText.Text = "SPAM\nON"
@@ -1439,7 +1424,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end
         end
 
-        -- Start or stop the loop
         if Stellar.__properties.__gui_spam_active then
             if Stellar.manual_spam and typeof(Stellar.manual_spam.start) == "function" then
                 Stellar.manual_spam.start()
@@ -1455,7 +1439,7 @@ end)
 -- UI Controls Registration
 local autoparry_module = AutoparryTab:create_module({
 	title = "Auto Parry Core",
-	description = "Kinematic trajectory & trajectory protections",
+	description = "Speed-Divisor trajectory & curve protections",
 	flag = "AutoParryModule",
 	section = "left",
 	callback = function(state)
@@ -1527,7 +1511,7 @@ local spam_module = SpamTab:create_module({
 	description = "Configure automated and manual rapid parry execution",
 	flag = "SpamMergedModule",
 	section = "left",
-	callback = function(state) end -- Serves as a container; actual toggles are inside
+	callback = function(state) end
 })
 
 -- Auto Spam Controls
@@ -1555,19 +1539,14 @@ spam_module:create_dropdown({
 	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
 })
 
--- Divider
 spam_module:create_divider({})
 
 -- Manual Spam Controls
-Stellar.__properties.__manual_spam_method = "Both" -- Default method state
-
 spam_module:create_checkbox({
 	title = "Enable Manual Spam",
 	flag = "ManualSpamToggle",
 	callback = function(state)
 		Stellar.__properties.__manual_spam_enabled = state
-		
-		-- Safely turn off spam if the user disables the master checkbox while it's running
 		if not state then
 			Stellar.__properties.__gui_spam_active = false
 			if StatusText and Stroke then
@@ -1590,12 +1569,29 @@ spam_module:create_dropdown({
 	callback = function(value)
 		Stellar.__properties.__manual_spam_method = value
 		if ScreenGui then
-			-- Toggle the visibility of the on-screen button based on the choice
 			if value == "Keybind Only" then
 				ScreenGui.Enabled = false
 			else
 				ScreenGui.Enabled = true 
 			end
+		end
+	end
+})
+
+-- ADDED: Keybind selector dropdown so the user can change their Spam Hotkey dynamically
+spam_module:create_dropdown({
+	title = "Spam Hotkey",
+	flag = "ManualSpamKeybindSelect",
+	options = { "V", "C", "X", "Z", "F", "G", "Q", "E", "R" },
+	maximum_options = 1,
+	callback = function(value)
+		local keymap = {
+			V = Enum.KeyCode.V, C = Enum.KeyCode.C, X = Enum.KeyCode.X,
+			Z = Enum.KeyCode.Z, F = Enum.KeyCode.F, G = Enum.KeyCode.G,
+			Q = Enum.KeyCode.Q, E = Enum.KeyCode.E, R = Enum.KeyCode.R
+		}
+		if keymap[value] then
+			Stellar.__properties.__manual_spam_key = keymap[value]
 		end
 	end
 })
@@ -1843,4 +1839,4 @@ misc_module:create_button({
 })
 
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "V3.41 (BETA) Loaded.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "V3.41.2 Loaded.", duration = 3 })
