@@ -514,7 +514,9 @@ local function update_randomized_accuracy()
 	if not Stellar.__properties.__randomized_accuracy_enabled then return end
 	local ping_str = Stats.Network.ServerStatsItem:GetValueString()
 	local ping = tonumber(ping_str:match("%d+")) or 0
-	local new_accuracy = (ping >= 90) and 4 or ((ping <= 50) and math.random(70, 100) or Stellar.__properties.__accuracy)
+	
+	-- Keep accuracy balanced on low ping to prevent divisor shrinkage
+	local new_accuracy = (ping >= 90) and 4 or ((ping <= 50) and math.random(40, 65) or Stellar.__properties.__accuracy)
 	Stellar.__properties.__accuracy = new_accuracy
 	update_divisor()
 end
@@ -1274,21 +1276,28 @@ function Stellar.autoparry.start()
 
 			local isCurved = Stellar.detection.is_curved(ball)
 			
+						-- ==========================================
+			-- FIXED SPEED-DIVISOR DISTANCE SCALING MODEL
 			-- ==========================================
-			-- SPEED-DIVISOR DISTANCE SCALING MODEL
-			-- ==========================================
-			-- Scales divisor dynamically using ping, accuracy multiplier, and trajectory curvature
-			local speedDivisor = math.clamp(3.8 - (ping * 2.5), 1.8, 4.0) * (Stellar.__properties.__divisor_multiplier or 1.0)
+			-- Scale divisor based on low-ping responsiveness vs high-ping latency compensation
+			local pingValue = 0
+			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+			local ping = math.clamp(pingValue / 1000, 0, 0.3)
+
+			-- Adjusted scaling: Low ping needs higher divisor dampening so distance stays smaller
+			local rawDivisor = 2.8 + (ping * 3.5)
+			local speedDivisor = math.clamp(rawDivisor, 2.2, 5.0) * (Stellar.__properties.__divisor_multiplier or 1.0)
+			
 			if isCurved then
-				speedDivisor = speedDivisor * 2.2 -- Increase divisor to shrink distance on curved trajectories
+				speedDivisor = speedDivisor * 1.8 -- Scaled down curve multiplier to avoid over-predicting early
 			end
 			
-			-- Distance Threshold = (Speed / Divisor) + Base Buffer
-			local baseBuffer = isCurved and 8.0 or 12.0
+			-- Dynamic Base Buffer: Lower ping gets a tighter buffer
+			local baseBuffer = isCurved and (ping < 0.04 and 4.0 or 7.0) or (ping < 0.04 and 6.0 or 10.0)
 			local parryDistance = (ballSpeed / speedDivisor) + baseBuffer
 			
-			-- Hard fallback distance for extremely high ping or zero-range anomalies
-			local minEmergencyDistance = math.clamp(12 + (ping * 30), 10, 18)
+			-- Hard fallback distance for emergency timing
+			local minEmergencyDistance = math.clamp(8 + (ping * 20), 8, 16)
 
 			if distance <= parryDistance or distance <= minEmergencyDistance then
 				local cachedCF = Stellar.curve.get_cframe()
