@@ -559,21 +559,30 @@ function Library:create_loader(settings)
     LoaderGui.ResetOnSpawn = false
     LoaderGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     LoaderGui.DisplayOrder = 1000
+    LoaderGui.IgnoreGuiInset = true -- otherwise the top bar strip is left uncovered
     LoaderGui.Parent = CoreGui
 
     -- Full-screen dim so the game world recedes and the animation reads
-    -- clearly no matter what's behind it.
+    -- clearly no matter what's behind it. Sized a hair past the edges so
+    -- there's no seam on devices with rounded corners/notches.
     local Backdrop = Instance.new('Frame')
     Backdrop.Name = 'Backdrop'
-    Backdrop.Size = UDim2.new(1, 0, 1, 0)
-    Backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    Backdrop.AnchorPoint = Vector2.new(0.5, 0.5)
+    Backdrop.Position = UDim2.new(0.5, 0, 0.5, 0)
+    Backdrop.Size = UDim2.new(1, 4, 1, 4)
+    Backdrop.BackgroundColor3 = settings.backdrop_color or Color3.fromRGB(0, 0, 0)
     Backdrop.BackgroundTransparency = 1
     Backdrop.BorderSizePixel = 0
     Backdrop.ZIndex = 0
     Backdrop.Parent = LoaderGui
 
+    local backdrop_target_transparency = settings.backdrop_transparency
+    if backdrop_target_transparency == nil then
+        backdrop_target_transparency = 0.12
+    end
+
     if settings.dim_background ~= false then
-        TweenService:Create(Backdrop, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.55}):Play()
+        TweenService:Create(Backdrop, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = backdrop_target_transparency}):Play()
     end
 
     -- Ambient sparkles drifting slowly behind the logo. Purely decorative:
@@ -705,22 +714,26 @@ function Library:create_loader(settings)
     Title.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.Medium, Enum.FontStyle.Normal)
     Title.Parent = Container
 
-    -- Logo blooms in with a little overshoot, then breathes gently for as
-    -- long as the loader is up.
+    -- Logo pops in small with a little overshoot, then opens up further
+    -- with each stage below (see bloom_to_stage).
     TweenService:Create(Logo, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {ImageTransparency = 0}):Play()
     TweenService:Create(LogoScale, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 
-    local breathing = true
-    task.spawn(function()
-        task.wait(0.6)
-        while breathing and LogoScale and LogoScale.Parent do
-            TweenService:Create(LogoScale, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1.08}):Play()
-            task.wait(1.1)
-            if not breathing then break end
-            TweenService:Create(LogoScale, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
-            task.wait(1.1)
-        end
-    end)
+    -- "Bloom" = the logo grows a little more with every stage it clears and
+    -- never shrinks back down, like a flower slowly opening rather than a
+    -- breathing pulse. It reaches bloom_peak_scale right as the last stage
+    -- hits, then burst() carries it the rest of the way and holds it there.
+    local bloom_base_scale = 1
+    local bloom_peak_scale = settings.bloom_scale or 1.35
+    local bloom_step_duration = settings.bloom_duration or 0.5
+    local current_bloom_scale = bloom_base_scale
+
+    local function bloom_to_stage(index)
+        local alpha = math.clamp(index / math.max(#stages, 1), 0, 1)
+        current_bloom_scale = bloom_base_scale + (bloom_peak_scale - bloom_base_scale) * alpha
+
+        TweenService:Create(LogoScale, TweenInfo.new(bloom_step_duration, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = current_bloom_scale}):Play()
+    end
 
     -- Small burst of particles radiating out from the logo once loading
     -- finishes, plus a little pop on the logo itself.
@@ -753,12 +766,10 @@ function Library:create_loader(settings)
             Debris:AddItem(dot, 1)
         end
 
-        TweenService:Create(LogoScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1.18}):Play()
-        task.delay(0.25, function()
-            if LogoScale and LogoScale.Parent then
-                TweenService:Create(LogoScale, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
-            end
-        end)
+        -- Final push past the bloom peak — no settle-back, it just stays
+        -- fully opened until the loader closes.
+        current_bloom_scale = bloom_peak_scale * 1.12
+        TweenService:Create(LogoScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = current_bloom_scale}):Play()
     end
 
     local current_stage_index = 0
@@ -790,6 +801,7 @@ function Library:create_loader(settings)
         if index ~= current_stage_index then
             current_stage_index = index
             set_stage_text(stages[index])
+            bloom_to_stage(index)
         end
 
         if alpha >= 1 and current_stage_index == #stages then
@@ -798,7 +810,6 @@ function Library:create_loader(settings)
     end
 
     function loader:close(override_callback)
-        breathing = false
         particles_alive = false
 
         if scale_connection then
@@ -827,6 +838,7 @@ function Library:create_loader(settings)
 
     set_stage_text(stages[1])
     current_stage_index = 1
+    bloom_to_stage(1)
 
     if settings.auto_progress then
         task.spawn(function()
