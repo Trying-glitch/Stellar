@@ -1026,7 +1026,7 @@ function Library:create_key_system(settings)
         local link = get_key_link()
         if setclipboard or set_clipboard then
             (setclipboard or set_clipboard)(link)
-            StatusLabel.Text = "Lootlabs key link copied to clipboard!"
+            StatusLabel.Text = "Stellar Key link copied to clipboard!"
             StatusLabel.TextColor3 = Color3.fromRGB(110, 255, 150)
         else
             StatusLabel.Text = "Clipboard not supported."
