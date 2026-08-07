@@ -1,4 +1,4 @@
--- Stellar V3.40 Engine - Fused with Advanced Kinematic Anti-Curve Engine & Full Feature Restorations
+-- Stellar V3.41 Engine - Fused with Advanced Kinematic Anti-Curve Engine & Mobile/PC Adaptive Fix
 local cloneref = cloneref or function(obj) return obj end
 local getconnections = getconnections or function() return {} end
 local getupvalues = debug.getupvalues or getupvalues or function() return {} end
@@ -514,9 +514,7 @@ local function update_randomized_accuracy()
 	if not Stellar.__properties.__randomized_accuracy_enabled then return end
 	local ping_str = Stats.Network.ServerStatsItem:GetValueString()
 	local ping = tonumber(ping_str:match("%d+")) or 0
-	
-	-- Keep accuracy balanced on low ping to prevent divisor shrinkage
-	local new_accuracy = (ping >= 90) and 4 or ((ping <= 50) and math.random(40, 65) or Stellar.__properties.__accuracy)
+	local new_accuracy = (ping >= 90) and 4 or ((ping <= 50) and math.random(70, 100) or Stellar.__properties.__accuracy)
 	Stellar.__properties.__accuracy = new_accuracy
 	update_divisor()
 end
@@ -947,7 +945,7 @@ pcall(function()
     end)
 end)
 
--- Integrated Kinematic Anti-Curve Engine
+-- Integrated Kinematic Anti-Curve Engine (PC/Slow Ball Calibration Fix)
 Stellar.detection = {
 	__ball_properties = {},
 	__kinematic_properties = {}
@@ -960,7 +958,7 @@ function Stellar.detection.is_curved(ball)
 	local zoomies = ball:FindFirstChild("zoomies")
 	local velocity = zoomies and zoomies.VectorVelocity or ball.AssemblyLinearVelocity
 	local speed = velocity.Magnitude
-	if speed < 15 then return false end
+	if speed < 10 then return false end
 
 	local char = LocalPlayer.Character
 	local playerPart = char and char.PrimaryPart
@@ -987,7 +985,7 @@ function Stellar.detection.is_curved(ball)
 	local toPlayerVec = playerPos - ballPos
 	local distance = toPlayerVec.Magnitude
 
-	if distance <= 16 then return false end
+	if distance <= 12 then return false end
 
 	local toPlayerDir = toPlayerVec / distance
 	local velocityDir = velocity / speed
@@ -1000,22 +998,22 @@ function Stellar.detection.is_curved(ball)
 	local raw_accel_vec = Vector3.new()
 	local raw_angular = 0
 	local oldest_idx = (props.idx % 6) + 1
-	local oldest = props.history[oldest_idx]
+	Oldest = props.history[oldest_idx]
 
-	if oldest.t > 0 then
-		local time_span = now - oldest.t
-		if time_span > 0.005 then
-			local velocity_diff = velocity - oldest.v
-			if velocity_diff.Magnitude > 2 then
+	if Oldest.t > 0 then
+		local time_span = now - Oldest.t
+		if time_span > 0.01 then -- Relaxed time_span for high FPS on PC
+			local velocity_diff = velocity - Oldest.v
+			if velocity_diff.Magnitude > 3 then -- Increased threshold to filter micro-jitters
 				raw_accel_vec = velocity_diff / time_span
-				local crossVec = (oldest.v / oldest.v.Magnitude):Cross(velocityDir)
+				local crossVec = (Oldest.v / Oldest.v.Magnitude):Cross(velocityDir)
 				raw_angular = math.deg(math.asin(math.clamp(crossVec.Magnitude, -1, 1))) / time_span
 			end
 		end
 	end
 
-	props.smooth_accel_vec = props.smooth_accel_vec:Lerp(raw_accel_vec, 0.4)
-	props.smooth_angular = props.smooth_angular + (raw_angular - props.smooth_angular) * 0.4
+	props.smooth_accel_vec = props.smooth_accel_vec:Lerp(raw_accel_vec, 0.25)
+	props.smooth_angular = props.smooth_angular + (raw_angular - props.smooth_angular) * 0.25
 
 	local accelMagnitude = props.smooth_accel_vec.Magnitude
 
@@ -1031,7 +1029,7 @@ function Stellar.detection.is_curved(ball)
 		props.last_ping_tick = now
 		local pingVal = 50
 		pcall(function() pingVal = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-		props.last_ping = math.clamp(pingVal / 1000, 0, 0.15)
+		props.last_ping = math.clamp(pingVal / 1000, 0.015, 0.15)
 	end
 	local ping = props.last_ping
 
@@ -1040,8 +1038,8 @@ function Stellar.detection.is_curved(ball)
 	local accelDot = toPlayerDir:Dot(accelDir)
 
 	local confidence = 0
-	local adaptive_accel_thresh = math.max(speed * 0.25, 25)
-	local angular_weight = (distance < 35) and 40 or 50
+	local adaptive_accel_thresh = math.max(speed * 0.35, 30)
+	local angular_weight = (distance < 35) and 50 or 65
 
 	confidence = confidence + math.clamp((accelMagnitude / adaptive_accel_thresh) * 0.4, 0, 0.4)
 	confidence = confidence + math.clamp((props.smooth_angular / angular_weight) * 0.4, 0, 0.4)
@@ -1049,11 +1047,16 @@ function Stellar.detection.is_curved(ball)
 	if accelDot > 0.35 then confidence = confidence + 0.2 end
 
 	local reachTime = distance / speed
-	local effective_ping = ping + 0.055
+	local effective_ping = ping + 0.035
 	local shield_linger = math.clamp(1 - (speed / 500), 0, 1) * 0.2
 	local required_tti = effective_ping + 0.05 + shield_linger
 	local dynamic_range = math.clamp(21 + (speed * 0.008), 21, 40)
-	local required_confidence = (distance < 35) and 0.58 or 0.62
+	local required_confidence = (distance < 35) and 0.65 or 0.72
+
+	-- FIXED: Ignores false positive curves if slow ball is directly heading towards player
+	if speed < 60 and currentDot > 0.85 then
+		return false
+	end
 
 	if confidence > required_confidence then
 		local lookAheadTime = (distance < 35) and math.clamp(reachTime, 0.01, 0.12) or math.clamp(reachTime, 0.01, 0.2)
@@ -1276,28 +1279,26 @@ function Stellar.autoparry.start()
 
 			local isCurved = Stellar.detection.is_curved(ball)
 			
-						-- ==========================================
-			-- FIXED SPEED-DIVISOR DISTANCE SCALING MODEL
 			-- ==========================================
-			-- Scale divisor based on low-ping responsiveness vs high-ping latency compensation
-			local pingValue = 0
-			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-			local ping = math.clamp(pingValue / 1000, 0, 0.3)
-
-			-- Adjusted scaling: Low ping needs higher divisor dampening so distance stays smaller
-			local rawDivisor = 2.8 + (ping * 3.5)
-			local speedDivisor = math.clamp(rawDivisor, 2.2, 5.0) * (Stellar.__properties.__divisor_multiplier or 1.0)
+			-- TUNED SPEED-DIVISOR & SLOW BALL SCALING
+			-- ==========================================
+			local speedDivisor = math.clamp(3.5 - (ping * 2.0), 2.0, 3.8) * (Stellar.__properties.__divisor_multiplier or 1.0)
 			
+			-- Smooth curve penalty scaling instead of rigid multiplier
 			if isCurved then
-				speedDivisor = speedDivisor * 1.8 -- Scaled down curve multiplier to avoid over-predicting early
+				if ballSpeed < 50 then
+					speedDivisor = speedDivisor * 1.15 -- Very gentle divisor increase for slow curve balls
+				else
+					speedDivisor = speedDivisor * 1.45 -- Moderate multiplier for fast curve balls
+				end
 			end
 			
-			-- Dynamic Base Buffer: Lower ping gets a tighter buffer
-			local baseBuffer = isCurved and (ping < 0.04 and 4.0 or 7.0) or (ping < 0.04 and 6.0 or 10.0)
+			-- Distance Threshold calculation with dynamic slow-ball base padding
+			local baseBuffer = (ballSpeed < 45) and 18.0 or (isCurved and 10.0 or 12.0)
 			local parryDistance = (ballSpeed / speedDivisor) + baseBuffer
 			
-			-- Hard fallback distance for emergency timing
-			local minEmergencyDistance = math.clamp(8 + (ping * 20), 8, 16)
+			-- Hard emergency distance fallback scaled directly to ball speed and ping
+			local minEmergencyDistance = math.clamp(14 + (ping * 25) + math.max(0, (40 - ballSpeed) * 0.2), 12, 22)
 
 			if distance <= parryDistance or distance <= minEmergencyDistance then
 				local cachedCF = Stellar.curve.get_cframe()
@@ -1309,7 +1310,7 @@ function Stellar.autoparry.start()
 				parryFlag = true
 				local lastCycle = tick()
 				task.spawn(function()
-					repeat RunService.PreSimulation:Wait() until (tick() - lastCycle) >= 1 or not parryFlag
+					repeat RunService.PreSimulation:Wait() until (tick() - lastCycle) >= 0.35 or not parryFlag
 					parryFlag = false
 				end)
 			end
@@ -1374,7 +1375,7 @@ function Stellar.triggerbot.enable(enabled)
 	end
 end
 
--- Manual Spam Logic (Fixed & Optimized)
+-- Manual Spam Logic
 Stellar.manual_spam = {}
 local manualConnection = nil
 
@@ -1411,7 +1412,7 @@ function Stellar.manual_spam.stop()
 	end
 end
 
--- Keybind Toggler (Fixed State Desync & Robust Detection)
+-- Keybind Toggler
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
@@ -1587,7 +1588,6 @@ spam_module:create_dropdown({
 	end
 })
 
--- ADDED: Keybind selector dropdown so the user can change their Spam Hotkey dynamically
 spam_module:create_dropdown({
 	title = "Spam Hotkey",
 	flag = "ManualSpamKeybindSelect",
@@ -1848,4 +1848,4 @@ misc_module:create_button({
 })
 
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "V3.41.2 Loaded.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "V3.41.2 Loaded .", duration = 3 })
