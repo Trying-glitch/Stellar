@@ -1,4 +1,4 @@
--- Stellar V3.41 Engine - Fused with Advanced Kinematic Anti-Curve Engine & Mobile/PC Adaptive Fix
+-- Stellar V3.40 Engine - Fused with Advanced Kinematic Anti-Curve Engine & Full Feature Restorations
 local cloneref = cloneref or function(obj) return obj end
 local getconnections = getconnections or function() return {} end
 local getupvalues = debug.getupvalues or getupvalues or function() return {} end
@@ -107,9 +107,7 @@ local Stellar = {
 		__immortality_radius = 10,
 		__immortality_desync_types = {},
 		__auto_ability_enabled = false,
-		__ability_esp_enabled = false,
-		__manual_spam_key = Enum.KeyCode.V,
-		__manual_spam_method = "Both"
+		__ability_esp_enabled = false
 	},
 	__config = {
 		__curve_names = {
@@ -305,25 +303,18 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 Button.Activated:Connect(function()
-    if Stellar.__properties.__manual_spam_method == "Keybind Only" then return end
-    if not Stellar.__properties.__manual_spam_enabled then return end
-
     Stellar.__properties.__gui_spam_active = not Stellar.__properties.__gui_spam_active
-    
+    Stellar.__properties.__manual_spam_enabled = Stellar.__properties.__gui_spam_active
     if Stellar.__properties.__gui_spam_active then
         StatusText.Text = "SPAM\nON"
         StatusText.TextColor3 = Color3.fromRGB(100, 255, 100)
         Stroke.Color = Color3.fromRGB(100, 255, 100)
-        if Stellar.manual_spam and typeof(Stellar.manual_spam.start) == "function" then 
-            Stellar.manual_spam.start() 
-        end
+        if Stellar.manual_spam and typeof(Stellar.manual_spam.start) == "function" then Stellar.manual_spam.start() end
     else
         StatusText.Text = "SPAM\nOFF"
         StatusText.TextColor3 = Color3.fromRGB(255, 100, 100)
         Stroke.Color = Color3.fromRGB(255, 100, 100)
-        if Stellar.manual_spam and typeof(Stellar.manual_spam.stop) == "function" then 
-            Stellar.manual_spam.stop() 
-        end
+        if Stellar.manual_spam and typeof(Stellar.manual_spam.stop) == "function" then Stellar.manual_spam.stop() end
     end
 end)
 
@@ -648,49 +639,6 @@ if Runtime then
 	end)
 end
 
--- Bypass Metamethod System
-local StellarBypassSystem = {
-	__properties = {
-		__captured_data = nil,
-		__test_bypass_enabled = true,
-		__original_metatables = {},
-		__reverted_remotes = setmetatable({}, { __mode = "k" })
-	}
-}
-function StellarBypassSystem.isValidRemoteArgs(args)
-	return #args >= 4 and typeof(args[4]) == "CFrame"
-end
-pcall(function()
-	local mt = getrawmetatable(game)
-	local old = mt.__index
-	setreadonly(mt, false)
-	mt.__index = function(self, key)
-		if typeof(self) == "Instance" then
-			if (key == "FireServer" and self:IsA("RemoteEvent")) or (key == "InvokeServer" and self:IsA("RemoteFunction")) then
-				return function(instance, ...)
-					if not instance then return end
-					local args = { ... }
-					if StellarBypassSystem.isValidRemoteArgs(args) then
-						if not StellarBypassSystem.__properties.__captured_data then
-							StellarBypassSystem.__properties.__captured_data = {
-								remote = instance,
-								args = args,
-								func = old(instance, key)
-							}
-						end
-						if not StellarBypassSystem.__properties.__reverted_remotes[instance] then
-							StellarBypassSystem.__properties.__reverted_remotes[instance] = args
-						end
-					end
-					return old(self, key)(instance, ...)
-				end
-			end
-		end
-		return old(self, key)
-	end
-	setreadonly(mt, true)
-end)
-
 -- Sensor Module
 Stellar.ball = {}
 function Stellar.ball.get()
@@ -858,16 +806,6 @@ local function fireParry(precalc_cframe)
 			end
 		end
 	end
-	local captured = StellarBypassSystem.__properties.__captured_data
-	if captured and captured.remote and captured.func then
-		local vp = cam.ViewportSize
-		pcall(function()
-			captured.func(captured.remote, captured.args[1], captured.args[2], captured.args[3], pCF, Last_Positions_Cache, {
-				vp.X / 2,
-				vp.Y / 2
-			}, captured.args[7])
-		end)
-	end
 end
 
 Stellar.parry = {}
@@ -945,149 +883,92 @@ pcall(function()
     end)
 end)
 
--- Integrated Kinematic Anti-Curve Engine (PC/Slow Ball Calibration Fix)
+-- Integrated Kinematic Anti-Curve Engine (Replaced with Stellar V4 Logic)
 Stellar.detection = {
 	__ball_properties = {},
 	__kinematic_properties = {}
 }
 
+local function AnalyzeBallKinematics(ball, pingSec)
+    local zoomies = ball:FindFirstChild("zoomies")
+    local velocity = zoomies and zoomies.VectorVelocity or ball.AssemblyLinearVelocity
+    local speed = velocity.Magnitude
+    if speed < 1 then return false, 0, math.huge end
+    
+    local character = LocalPlayer.Character
+    local primaryPart = character and character.PrimaryPart
+    if not primaryPart then return false, speed, math.huge end
+    
+    local playerPos = primaryPart.Position
+    local ballPos = ball.Position
+    local displacement = playerPos - ballPos
+    local distance = displacement.Magnitude
+    local approachDir = displacement.Unit
+    local velocityDir = velocity.Unit
+    
+    local history = Stellar.detection.__kinematic_properties[ball]
+    if not history then
+        history = { samples = {}, smoothAccel = Vector3.zero, lerpRadians = 0, lastWarp = os.clock() }
+        Stellar.detection.__kinematic_properties[ball] = history
+    end
+    
+    local now = os.clock()
+    table.insert(history.samples, 1, { pos = ballPos, vel = velocity, time = now })
+    if #history.samples > 6 then table.remove(history.samples, #history.samples) end
+    
+    local accelVec = Vector3.zero
+    if #history.samples >= 2 then
+        local oldest = history.samples[#history.samples]
+        local dt = now - oldest.time
+        if dt > 0.001 then
+            accelVec = (velocity - oldest.vel) / dt
+        end
+    end
+    history.smoothAccel = history.smoothAccel:Lerp(accelVec, 0.35)
+    
+    local approachSpeed = velocity:Dot(approachDir)
+    local approachAccel = history.smoothAccel:Dot(approachDir)
+    
+    local tti = math.huge
+    if math.abs(approachAccel) > 0.01 then
+        local discriminant = approachSpeed^2 + (2 * approachAccel * distance)
+        if discriminant >= 0 then
+            local root = (-approachSpeed + math.sqrt(discriminant)) / approachAccel
+            if root > 0 then tti = root end
+        end
+    end
+    if tti == math.huge and approachSpeed > 0 then
+        tti = distance / approachSpeed
+    end
+    
+    local dot = approachDir:Dot(velocityDir)
+    local clampedDot = math.clamp(dot, -1, 1)
+    local currentRad = math.asin(clampedDot)
+    history.lerpRadians = history.lerpRadians + (currentRad - history.lerpRadians) * 0.85
+    
+    if history.lerpRadians < 0.018 then
+        history.lastWarp = now
+    end
+    
+    local dotThreshold = math.clamp(0.55 - (pingSec * 0.75), -0.2, 0.45)
+    local isCurved = false
+    
+    if distance > 15 then
+        local reachTime = (distance / speed) - pingSec
+        local suddenWarp = (now - history.lastWarp) < (reachTime / 1.4)
+        if dot < dotThreshold or suddenWarp then
+            isCurved = true
+        end
+    end
+    
+    return isCurved, speed, tti
+end
+
 function Stellar.detection.is_curved(ball)
-	ball = ball or Stellar.ball.get()
-	if not ball then return false end
-
-	local zoomies = ball:FindFirstChild("zoomies")
-	local velocity = zoomies and zoomies.VectorVelocity or ball.AssemblyLinearVelocity
-	local speed = velocity.Magnitude
-	if speed < 10 then return false end
-
-	local char = LocalPlayer.Character
-	local playerPart = char and char.PrimaryPart
-	if not playerPart then return false end
-
-	if not Stellar.detection.__kinematic_properties[ball] then
-		local initial_history = {}
-		for i = 1, 6 do initial_history[i] = { v = Vector3.new(), t = 0 } end
-		Stellar.detection.__kinematic_properties[ball] = {
-			history = initial_history,
-			idx = 0,
-			smooth_accel_vec = Vector3.new(),
-			smooth_angular = 0,
-			last_ping = 0.05,
-			last_ping_tick = 0,
-			last_ability_check = 0,
-			ability_tick = 0
-		}
-	end
-
-	local props = Stellar.detection.__kinematic_properties[ball]
-	local ballPos = ball.Position
-	local playerPos = playerPart.Position
-	local toPlayerVec = playerPos - ballPos
-	local distance = toPlayerVec.Magnitude
-
-	if distance <= 12 then return false end
-
-	local toPlayerDir = toPlayerVec / distance
-	local velocityDir = velocity / speed
-	local now = os.clock()
-
-	props.idx = (props.idx % 6) + 1
-	props.history[props.idx].v = velocity
-	props.history[props.idx].t = now
-
-	local raw_accel_vec = Vector3.new()
-	local raw_angular = 0
-	local oldest_idx = (props.idx % 6) + 1
-	Oldest = props.history[oldest_idx]
-
-	if Oldest.t > 0 then
-		local time_span = now - Oldest.t
-		if time_span > 0.01 then -- Relaxed time_span for high FPS on PC
-			local velocity_diff = velocity - Oldest.v
-			if velocity_diff.Magnitude > 3 then -- Increased threshold to filter micro-jitters
-				raw_accel_vec = velocity_diff / time_span
-				local crossVec = (Oldest.v / Oldest.v.Magnitude):Cross(velocityDir)
-				raw_angular = math.deg(math.asin(math.clamp(crossVec.Magnitude, -1, 1))) / time_span
-			end
-		end
-	end
-
-	props.smooth_accel_vec = props.smooth_accel_vec:Lerp(raw_accel_vec, 0.25)
-	props.smooth_angular = props.smooth_angular + (raw_angular - props.smooth_angular) * 0.25
-
-	local accelMagnitude = props.smooth_accel_vec.Magnitude
-
-	if now - props.last_ability_check > 0.1 then
-		props.last_ability_check = now
-		if ball:FindFirstChild('AeroDynamicSlashVFX') or (Runtime and Runtime:FindFirstChild('Tornado')) then
-			props.ability_tick = now
-		end
-	end
-	local hasAbility = (now - props.ability_tick) < 1.0
-
-	if now - props.last_ping_tick > 1.0 then
-		props.last_ping_tick = now
-		local pingVal = 50
-		pcall(function() pingVal = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-		props.last_ping = math.clamp(pingVal / 1000, 0.015, 0.15)
-	end
-	local ping = props.last_ping
-
-	local accelDir = accelMagnitude > 0 and (props.smooth_accel_vec / accelMagnitude) or Vector3.new()
-	local currentDot = toPlayerDir:Dot(velocityDir)
-	local accelDot = toPlayerDir:Dot(accelDir)
-
-	local confidence = 0
-	local adaptive_accel_thresh = math.max(speed * 0.35, 30)
-	local angular_weight = (distance < 35) and 50 or 65
-
-	confidence = confidence + math.clamp((accelMagnitude / adaptive_accel_thresh) * 0.4, 0, 0.4)
-	confidence = confidence + math.clamp((props.smooth_angular / angular_weight) * 0.4, 0, 0.4)
-	if hasAbility then confidence = confidence + 0.2 end
-	if accelDot > 0.35 then confidence = confidence + 0.2 end
-
-	local reachTime = distance / speed
-	local effective_ping = ping + 0.035
-	local shield_linger = math.clamp(1 - (speed / 500), 0, 1) * 0.2
-	local required_tti = effective_ping + 0.05 + shield_linger
-	local dynamic_range = math.clamp(21 + (speed * 0.008), 21, 40)
-	local required_confidence = (distance < 35) and 0.65 or 0.72
-
-	-- FIXED: Ignores false positive curves if slow ball is directly heading towards player
-	if speed < 60 and currentDot > 0.85 then
-		return false
-	end
-
-	if confidence > required_confidence then
-		local lookAheadTime = (distance < 35) and math.clamp(reachTime, 0.01, 0.12) or math.clamp(reachTime, 0.01, 0.2)
-		local predictedPos = ballPos + (velocity * lookAheadTime) + (0.5 * props.smooth_accel_vec * lookAheadTime * lookAheadTime)
-		local predictedDistance = (playerPos - predictedPos).Magnitude
-
-		local is_getting_closer = predictedDistance <= (distance + 5)
-		if is_getting_closer then
-			local danger_radius = (distance < 35) and 18 or 25
-			if predictedDistance < danger_radius or distance <= dynamic_range then
-				local flatToPlayerDir = Vector3.new(toPlayerDir.X, 0, toPlayerDir.Z)
-				local flatVelocityDir = Vector3.new(velocityDir.X, 0, velocityDir.Z)
-				flatToPlayerDir = flatToPlayerDir.Magnitude > 0 and flatToPlayerDir.Unit or Vector3.new(0, 0, 1)
-				flatVelocityDir = flatVelocityDir.Magnitude > 0 and flatVelocityDir.Unit or flatToPlayerDir
-
-				local horizontalDot = flatToPlayerDir:Dot(flatVelocityDir)
-				if horizontalDot < 0.4 or distance <= dynamic_range then
-					return true
-				end
-			end
-		end
-	end
-
-	local dynamic_dot_threshold = 1.0 - math.exp(-speed / 1500) * 0.15
-	if currentDot > dynamic_dot_threshold then
-		if reachTime <= required_tti or distance <= dynamic_range then
-			return true
-		end
-	end
-
-	return false
+	local pingMs = 50
+	pcall(function() pingMs = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+	local isCurved, _, _ = AnalyzeBallKinematics(ball, pingMs / 1000)
+	return isCurved
 end
 
 if workspace:FindFirstChild('Balls') then
@@ -1096,30 +977,40 @@ if workspace:FindFirstChild('Balls') then
 	end)
 end
 
--- Auto Parry Core Loop
+-- Auto Parry Core Loop (Stellar V4 Kinematic Core Integration)
 Stellar.autoparry = {}
-local parryFlag = false
+local parryDebounce = false
+local spamAccumulator = 0
 local isExecutingSlashes = false
 local abilityDebounce = false
 
 function Stellar.autoparry.start()
 	if Stellar.__properties.__connections.__combat then Stellar.__properties.__connections.__combat:Disconnect() end
-	parryFlag, isExecutingSlashes, abilityDebounce = false, false, false
+	parryDebounce = false
+	isExecutingSlashes = false
+	abilityDebounce = false
 
 	Stellar.__properties.__connections.__combat = RunService.PreSimulation:Connect(function(dt)
 		if not Stellar.__properties.__autoparry_enabled or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
 		
 		local localName = LocalPlayer.Name
-		local playerPos = LocalPlayer.Character.PrimaryPart.Position
+		local character = LocalPlayer.Character
+		local primaryPart = character.PrimaryPart
 		local cam = workspace.CurrentCamera
 		
+		-- Network Latency Measurement
+		local pingMs = 50
+		pcall(function()
+			pingMs = Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+		end)
+		local pingSec = pingMs / 1000
+
 		-- Auto Ability Integration
 		if getgenv().AutoAbility or (Stellar and Stellar.__properties and Stellar.__properties.__auto_ability_enabled) then
 			local hotbar = LocalPlayer.PlayerGui:FindFirstChild("Hotbar")
 			local abilityGui = hotbar and hotbar:FindFirstChild("Ability")
 			local AbilityCD = abilityGui and abilityGui:FindFirstChild("UIGradient")
-			local char = LocalPlayer.Character
-			local abs = char and char:FindFirstChild("Abilities")
+			local abs = character and character:FindFirstChild("Abilities")
 			if abs then
 				local ball = Stellar.ball.get()
 				if ball and ball.Parent then
@@ -1167,152 +1058,82 @@ function Stellar.autoparry.start()
 			end
 		end
 
-		-- Trajectory Processing & Parry Trigger
+		-- Trajectory Processing & Parry Trigger (Stellar V4 Kinematic Formula)
 		local balls = Stellar.ball.get_all()
 		for _, ball in pairs(balls) do
-			if LocalPlayer.Character.PrimaryPart:FindFirstChild('SingularityCape') then continue end
+			if primaryPart:FindFirstChild('SingularityCape') then continue end
 			local zoomies = ball:FindFirstChild('zoomies')
 			if not zoomies then continue end
 			
 			if not Stellar.__properties.__tornado_time then Stellar.__properties.__tornado_time = 0 end
 			local aeroVFX = ball:FindFirstChild('AeroDynamicSlashVFX')
 			if aeroVFX then
-				Stellar.__properties.__tornado_time = tick()
+				Stellar.__properties.__tornado_time = os.clock()
 				aeroVFX:Destroy()
 			end
 			
 			local currentTornado = Runtime and Runtime:FindFirstChild('Tornado')
 			if currentTornado then
 				local tornadoDuration = currentTornado:GetAttribute('TornadoTime') or 1
-				if (tick() - Stellar.__properties.__tornado_time) < (tornadoDuration + 0.314159) then continue end
+				if (os.clock() - Stellar.__properties.__tornado_time) < (tornadoDuration + 0.314) then continue end
 			end
 
-			if not ball:GetAttribute("Stellar_TargetTracked") then
-				ball:SetAttribute("Stellar_TargetTracked", true)
-				local targetConn = ball:GetAttributeChangedSignal("target"):Connect(function() parryFlag = false end)
-				local destroyConn; destroyConn = ball.Destroying:Connect(function()
-					if targetConn then targetConn:Disconnect() end
-					if destroyConn then destroyConn:Disconnect() end
-				end)
+			if Stellar.__properties.__timehole_active or Stellar.__properties.__slashesoffury_active then
+				continue
 			end
-			
+
 			local currentTarget = ball:GetAttribute('target')
 			local isTargeted = (currentTarget == localName)
-			local velocity = zoomies.VectorVelocity
-			local ballPos = ball.Position
-			local distance = (playerPos - ballPos).Magnitude
+			local distance = (primaryPart.Position - ball.Position).Magnitude
 
-			if not _ZX_VelHistory[ball] then _ZX_VelHistory[ball] = {} end
-			table.insert(_ZX_VelHistory[ball], 1, { pos = ballPos, vel = velocity, t = tick() })
-			if #_ZX_VelHistory[ball] > _ZX_VelHistory.MAX_SAMPLES then table.remove(_ZX_VelHistory[ball], #_ZX_VelHistory[ball]) end
-			
-			local ballSpeed = math.max(velocity.Magnitude, 0)
-			local spamThresh = Stellar.__properties.__spam_threshold * Stellar.__properties.__auto_spam_distance_multiplier
-			local currentParryCount = Stellar.__properties.__parries or 0
-			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1)
-			
-			if autoSpamConditionsMet and distance <= spamThresh then
-				Stellar.animation.play_grab_parry()
-				
-				local comboCounter = ball:FindFirstChild("ComboCounter")
-				local comboVal = (comboCounter and (comboCounter:IsA("IntValue") or comboCounter:IsA("NumberValue"))) and comboCounter.Value or 0
-				local dynamicMultiplier = 1 + (ballSpeed / 120) + (comboVal * 0.1)
+			local isCurved, speed, tti = AnalyzeBallKinematics(ball, pingSec)
 
-				local batchAmount = Stellar.__properties.__spam_batch_amount
-				local baseBurstCount = (batchAmount == "FPS Priority" and 4) or (batchAmount == "Mobile Strong" and 15) or (batchAmount == "Extremely Fast" and 20) or 8
-				
-				local burstCount = math.floor(baseBurstCount * dynamicMultiplier * (dt * 60))
-				if burstCount < 1 then burstCount = 1 end
-				
-				if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
-					local keyIndex = Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.KeyTable[3]
-					local currentKey = keyIndex and Stellar.ZX_Parry.KeyTable[1][keyIndex]
-					if currentKey then
-						table.clear(Last_Positions_Cache)
-						if Alive and cam then
-							for _, character in ipairs(Alive:GetChildren()) do
-								local primary = character.PrimaryPart
-								if primary and character.Name ~= LocalPlayer.Name then
-									local ok, sp = pcall(cam.WorldToScreenPoint, cam, primary.Position)
-									if ok then Last_Positions_Cache[character.Name] = sp end
-								end
-							end
-						end
-						local vpCenter = { cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2 }
-						local pCF = Stellar.curve.get_cframe()
-						local remote = Stellar.ZX_Parry.Remote
-						local hash = Stellar.ZX_Parry.ParryHash
-						local token = generateToken(currentKey)
-						if token then
-							for _ = 1, burstCount do
-								remote:FireServer(hash, currentKey, token, 0.5, pCF, Last_Positions_Cache, vpCenter, false)
-							end
-						end
-					end
-				else
-					local cachedCF = Stellar.curve.get_cframe()
-					for _ = 1, burstCount do Stellar.parry.execute_bruteforce(cachedCF) end
-				end
-				
-				Stellar.__properties.__parries = Stellar.__properties.__parries + burstCount
-				task.delay(0.2, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - burstCount) end)
-			end
-			
-			if not isTargeted or parryFlag then continue end
+			-- Dynamic Thresholding Calculations (Stellar V4)
+			local cappedSpeedDiff = math.min(math.max(speed - 9.5, 0), 650)
+			local speedDivisor = (2.4 + cappedSpeedDiff * 0.002) * Stellar.__properties.__divisor_multiplier
+			local pingThreshold = math.clamp(pingMs / 20, 5, 17)
+			local parryDistanceThreshold = pingThreshold + math.max(speed / speedDivisor, 9.5)
 
-			if _ZX_VelHistory[ball] and #_ZX_VelHistory[ball] >= 2 then
-				local lastPos = _ZX_VelHistory[ball][2].pos
-				local currentPos = _ZX_VelHistory[ball][1].pos
-				local distanceJump = (currentPos - lastPos).Magnitude
-				if distanceJump > 75 and distance < 45 then
-					local cachedCF = Stellar.curve.get_cframe()
-					if getgenv().AutoParryMode == "Keypress" then Stellar.parry.keypress(cachedCF) else Stellar.parry.execute_bruteforce(cachedCF) end
-					parryFlag = true
-					task.spawn(function() task.wait(0.5) parryFlag = false end)
-					continue
-				end
-			end
-			
-			local pingValue = 0
-			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-			local ping = pingValue / 1000
-
-			local isCurved = Stellar.detection.is_curved(ball)
-			
-			-- ==========================================
-			-- TUNED SPEED-DIVISOR & SLOW BALL SCALING
-			-- ==========================================
-			local speedDivisor = math.clamp(3.5 - (ping * 2.0), 2.0, 3.8) * (Stellar.__properties.__divisor_multiplier or 1.0)
-			
-			-- Smooth curve penalty scaling instead of rigid multiplier
+			local reactionWindow = 0.30 + (pingSec * 1.2)
 			if isCurved then
-				if ballSpeed < 50 then
-					speedDivisor = speedDivisor * 1.15 -- Very gentle divisor increase for slow curve balls
-				else
-					speedDivisor = speedDivisor * 1.45 -- Moderate multiplier for fast curve balls
-				end
+				reactionWindow = reactionWindow * 0.20
+				parryDistanceThreshold = math.clamp(parryDistanceThreshold * 0.25, 2.0, 6.0)
 			end
-			
-			-- Distance Threshold calculation with dynamic slow-ball base padding
-			local baseBuffer = (ballSpeed < 45) and 18.0 or (isCurved and 10.0 or 12.0)
-			local parryDistance = (ballSpeed / speedDivisor) + baseBuffer
-			
-			-- Hard emergency distance fallback scaled directly to ball speed and ping
-			local minEmergencyDistance = math.clamp(14 + (ping * 25) + math.max(0, (40 - ballSpeed) * 0.2), 12, 22)
 
-			if distance <= parryDistance or distance <= minEmergencyDistance then
-				local cachedCF = Stellar.curve.get_cframe()
-				if getgenv().AutoParryMode == "Keypress" then 
-					Stellar.parry.keypress(cachedCF) 
-				else 
-					Stellar.parry.execute_action(cachedCF) 
+			-- Auto-Spam High-Frequency Trigger
+			local isClashing = Stellar.__properties.__auto_spam_enabled and (Stellar.__properties.__parries > 1)
+			local spamThresholdDist = Stellar.__properties.__spam_threshold * Stellar.__properties.__auto_spam_distance_multiplier * 10
+			if isClashing and distance <= spamThresholdDist then
+				spamAccumulator = spamAccumulator + dt
+				local targetInterval = 1 / Stellar.__properties.__spam_rate
+				local bursts = math.floor(spamAccumulator / targetInterval)
+				if bursts > 0 then
+					spamAccumulator = spamAccumulator - (bursts * targetInterval)
+					for _ = 1, math.min(bursts, 10) do
+						local cachedCF = Stellar.curve.get_cframe()
+						if getgenv().AutoParryMode == "Keypress" then Stellar.parry.keypress(cachedCF) else Stellar.parry.execute_bruteforce(cachedCF) end
+					end
 				end
-				parryFlag = true
-				local lastCycle = tick()
-				task.spawn(function()
-					repeat RunService.PreSimulation:Wait() until (tick() - lastCycle) >= 0.35 or not parryFlag
-					parryFlag = false
-				end)
+				continue
+			end
+
+			-- Auto Parry Collision Trigger
+			if isTargeted and not parryDebounce then
+				if tti <= reactionWindow or distance <= parryDistanceThreshold then
+					parryDebounce = true
+					local cachedCF = Stellar.curve.get_cframe()
+					if getgenv().AutoParryMode == "Keypress" then 
+						Stellar.parry.keypress(cachedCF) 
+					else 
+						Stellar.parry.execute_action(cachedCF) 
+					end
+					
+					task.spawn(function()
+						local cycleStart = os.clock()
+						repeat RunService.PreSimulation:Wait() until (os.clock() - cycleStart) >= 1 or not parryDebounce
+						parryDebounce = false
+					end)
+				end
 			end
 		end
 	end)
@@ -1377,79 +1198,34 @@ end
 
 -- Manual Spam Logic
 Stellar.manual_spam = {}
+local manualSpamActive = false
 local manualConnection = nil
-
 function Stellar.manual_spam.start()
 	Stellar.manual_spam.stop()
+	manualSpamActive = true
 	manualConnection = RunService.PreSimulation:Connect(function()
-		if not Stellar.__properties.__manual_spam_enabled or not Stellar.__properties.__gui_spam_active then
+		if not (Stellar.__properties.__manual_spam_enabled and Stellar.__properties.__gui_spam_active) then
 			Stellar.manual_spam.stop()
 			return
 		end
-		
 		local batchAmount = Stellar.__properties.__spam_batch_amount
 		local burstCount = (batchAmount == "FPS Priority" and 4) or (batchAmount == "Mobile Strong" and 15) or (batchAmount == "Extremely Fast" and 20) or 8
 		local cachedCF = Stellar.curve.get_cframe()
-		
 		for _ = 1, burstCount do
-			if getgenv().AutoParryMode == "Keypress" then 
-				Stellar.parry.keypress(cachedCF) 
-			else 
-				Stellar.parry.execute_bruteforce(cachedCF) 
-			end
+			if getgenv().AutoParryMode == "Keypress" then Stellar.parry.keypress(cachedCF) else Stellar.parry.execute_bruteforce(cachedCF) end
 		end
-		
-		if Stellar.__properties.__play_animation then 
-			Stellar.animation.play_grab_parry() 
-		end
+		if Stellar.__properties.__play_animation then Stellar.animation.play_grab_parry() end
 	end)
 end
-
 function Stellar.manual_spam.stop()
-	if manualConnection then 
-		manualConnection:Disconnect()
-		manualConnection = nil 
-	end
+	manualSpamActive = false
+	if manualConnection then manualConnection:Disconnect(); manualConnection = nil end
 end
-
--- Keybind Toggler
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if input.KeyCode == Stellar.__properties.__manual_spam_key then
-        if Stellar.__properties.__manual_spam_method == "UI Button Only" then return end
-        if not Stellar.__properties.__manual_spam_enabled then return end
-        
-        Stellar.__properties.__gui_spam_active = not Stellar.__properties.__gui_spam_active
-        
-        if StatusText and Stroke then
-            if Stellar.__properties.__gui_spam_active then
-                StatusText.Text = "SPAM\nON"
-                StatusText.TextColor3 = Color3.fromRGB(100, 255, 100)
-                Stroke.Color = Color3.fromRGB(100, 255, 100)
-            else
-                StatusText.Text = "SPAM\nOFF"
-                StatusText.TextColor3 = Color3.fromRGB(255, 100, 100)
-                Stroke.Color = Color3.fromRGB(255, 100, 100)
-            end
-        end
-
-        if Stellar.__properties.__gui_spam_active then
-            if Stellar.manual_spam and typeof(Stellar.manual_spam.start) == "function" then
-                Stellar.manual_spam.start()
-            end
-        else
-            if Stellar.manual_spam and typeof(Stellar.manual_spam.stop) == "function" then
-                Stellar.manual_spam.stop()
-            end
-        end
-    end
-end)
 
 -- UI Controls Registration
 local autoparry_module = AutoparryTab:create_module({
 	title = "Auto Parry Core",
-	description = "Speed-Divisor trajectory & curve protections",
+	description = "Kinematic trajectory & trajectory protections",
 	flag = "AutoParryModule",
 	section = "left",
 	callback = function(state)
@@ -1515,22 +1291,22 @@ autoparry_module:create_checkbox({
 	end
 })
 
--- Unified Spam Module
 local spam_module = SpamTab:create_module({
-	title = "Spam Module",
-	description = "Configure automated and manual rapid parry execution",
-	flag = "SpamMergedModule",
+	title = "Auto Spam",
+	description = "Brute force automated rapid parry execution",
+	flag = "AutoSpamModule",
 	section = "left",
-	callback = function(state) end
-})
-
--- Auto Spam Controls
-spam_module:create_checkbox({
-	title = "Enable Auto Spam",
-	flag = "AutoSpamToggle",
 	callback = function(state) Stellar.__properties.__auto_spam_enabled = state end
 })
-
+spam_module:create_slider({
+	title = "Spam Actions Per Second",
+	flag = "SpamRate",
+	maximum_value = 230,
+	minimum_value = 10,
+	value = 100,
+	round_number = true,
+	callback = function(value) Stellar.__properties.__spam_rate = value end
+})
 spam_module:create_slider({
 	title = "Auto Spam Distance",
 	flag = "AutoSpamDist",
@@ -1540,7 +1316,6 @@ spam_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__spam_threshold = value end
 })
-
 spam_module:create_dropdown({
 	title = "Spam Batch Mode",
 	flag = "SpamBatchAmount",
@@ -1549,58 +1324,21 @@ spam_module:create_dropdown({
 	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
 })
 
-spam_module:create_divider({})
-
--- Manual Spam Controls
-spam_module:create_checkbox({
-	title = "Enable Manual Spam",
-	flag = "ManualSpamToggle",
+local manual_spam_module = SpamTab:create_module({
+	title = "Manual Spam",
+	description = "Spam speed based on Batch mod you chose.",
+	flag = "ManualSpamModule",
+	section = "right",
 	callback = function(state)
 		Stellar.__properties.__manual_spam_enabled = state
+		if ScreenGui then ScreenGui.Enabled = state end
 		if not state then
 			Stellar.__properties.__gui_spam_active = false
-			if StatusText and Stroke then
+			if StatusText then
 				StatusText.Text = "SPAM\nOFF"
 				StatusText.TextColor3 = Color3.fromRGB(255, 100, 100)
 				Stroke.Color = Color3.fromRGB(255, 100, 100)
 			end
-			if Stellar.manual_spam and typeof(Stellar.manual_spam.stop) == "function" then 
-				Stellar.manual_spam.stop() 
-			end
-		end
-	end
-})
-
-spam_module:create_dropdown({
-	title = "Manual Trigger Method",
-	flag = "ManualSpamMethod",
-	options = { "Keybind Only", "UI Button Only", "Both" },
-	maximum_options = 1,
-	callback = function(value)
-		Stellar.__properties.__manual_spam_method = value
-		if ScreenGui then
-			if value == "Keybind Only" then
-				ScreenGui.Enabled = false
-			else
-				ScreenGui.Enabled = true 
-			end
-		end
-	end
-})
-
-spam_module:create_dropdown({
-	title = "Spam Hotkey",
-	flag = "ManualSpamKeybindSelect",
-	options = { "V", "C", "X", "Z", "F", "G", "Q", "E", "R" },
-	maximum_options = 1,
-	callback = function(value)
-		local keymap = {
-			V = Enum.KeyCode.V, C = Enum.KeyCode.C, X = Enum.KeyCode.X,
-			Z = Enum.KeyCode.Z, F = Enum.KeyCode.F, G = Enum.KeyCode.G,
-			Q = Enum.KeyCode.Q, E = Enum.KeyCode.E, R = Enum.KeyCode.R
-		}
-		if keymap[value] then
-			Stellar.__properties.__manual_spam_key = keymap[value]
 		end
 	end
 })
@@ -1848,4 +1586,4 @@ misc_module:create_button({
 })
 
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "V3.41.2 Loaded .", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "V3.40 Loaded.", duration = 3 })
