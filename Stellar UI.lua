@@ -8,6 +8,7 @@ local HttpService = game:GetService("HttpService")
 local ContentProvider = game:GetService("ContentProvider")
 
 getgenv().GG = {
+	SelectedLanguage = "en",
     Language = {
         CheckboxEnabled = "Enabled",
         CheckboxDisabled = "Disabled",
@@ -857,214 +858,201 @@ function Library:create_loader(settings)
     return loader
 end
 
--- Official Junkie SDK Key System Integration
-function Library:create_key_system(settings)
-    settings = settings or {}
-    local service_name = settings.service or "Stellar"
-    local identifier = settings.identifier or "1173241"
-    local provider = settings.provider or "Stellar Key"
-    local key_file = settings.key_file or "Stellar_Key.txt"
-    local on_success = settings.callback or function() end
-
-    -- Load Junkie SDK dynamically
-    local Junkie = nil
-    pcall(function()
-        Junkie = loadstring(game:HttpGet("https://jnkie.com/sdk/library.lua"))()
-        Junkie.service = service_name
-        Junkie.identifier = identifier
-        Junkie.provider = provider
-    end)
-
-    local function verify_key(key)
-        if not Junkie then
-            return false, "Failed to load Junkie SDK."
-        end
-
-        local result = Junkie.check_key(key)
-        if result and result.valid then
-            if result.message == "KEYLESS" then
-                getgenv().SCRIPT_KEY = "KEYLESS"
-                return true, "Keyless mode"
-            elseif result.message == "KEY_VALID" then
-                getgenv().SCRIPT_KEY = key
-                return true, "Key valid"
-            else
-                getgenv().SCRIPT_KEY = key
-                return true, "Key verified"
-            end
-        end
-
-        return false, "Invalid key"
-    end
-
-    local function get_key_link()
-        if Junkie and Junkie.get_key_link then
-            return Junkie.get_key_link()
-        end
-        return "https://jnkie.com/"
-    end
-
-    -- Auto-check saved key if it exists
-    if isfile and readfile and isfile(key_file) then
-        local saved_key = readfile(key_file)
-        if saved_key and #saved_key > 0 then
-            local valid, msg = verify_key(saved_key)
-            if valid then
-                Library.SendNotification({
-                    title = "Key System",
-                    text = "Saved key auto-verified!",
-                    duration = 3
-                })
-                task.spawn(on_success)
-                return
-            end
-        end
-    end
-
-    -- Create GUI for Key Verification
-    local old_key_gui = CoreGui:FindFirstChild("StellarKeySystem")
-    if old_key_gui then old_key_gui:Destroy() end
-
-    local KeyGui = Instance.new("ScreenGui")
-    KeyGui.Name = "StellarKeySystem"
-    KeyGui.ResetOnSpawn = false
-    KeyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    KeyGui.Parent = CoreGui
-
-    local Container = Instance.new("Frame")
-    Container.Name = "KeyContainer"
-    Container.AnchorPoint = Vector2.new(0.5, 0.5)
-    Container.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Container.Size = UDim2.new(0, 300, 0, 180)
-    Container.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
-    Container.BorderSizePixel = 0
-    Container.Parent = KeyGui
-
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 12)
-    Corner.Parent = Container
-
-    local Stroke = Instance.new("UIStroke")
-    Stroke.Color = Color3.fromRGB(255, 185, 110)
-    Stroke.Thickness = 1.5
-    Stroke.Transparency = 0.15
-    Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    Stroke.Parent = Container
-
-    local Title = Instance.new("TextLabel")
-    Title.Name = "Title"
-    Title.Size = UDim2.new(1, -20, 0, 24)
-    Title.Position = UDim2.new(0, 10, 0, 12)
-    Title.BackgroundTransparency = 1
-    Title.Text = settings.title or "Stellar Key System"
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.TextSize = 16
-    Title.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    Title.Parent = Container
-
-    local KeyBox = Instance.new("TextBox")
-    KeyBox.Name = "KeyBox"
-    KeyBox.Size = UDim2.new(1, -24, 0, 32)
-    KeyBox.Position = UDim2.new(0, 12, 0, 48)
-    KeyBox.BackgroundColor3 = Color3.fromRGB(25, 18, 12)
-    KeyBox.BorderSizePixel = 0
-    KeyBox.PlaceholderText = "Enter key here..."
-    KeyBox.Text = ""
-    KeyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    KeyBox.TextSize = 12
-    KeyBox.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    KeyBox.ClearTextOnFocus = false
-    KeyBox.Parent = Container
-
-    local KeyBoxCorner = Instance.new("UICorner")
-    KeyBoxCorner.CornerRadius = UDim.new(0, 6)
-    KeyBoxCorner.Parent = KeyBox
-
-    local VerifyBtn = Instance.new("TextButton")
-    VerifyBtn.Name = "VerifyBtn"
-    VerifyBtn.Size = UDim2.new(0.46, 0, 0, 32)
-    VerifyBtn.Position = UDim2.new(0, 12, 0, 92)
-    VerifyBtn.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
-    VerifyBtn.Text = "Verify Key"
-    VerifyBtn.TextColor3 = Color3.fromRGB(12, 7, 4)
-    VerifyBtn.TextSize = 12
-    VerifyBtn.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-    VerifyBtn.Parent = Container
-
-    local VerifyCorner = Instance.new("UICorner")
-    VerifyCorner.CornerRadius = UDim.new(0, 6)
-    VerifyCorner.Parent = VerifyBtn
-
-    local GetKeyBtn = Instance.new("TextButton")
-    GetKeyBtn.Name = "GetKeyBtn"
-    GetKeyBtn.Size = UDim2.new(0.46, 0, 0, 32)
-    GetKeyBtn.Position = UDim2.new(0.54, 0, 0, 92)
-    GetKeyBtn.BackgroundColor3 = Color3.fromRGB(38, 24, 15)
-    GetKeyBtn.Text = "Get Key"
-    GetKeyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    GetKeyBtn.TextSize = 12
-    GetKeyBtn.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    GetKeyBtn.Parent = Container
-
-    local GetKeyCorner = Instance.new("UICorner")
-    GetKeyCorner.CornerRadius = UDim.new(0, 6)
-    GetKeyCorner.Parent = GetKeyBtn
-
-    local StatusLabel = Instance.new("TextLabel")
-    StatusLabel.Name = "StatusLabel"
-    StatusLabel.Size = UDim2.new(1, -24, 0, 20)
-    StatusLabel.Position = UDim2.new(0, 12, 0, 134)
-    StatusLabel.BackgroundTransparency = 1
-    StatusLabel.Text = "Enter key to continue"
-    StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-    StatusLabel.TextSize = 11
-    StatusLabel.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    StatusLabel.Parent = Container
-
-    -- Button Interactions
-    GetKeyBtn.MouseButton1Click:Connect(function()
-        local link = get_key_link()
-        if setclipboard or set_clipboard then
-            (setclipboard or set_clipboard)(link)
-            StatusLabel.Text = "Stellar Key link copied to clipboard!"
-            StatusLabel.TextColor3 = Color3.fromRGB(110, 255, 150)
-        else
-            StatusLabel.Text = "Clipboard not supported."
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
-        end
-    end)
-
-    VerifyBtn.MouseButton1Click:Connect(function()
-        local input_key = KeyBox.Text:gsub("%s+", "")
-        if #input_key == 0 then
-            StatusLabel.Text = "Please enter a key!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
-            return
-        end
-
-        StatusLabel.Text = "Checking key..."
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 220, 110)
-
-        task.spawn(function()
-            local valid, message = verify_key(input_key)
-            if valid then
-                StatusLabel.Text = message
-                StatusLabel.TextColor3 = Color3.fromRGB(110, 255, 150)
-
-                if writefile then
-                    writefile(key_file, input_key)
-                end
-
-                task.wait(1)
-                KeyGui:Destroy()
-                task.spawn(on_success)
-            else
-                StatusLabel.Text = message
-                StatusLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
-            end
-        end)
-    end)
+-- ====================================================================
+-- 1. PANDA AUTH SYSTEM INITIALIZATION (PUSL-V4)
+-- ====================================================================
+local PUSL = loadstring(game:HttpGet("https://secure.pandauth.com/pv4/lib"))()
+if not PUSL or type(PUSL.configure) ~= "function" then
+    return warn("[Panda] Library failed to initialize.")
 end
+
+PUSL.configure({
+    serviceId = "stellar", -- Replace with your Panda Auth Service ID
+})
+
+-- ====================================================================
+-- 2. GUI CREATION
+-- ====================================================================
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+
+-- Container setup
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PandaAuthUI"
+ScreenGui.ResetOnSpawn = false
+
+-- Fallback to PlayerGui if CoreGui is restricted
+local success, _ = pcall(function()
+    ScreenGui.Parent = CoreGui
+end)
+if not success then
+    ScreenGui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Main Window
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 380, 0, 220)
+MainFrame.Position = UDim2.new(0.5, -190, 0.5, -110)
+MainFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(45, 45, 55)
+MainStroke.Thickness = 1
+MainStroke.Parent = MainFrame
+
+-- Header Title
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Name = "TitleLabel"
+TitleLabel.Size = UDim2.new(1, 0, 0, 45)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "Panda Auth System"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 18
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.Parent = MainFrame
+
+-- Key Input Box
+local KeyTextBox = Instance.new("TextBox")
+KeyTextBox.Name = "KeyTextBox"
+KeyTextBox.Size = UDim2.new(0.85, 0, 0, 40)
+KeyTextBox.Position = UDim2.new(0.075, 0, 0.28, 0)
+KeyTextBox.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+KeyTextBox.PlaceholderText = "Enter key here..."
+KeyTextBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+KeyTextBox.Text = ""
+KeyTextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeyTextBox.TextSize = 14
+KeyTextBox.Font = Enum.Font.Gotham
+KeyTextBox.ClearTextOnFocus = false
+KeyTextBox.Parent = MainFrame
+
+local BoxCorner = Instance.new("UICorner")
+BoxCorner.CornerRadius = UDim.new(0, 6)
+BoxCorner.Parent = KeyTextBox
+
+local BoxStroke = Instance.new("UIStroke")
+BoxStroke.Color = Color3.fromRGB(35, 35, 45)
+BoxStroke.Thickness = 1
+BoxStroke.Parent = KeyTextBox
+
+-- Status Message Label
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Size = UDim2.new(0.85, 0, 0, 20)
+StatusLabel.Position = UDim2.new(0.075, 0, 0.52, 0)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = ""
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 12
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Parent = MainFrame
+
+-- Verify Button
+local VerifyButton = Instance.new("TextButton")
+VerifyButton.Name = "VerifyButton"
+VerifyButton.Size = UDim2.new(0.4, 0, 0, 36)
+VerifyButton.Position = UDim2.new(0.075, 0, 0.68, 0)
+VerifyButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+VerifyButton.Text = "Verify Key"
+VerifyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+VerifyButton.TextSize = 14
+VerifyButton.Font = Enum.Font.GothamBold
+VerifyButton.Parent = MainFrame
+
+local VerifyCorner = Instance.new("UICorner")
+VerifyCorner.CornerRadius = UDim.new(0, 6)
+VerifyCorner.Parent = VerifyButton
+
+-- Get Key Button
+local GetKeyButton = Instance.new("TextButton")
+GetKeyButton.Name = "GetKeyButton"
+GetKeyButton.Size = UDim2.new(0.4, 0, 0, 36)
+GetKeyButton.Position = UDim2.new(0.525, 0, 0.68, 0)
+GetKeyButton.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+GetKeyButton.Text = "Get Key"
+GetKeyButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+GetKeyButton.TextSize = 14
+GetKeyButton.Font = Enum.Font.GothamBold
+GetKeyButton.Parent = MainFrame
+
+local GetKeyCorner = Instance.new("UICorner")
+GetKeyCorner.CornerRadius = UDim.new(0, 6)
+GetKeyCorner.Parent = GetKeyButton
+
+-- ====================================================================
+-- 3. LOGIC & EVENT HANDLING
+-- ====================================================================
+
+-- Utility: Update Status Text
+local function setStatus(message, color)
+    StatusLabel.Text = message
+    StatusLabel.TextColor3 = color or Color3.fromRGB(200, 200, 200)
+end
+
+-- Button Action: Get Key URL
+GetKeyButton.MouseButton1Click:Connect(function()
+    local keyUrl = PUSL.getKeyUrl()
+    if setclipboard then
+        setclipboard(keyUrl)
+        setStatus("Key URL copied to clipboard!", Color3.fromRGB(0, 255, 150))
+    else
+        setStatus("URL: " .. keyUrl, Color3.fromRGB(255, 255, 255))
+    end
+end)
+
+-- Execute Script Callback function
+local function onAuthenticated(isPremium)
+    setStatus("Authentication successful!", Color3.fromRGB(0, 255, 120))
+    
+    -- Smoothly fade out GUI
+    local fadeInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local fadeTween = TweenService:Create(MainFrame, fadeInfo, {BackgroundTransparency = 1})
+    fadeTween:Play()
+    
+    task.wait(0.5)
+    ScreenGui:Destroy()
+    
+    -- ================================================================
+    -- YOUR PROTECTED CODE HERE
+    -- ================================================================
+    print("[Panda Auth] Verified! Premium Status:", isPremium)
+    
+    -- Paste your main script or loadstring logic below:
+    -- print("Main script running...")
+    -- ================================================================
+end
+
+-- Button Action: Verify Key Input
+VerifyButton.MouseButton1Click:Connect(function()
+    local inputKey = KeyTextBox.Text
+    if inputKey == "" then
+        setStatus("Please enter a key first.", Color3.fromRGB(255, 100, 100))
+        return
+    end
+
+    setStatus("Validating...", Color3.fromRGB(255, 200, 0))
+    
+    -- Perform validation task asynchronously to prevent UI freeze
+    task.spawn(function()
+        local result = PUSL.validate(inputKey)
+
+        if result and result.success then
+            onAuthenticated(result.isPremium)
+        else
+            setStatus("Invalid key. Please check and try again.", Color3.fromRGB(255, 80, 80))
+        end
+    end)
+end)
+
 
 -- Customizes ONLY the main window's backdrop image — tabs, modules, toggles,
 -- sliders etc. keep their own backgrounds untouched since they're separate
