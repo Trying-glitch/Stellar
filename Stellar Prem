@@ -1,4 +1,3 @@
--- Stellar V3.40 Engine - Fused with Angeli Architecture & Advanced Kinematic Anti-Curve
 local cloneref = cloneref or function(obj) return obj end
 local getconnections = getconnections or function() return {} end
 local getupvalues = debug.getupvalues or getupvalues or function() return {} end
