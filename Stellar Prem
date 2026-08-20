@@ -1124,7 +1124,7 @@ function Stellar.autoparry.start()
 									local btn = ReplicatedStorage.Remotes:FindFirstChild("AbilityButtonPress")
 									if btn then if btn:IsA("RemoteEvent") then btn:FireServer() else btn:Fire() end end
 								end)
-								for _ = 1, 34 do
+								for _ = 1, 6 do
 									Stellar.parry.execute_bruteforce()
 									task.wait(0.025)
 								end
@@ -1194,9 +1194,15 @@ function Stellar.autoparry.start()
 			local ballSpeed = math.max(velocity.Magnitude, 0)
 			local spamThresh = Stellar.__properties.__spam_threshold * Stellar.__properties.__auto_spam_distance_multiplier
 			local currentParryCount = Stellar.__properties.__parries or 0
-			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1)
+			-- Using your exact UI variable, with the 'or 35' fallback just in case the UI hasn't loaded yet
+local maxClashDistance = Stellar.__properties.spam_threshold 
+
+-- The updated condition
+local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
+
 			
 -- Rapid Auto-Spam Processing Logic (Zero-Overhead + Math Optimizations)
+
 if autoSpamConditionsMet and distance <= spamThresh then
 	Stellar.animation.play_grab_parry()
 	
@@ -1217,12 +1223,12 @@ if autoSpamConditionsMet and distance <= spamThresh then
 	local speedScale = math.clamp(ballSpeed * 0.0125, 1, 4) -- Replaced / 80 with * 0.0125
 	local ballDistanceScale = math.clamp(20 / math.max(distance, 1), 0.5, 3) 
 	local latencyScale = 1 + (ping * 1.5) 
-	local opponentScale = math.clamp(20 / math.max(opponent_dist, 1), 1, 2.5) 
-	local fpsScale = math.clamp(currentFPS * 0.02, 0.3, 1.0) -- Replaced / 50 with * 0.02
+	local opponentScale = math.clamp(20 / math.max(opponent_dist, 1), 1, 3.5) 
+	local fpsScale = math.clamp(currentFPS * 0.33, 0.8, 1.0) -- Replaced / 50 with * 0.02
 	
 	-- Calculate burst count
-	local rawBurst = 3 * speedScale * ballDistanceScale * latencyScale * opponentScale
-	local burstCount = math.clamp(math.floor(rawBurst * fpsScale), 2, 40)
+	local rawBurst = 6 * speedScale * ballDistanceScale * latencyScale * opponentScale
+	local burstCount = math.clamp(math.floor(rawBurst * fpsScale), 4, 25)
 	
 	-- 4. Zero-Overhead Execution Pipeline
 	if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
