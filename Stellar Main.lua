@@ -905,7 +905,7 @@ function Stellar.parry.execute_bruteforce(precalc_cframe)
 	task.delay(0.5, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - 1) end)
 end
 
--- Animation Provider Pipeline
+-- Animation Provider Pipeline (FIXED)
 Stellar.animation = {}
 local SwordAPI = ReplicatedStorage:WaitForChild("Shared", 9e9):WaitForChild("SwordAPI", 9e9)
 local last_anim_tick = 0
@@ -917,30 +917,44 @@ function Stellar.animation.play_grab_parry()
 	local humanoid = character:FindFirstChildOfClass('Humanoid')
 	local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
 	if not humanoid or not animator then return end
+	
 	local sword_name = character:GetAttribute('CurrentlyEquippedSword')
 	if not sword_name or sword_name == "" then return end
+	
 	local sword_api = SwordAPI:WaitForChild("Collection", 9e9)
 	local parry_animation = sword_api:WaitForChild("Default", 9e9):FindFirstChild('GrabParry')
-	if not parry_animation then return end
+	
 	local success, sword_data = pcall(function()
 		return ReplicatedStorage.Shared.ReplicatedInstances.Swords.GetSword:Invoke(sword_name)
 	end)
-	if success and type(sword_data) == 'table' and sword_data then
-		for _, object in pairs(sword_api:GetChildren()) do
-			if object.Name == sword_data then
-				local animation_type = object:FindFirstChild('GrabParry') and 'GrabParry' or 'Grab'
-				if object:FindFirstChild(animation_type) then
-					parry_animation = object[animation_type]
+	
+	if success and sword_data then
+		local target_name = nil
+		if type(sword_data) == 'table' then
+			target_name = sword_data.Name or sword_data.SwordName or sword_data[1]
+		elseif type(sword_data) == 'string' then
+			target_name = sword_data
+		end
+		
+		if target_name then
+			local matched_folder = sword_api:FindFirstChild(target_name)
+			if matched_folder then
+				local anim_type = matched_folder:FindFirstChild('GrabParry') and 'GrabParry' or 'Grab'
+				if matched_folder:FindFirstChild(anim_type) then
+					parry_animation = matched_folder[anim_type]
 				end
 			end
 		end
 	end
-	if Stellar.__properties.__grab_animation and Stellar.__properties.__grab_animation.IsPlaying then
-		Stellar.__properties.__grab_animation:Stop()
+	
+	if parry_animation then
+		if Stellar.__properties.__grab_animation and Stellar.__properties.__grab_animation.IsPlaying then
+			Stellar.__properties.__grab_animation:Stop()
+		end
+		Stellar.__properties.__grab_animation = animator:LoadAnimation(parry_animation)
+		Stellar.__properties.__grab_animation.Priority = Enum.AnimationPriority.Action4
+		Stellar.__properties.__grab_animation:Play()
 	end
-	Stellar.__properties.__grab_animation = animator:LoadAnimation(parry_animation)
-	Stellar.__properties.__grab_animation.Priority = Enum.AnimationPriority.Action4
-	Stellar.__properties.__grab_animation:Play()
 end
 
 -- Fused Anti-Curve Physics Engine (Kinematic Vectors + Arc Warping)
@@ -1124,7 +1138,7 @@ function Stellar.autoparry.start()
 									local btn = ReplicatedStorage.Remotes:FindFirstChild("AbilityButtonPress")
 									if btn then if btn:IsA("RemoteEvent") then btn:FireServer() else btn:Fire() end end
 								end)
-								for _ = 1, 34 do
+								for _ = 1, 6 do
 									Stellar.parry.execute_bruteforce()
 									task.wait(0.025)
 								end
@@ -1194,13 +1208,33 @@ function Stellar.autoparry.start()
 			local ballSpeed = math.max(velocity.Magnitude, 0)
 			local spamThresh = Stellar.__properties.__spam_threshold * Stellar.__properties.__auto_spam_distance_multiplier
 			local currentParryCount = Stellar.__properties.__parries or 0
-			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1)
-			
-			-- Rapid Auto-Spam Processing Logic (Optimized for Engine Performance)
+			local maxClashDistance = Stellar.__properties.__spam_threshold or 35
+
+			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
+
+			-- Rapid Auto-Spam Processing Logic
 			if autoSpamConditionsMet and distance <= spamThresh then
 				Stellar.animation.play_grab_parry()
-				local batchAmount = Stellar.__properties.__spam_batch_amount
-				local burstCount = (batchAmount == "FPS Priority" and 4) or (batchAmount == "Bruteforce" and 15) or (batchAmount == "Extremely Fast" and 20) or 8
+				
+				local pingValue = 0
+				pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+				local ping = pingValue * 0.001
+				
+				local currentFPS = (dt and dt > 0) and (1 / dt) or 50
+				
+				local closest_opponent = Stellar.player.get_closest()
+				local opponent_dist = (closest_opponent and closest_opponent.PrimaryPart) 
+					and LocalPlayer:DistanceFromCharacter(closest_opponent.PrimaryPart.Position) 
+					or math.huge
+				
+				local speedScale = math.clamp(ballSpeed * 0.0125, 1, 4)
+				local ballDistanceScale = math.clamp(20 / math.max(distance, 1), 0.5, 3) 
+				local latencyScale = 1 + (ping * 1.5) 
+				local opponentScale = math.clamp(20 / math.max(opponent_dist, 1), 1, 3.5) 
+				local fpsScale = math.clamp(currentFPS * 0.33, 0.8, 1.0)
+				
+				local rawBurst = 6 * speedScale * ballDistanceScale * latencyScale * opponentScale
+				local burstCount = math.clamp(math.floor(rawBurst * fpsScale), 4, 25)
 				
 				if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
 					local keyIndex = Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.KeyTable[3]
@@ -1208,17 +1242,11 @@ function Stellar.autoparry.start()
 					if currentKey then
 						local token = generateToken(currentKey)
 						if token then
-							-- OPTIMIZATION 1: Pre-calculate all payload variables before the loop.
-							-- Multiplication (* 0.5) is faster for the Luau engine than division (/ 2).
-							local vpSize = cam.ViewportSize
-							local vpCenter = { vpSize.X * 0.5, vpSize.Y * 0.5 }
 							local pCF = Stellar.curve.get_cframe()
 							local remote = Stellar.ZX_Parry.Remote
 							local hash = Stellar.ZX_Parry.ParryHash
+							local vpCenter = { cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5 }
 							
-							-- OPTIMIZATION 2: Removed the per-frame Alive:GetChildren() loop. 
-							-- We now rely on the Last_Positions_Cache which is updated asynchronously elsewhere,
-							-- stripping out massive CPU overhead during the spam burst.
 							for _ = 1, burstCount do
 								remote:FireServer(hash, currentKey, token, 0.5, pCF, Last_Positions_Cache, vpCenter, false)
 							end
@@ -1226,13 +1254,14 @@ function Stellar.autoparry.start()
 					end
 				else
 					local cachedCF = Stellar.curve.get_cframe()
-					for _ = 1, burstCount do Stellar.parry.execute_bruteforce(cachedCF) end
+					for _ = 1, burstCount do 
+						Stellar.parry.execute_bruteforce(cachedCF) 
+					end
 				end
 				
 				Stellar.__properties.__parries = Stellar.__properties.__parries + burstCount
 				task.delay(0.2, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - burstCount) end)
 			end
-
 			
 			if not isTargeted or parryFlag then continue end
 
@@ -1256,11 +1285,9 @@ function Stellar.autoparry.start()
 			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
 			local ping = pingValue / 1000
 
-			-- Vector approach calculation
 			local approachDir = (distance > 0) and (toPlayerVec / distance) or Vector3.new()
 			local approachSpeed = velocity:Dot(approachDir)
 
-			-- Solve Quadratic Kinematic TTI: 0.5 * a * t^2 + v * t - d = 0
 			local kinematicProps = Stellar.detection.__kinematic_properties[ball]
 			local accelVec = kinematicProps and kinematicProps.smooth_accel_vec or Vector3.new()
 			local approachAccel = accelVec:Dot(approachDir)
@@ -1287,13 +1314,10 @@ function Stellar.autoparry.start()
 				calculatedTTI = distance / approachSpeed
 			end
 
-			-- Optimized Ping-Compensated Distance Threshold (Prevents Early Parries)
 			local latencyDistanceOffset = (ping * 0.6) * approachSpeed
 			local pingAdjustedDistance = math.max(0, distance - latencyDistanceOffset)
 
-			-- Reduced base reaction window and scaled down ping compensation
 			local reactionWindow = 0.12 + (ping * 0.8)
-			-- Lowered baseline distance so it waits for the ball to get closer
 			local distanceThreshold = 9 + (Stellar.__properties.__accuracy / 15)
 
 			if isCurved then
@@ -1501,35 +1525,20 @@ autoparry_module:create_checkbox({
 
 local spam_module = SpamTab:create_module({
 	title = "Auto Spam",
-	description = "Brute force automated rapid parry execution",
+	description = "Smart Spam that changes it's speed accordingly",
 	flag = "AutoSpamModule",
 	section = "left",
 	callback = function(state) Stellar.__properties.__auto_spam_enabled = state end
 })
-spam_module:create_slider({
-	title = "Spam Actions Per Second",
-	flag = "SpamRate",
-	maximum_value = 230,
-	minimum_value = 10,
-	value = 100,
-	round_number = true,
-	callback = function(value) Stellar.__properties.__spam_rate = value end
-})
+
 spam_module:create_slider({
 	title = "Auto Spam Distance",
 	flag = "AutoSpamDist",
-	maximum_value = 100,
+	maximum_value = 50,
 	minimum_value = 5,
 	value = 35,
 	round_number = true,
 	callback = function(value) Stellar.__properties.__spam_threshold = value end
-})
-spam_module:create_dropdown({
-	title = "Spam Batch Mode",
-	flag = "SpamBatchAmount",
-	options = { "FPS Priority", "Balanced", "Bruteforce", "Extremely Fast" },
-	maximum_options = 1,
-	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
 })
 
 local manual_spam_module = SpamTab:create_module({
@@ -1549,6 +1558,14 @@ local manual_spam_module = SpamTab:create_module({
 			end
 		end
 	end
+})
+
+manual_spam_module:create_dropdown({
+	title = "Spam Batch Mode",
+	flag = "SpamBatchAmount",
+	options = { "FPS Priority", "Balanced", "Bruteforce", "Extremely Fast" },
+	maximum_options = 1,
+	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
 })
 
 local detection_module = DetectionTab:create_module({
@@ -1805,4 +1822,4 @@ misc_module:create_button({
 
 -- Library Load Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V4.5 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5 Initialized & Fixed.", duration = 3 })
