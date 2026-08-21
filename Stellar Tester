@@ -1768,4 +1768,4 @@ misc_module:create_button({
 
 -- Library Load Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V4.5 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar Tester Initialized.", duration = 3 })
