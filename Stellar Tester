@@ -1025,11 +1025,8 @@ task.spawn(function()
     end)
 end)
 
--- ============================================================================
--- FIXED ANTI-CURVE & AUTOPARRY SUBSYSTEM
--- ============================================================================
 
--- Fixed Fused Anti-Curve Physics Engine
+-- Fused Anti-Curve Physics Engine (Kinematic Vectors + Arc Warping)
 Stellar.detection = {
 	__ball_properties = {
 		__lerp_radians = 0,
@@ -1063,8 +1060,7 @@ function Stellar.detection.is_curved(ball)
 	local velocityDir = velocity / speed
 	local currentDot = toPlayerDir:Dot(velocityDir)
 
-	-- FIX 1: Loosened dot threshold from -0.10 to -0.40 to avoid false positive curve detection
-	if currentDot < -0.40 then
+	if currentDot < -0.30 then
 		return true
 	end
 
@@ -1137,6 +1133,7 @@ function Stellar.detection.is_curved(ball)
 		end
 	end
 
+	-- Secondary Geometric Arc Fallback Check
 	local clamped_dot = math.clamp(currentDot, -1, 1)
 	local radians = math.asin(clamped_dot)
 	local ballProps = Stellar.detection.__ball_properties
@@ -1154,11 +1151,15 @@ function Stellar.detection.is_curved(ball)
 	return false
 end
 
--- Fixed Primary Auto Parry Execution Engine
-Stellar.autoparry = {}
+if workspace:FindFirstChild('Balls') then
+	workspace.Balls.ChildRemoved:Connect(function(child)
+		Stellar.detection.__kinematic_properties[child] = nil
+	end)
+end
 
+-- Primary Auto Parry Execution Engine
+Stellar.autoparry = {}
 local parryFlag = false
-local lastParryReset = 0
 local isExecutingSlashes = false
 local abilityDebounce = false
 
@@ -1169,19 +1170,69 @@ function Stellar.autoparry.start()
 	Stellar.__properties.__connections.__combat = RunService.PreSimulation:Connect(function(dt)
 		if not Stellar.__properties.__autoparry_enabled or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
 		
-		-- FIX 2: Safety timeout for parryFlag to prevent getting stuck
-		if parryFlag and (tick() - lastParryReset > 0.2) then
-			parryFlag = false
-		end
-
 		local localName = LocalPlayer.Name
 		local playerPos = LocalPlayer.Character.PrimaryPart.Position
 		local cam = workspace.CurrentCamera
 		
+		-- Special Capability Suppression Assertions
 		if Stellar.__config.__detections.__infinity and Stellar.__properties.__infinity_active then return end
 		if Stellar.__config.__detections.__deathslash and Stellar.__properties.__deathslash_active then return end
 		if Stellar.__config.__detections.__timehole and Stellar.__properties.__timehole_active then return end
 		if Stellar.__config.__detections.__slashesoffury and Stellar.__properties.__slashesoffury_active then return end
+
+		-- Auto Ability Module Engine
+		if getgenv().AutoAbility or (Stellar and Stellar.__properties and Stellar.__properties.__auto_ability_enabled) then
+			local hotbar = LocalPlayer.PlayerGui:FindFirstChild("Hotbar")
+			local abilityGui = hotbar and hotbar:FindFirstChild("Ability")
+			local AbilityCD = abilityGui and abilityGui:FindFirstChild("UIGradient")
+			local char = LocalPlayer.Character
+			local abs = char and char:FindFirstChild("Abilities")
+			if abs then
+				local ball = Stellar.ball.get()
+				if ball and ball.Parent then
+					local currentTarget = ball:GetAttribute("target")
+					local isTargeted = (currentTarget == localName)
+					local distance = LocalPlayer:DistanceFromCharacter(ball.Position)
+					local isAbilityReady = false
+					pcall(function() isAbilityReady = AbilityCD and math.abs(AbilityCD.Offset.Y - 0.5) < 0.05 end)
+					
+					local slashes = abs:FindFirstChild("Slashes Of Fury") or abs:FindFirstChild("Slashes of Fury")
+					local isSlashesReady = slashes and slashes.Enabled and isAbilityReady
+					
+					if isSlashesReady and isTargeted then
+						if distance <= 40 and not isExecutingSlashes then
+							task.spawn(function()
+								isExecutingSlashes = true
+								pcall(function()
+									local btn = ReplicatedStorage.Remotes:FindFirstChild("AbilityButtonPress")
+									if btn then if btn:IsA("RemoteEvent") then btn:FireServer() else btn:Fire() end end
+								end)
+								for _ = 1, 6 do
+									Stellar.parry.execute_bruteforce()
+									task.wait(0.025)
+								end
+								isExecutingSlashes = false
+							end)
+						end
+					elseif isAbilityReady and isTargeted and not abilityDebounce then
+						local standardAbilities = {"Raging Deflection", "Rapture", "Calming Deflection", "Aerodynamic Slash", "Fracture"}
+						for _, abilityName in ipairs(standardAbilities) do
+							local abilityObj = abs:FindFirstChild(abilityName)
+							if abilityObj and abilityObj.Enabled and distance <= 40 then
+								Stellar.__properties.__parried = true
+								abilityDebounce = true
+								pcall(function()
+									local btn = ReplicatedStorage.Remotes:FindFirstChild("AbilityButtonPress")
+									if btn then if btn:IsA("RemoteEvent") then btn:FireServer() else btn:Fire() end end
+								end)
+								task.delay(0.2, function() abilityDebounce = false end)
+								break
+							end
+						end
+					end
+				end
+			end
+		end
 
 		-- Standard Ball Loop Processor
 		local balls = Stellar.ball.get_all()
@@ -1190,6 +1241,19 @@ function Stellar.autoparry.start()
 			local zoomies = ball:FindFirstChild('zoomies')
 			if not zoomies then continue end
 			
+			if not Stellar.__properties.__tornado_time then Stellar.__properties.__tornado_time = 0 end
+			local aeroVFX = ball:FindFirstChild('AeroDynamicSlashVFX')
+			if aeroVFX then
+				Stellar.__properties.__tornado_time = tick()
+				aeroVFX:Destroy()
+			end
+			
+			local currentTornado = Runtime and Runtime:FindFirstChild('Tornado')
+			if currentTornado then
+				local tornadoDuration = currentTornado:GetAttribute('TornadoTime') or 1
+				if (tick() - Stellar.__properties.__tornado_time) < (tornadoDuration + 0.314159) then continue end
+			end
+
 			if not ball:GetAttribute("Stellar_TargetTracked") then
 				ball:SetAttribute("Stellar_TargetTracked", true)
 				local targetConn = ball:GetAttributeChangedSignal("target"):Connect(function() parryFlag = false end)
@@ -1213,29 +1277,100 @@ function Stellar.autoparry.start()
 			local ballSpeed = math.max(velocity.Magnitude, 0)
 			local spamThresh = Stellar.__properties.__spam_threshold * Stellar.__properties.__auto_spam_distance_multiplier
 			local currentParryCount = Stellar.__properties.__parries or 0
-			local maxClashDistance = Stellar.__properties.__spam_threshold
+			-- Using your exact UI variable, with the 'or 35' fallback just in case the UI hasn't loaded yet
+local maxClashDistance = Stellar.__properties.__spam_threshold
 
-			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
+-- The updated condition
+local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
 
-			if autoSpamConditionsMet and distance <= spamThresh then
-				Stellar.animation.play_grab_parry()
-				local cachedCF = Stellar.curve.get_cframe()
-				for _ = 1, 8 do 
-					Stellar.parry.execute_bruteforce(cachedCF) 
+			
+-- Rapid Auto-Spam Processing Logic (Zero-Overhead + Math Optimizations)
+
+if autoSpamConditionsMet and distance <= spamThresh then
+	Stellar.animation.play_grab_parry()
+	
+	-- 1. Real-Time Latency & FPS Math (Multiplication optimization)
+	local pingValue = 0
+	pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+	local ping = pingValue * 0.001 -- Replaced / 1000 with * 0.001
+	
+	local currentFPS = (dt and dt > 0) and (1 / dt) or 50
+	
+	-- 2. Fetch Opponent Proximity
+	local closest_opponent = Stellar.player.get_closest()
+	local opponent_dist = (closest_opponent and closest_opponent.PrimaryPart) 
+		and LocalPlayer:DistanceFromCharacter(closest_opponent.PrimaryPart.Position) 
+		or math.huge
+	
+	-- 3. Smart Multipliers (Optimized Math)
+	local speedScale = math.clamp(ballSpeed * 0.0125, 1, 4) -- Replaced / 80 with * 0.0125
+	local ballDistanceScale = math.clamp(20 / math.max(distance, 1), 0.5, 3) 
+	local latencyScale = 1 + (ping * 1.5) 
+	local opponentScale = math.clamp(20 / math.max(opponent_dist, 1), 1, 3.5) 
+	local fpsScale = math.clamp(currentFPS * 0.33, 0.8, 1.0) -- Replaced / 50 with * 0.02
+	
+	-- Calculate burst count
+	local rawBurst = 8 * speedScale * ballDistanceScale * latencyScale * opponentScale
+	local burstCount = math.clamp(math.floor(rawBurst * fpsScale), 4, 25)
+	
+	-- 4. Zero-Overhead Execution Pipeline
+	if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
+		local keyIndex = Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.KeyTable[3]
+		local currentKey = keyIndex and Stellar.ZX_Parry.KeyTable[1][keyIndex]
+		if currentKey then
+			local token = generateToken(currentKey)
+			if token then
+				-- Evaluate all static variables ONCE outside the firing loop
+				local pCF = Stellar.curve.get_cframe()
+				local remote = Stellar.ZX_Parry.Remote
+				local hash = Stellar.ZX_Parry.ParryHash
+				local vpCenter = { cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5 } -- Replaced / 2 with * 0.5
+				
+				-- Zero-Overhead Firing Loop: Only executes the Remote call
+				for _ = 1, burstCount do
+					remote:FireServer(hash, currentKey, token, 0.5, pCF, Last_Positions_Cache, vpCenter, false)
 				end
 			end
+		end
+	else
+		-- Fallback execution with pre-calculated CFrame
+		local cachedCF = Stellar.curve.get_cframe()
+		for _ = 1, burstCount do 
+			Stellar.parry.execute_bruteforce(cachedCF) 
+		end
+	end
+	
+	Stellar.__properties.__parries = Stellar.__properties.__parries + burstCount
+	task.delay(0.2, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - burstCount) end)
+end
 			
 			if not isTargeted or parryFlag then continue end
 
+			-- Teleportation/Velocity Spike Interception
+			if _ZX_VelHistory[ball] and #_ZX_VelHistory[ball] >= 2 then
+				local lastPos = _ZX_VelHistory[ball][2].pos
+				local currentPos = _ZX_VelHistory[ball][1].pos
+				local distanceJump = (currentPos - lastPos).Magnitude
+				if distanceJump > 75 and distance < 45 then
+					local cachedCF = Stellar.curve.get_cframe()
+					if getgenv().AutoParryMode == "Keypress" then Stellar.parry.keypress(cachedCF) else Stellar.parry.execute_bruteforce(cachedCF) end
+					parryFlag = true
+					task.spawn(function() task.wait(0.5) parryFlag = false end)
+					continue
+				end
+			end
+			
 			-- Advanced Kinematic Autoparry Execution Pipeline
 			local isCurved = Stellar.detection.is_curved(ball)
 			local pingValue = 0
 			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
 			local ping = pingValue / 1000
 
+			-- Vector approach calculation
 			local approachDir = (distance > 0) and (toPlayerVec / distance) or Vector3.new()
 			local approachSpeed = velocity:Dot(approachDir)
 
+			-- Solve Quadratic Kinematic TTI: 0.5 * a * t^2 + v * t - d = 0
 			local kinematicProps = Stellar.detection.__kinematic_properties[ball]
 			local accelVec = kinematicProps and kinematicProps.smooth_accel_vec or Vector3.new()
 			local approachAccel = accelVec:Dot(approachDir)
@@ -1250,20 +1385,26 @@ function Stellar.autoparry.start()
 				if discriminant >= 0 then
 					local t1 = (-b_param + math.sqrt(discriminant)) / (2 * a_param)
 					local t2 = (-b_param - math.sqrt(discriminant)) / (2 * a_param)
-					if t1 > 0 and t2 > 0 then calculatedTTI = math.min(t1, t2)
-					elseif t1 > 0 then calculatedTTI = t1
-					elseif t2 > 0 then calculatedTTI = t2 end
+					if t1 > 0 and t2 > 0 then
+						calculatedTTI = math.min(t1, t2)
+					elseif t1 > 0 then
+						calculatedTTI = t1
+					elseif t2 > 0 then
+						calculatedTTI = t2
+					end
 				end
 			elseif approachSpeed > 0 then
 				calculatedTTI = distance / approachSpeed
 			end
 
+			-- Optimized Ping-Compensated Distance Threshold (Prevents Early Parries)
 			local latencyDistanceOffset = (ping * 0.7) * approachSpeed
 			local pingAdjustedDistance = math.max(0, distance - latencyDistanceOffset)
 
 			-- FIX 3: Increased base reactionWindow and distanceThreshold scale
 			local reactionWindow = 0.20 + (ping * 1.1)
 			local distanceThreshold = 14 + (Stellar.__properties.__accuracy / 10)
+
 
 			if isCurved then
 				reactionWindow = reactionWindow * 0.25
@@ -1278,8 +1419,8 @@ function Stellar.autoparry.start()
 
 			if satisfiesTTI or satisfiesDistance then
 				parryFlag = true
-				lastParryReset = tick()
 				
+				-- Asynchronous Execution Wrapper
 				task.spawn(function()
 					local cachedCF = Stellar.curve.get_cframe()
 					if getgenv().AutoParryMode == "Keypress" then 
@@ -1289,12 +1430,13 @@ function Stellar.autoparry.start()
 					end
 				end)
 				
-				task.delay(0.15, function()
+				local lastCycle = tick()
+				task.spawn(function()
+					repeat RunService.PreSimulation:Wait() until (tick() - lastCycle) >= 1 or not parryFlag
 					parryFlag = false
 				end)
 			end
-end
-
+     end
 		-- Secondary Training Ball Handler
 		local trainingFolder = workspace:FindFirstChild("TrainingBalls")
 		if trainingFolder then
@@ -1770,4 +1912,4 @@ misc_module:create_button({
 
 -- Library Load Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar Tester Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V4.5 Initialized.", duration = 3 })
