@@ -1060,7 +1060,7 @@ function Stellar.detection.is_curved(ball)
 	local velocityDir = velocity / speed
 	local currentDot = toPlayerDir:Dot(velocityDir)
 
-	if currentDot < -0.10 then
+	if currentDot < -0.30 then
 		return true
 	end
 
@@ -1398,13 +1398,13 @@ end
 			end
 
 			-- Optimized Ping-Compensated Distance Threshold (Prevents Early Parries)
-			local latencyDistanceOffset = (ping * 0.6) * approachSpeed
+			local latencyDistanceOffset = (ping * 0.7) * approachSpeed
 			local pingAdjustedDistance = math.max(0, distance - latencyDistanceOffset)
 
-			-- Reduced base reaction window and scaled down ping compensation
-			local reactionWindow = 0.12 + (ping * 0.8)
-			-- Lowered baseline distance so it waits for the ball to get closer
-			local distanceThreshold = 9 + (Stellar.__properties.__accuracy / 15)
+			-- FIX 3: Increased base reactionWindow and distanceThreshold scale
+			local reactionWindow = 0.20 + (ping * 1.1)
+			local distanceThreshold = 14 + (Stellar.__properties.__accuracy / 10)
+
 
 			if isCurved then
 				reactionWindow = reactionWindow * 0.25
@@ -1418,21 +1418,25 @@ end
 			local satisfiesDistance = isApproaching and (pingAdjustedDistance <= distanceThreshold)
 
 			if satisfiesTTI or satisfiesDistance then
-				local cachedCF = Stellar.curve.get_cframe()
-				if getgenv().AutoParryMode == "Keypress" then 
-					Stellar.parry.keypress(cachedCF) 
-				else 
-					Stellar.parry.execute_action(cachedCF) 
-				end
 				parryFlag = true
+				
+				-- Asynchronous Execution Wrapper
+				task.spawn(function()
+					local cachedCF = Stellar.curve.get_cframe()
+					if getgenv().AutoParryMode == "Keypress" then 
+						Stellar.parry.keypress(cachedCF) 
+					else 
+						Stellar.parry.execute_action(cachedCF) 
+					end
+				end)
+				
 				local lastCycle = tick()
 				task.spawn(function()
 					repeat RunService.PreSimulation:Wait() until (tick() - lastCycle) >= 1 or not parryFlag
 					parryFlag = false
 				end)
 			end
-		end
-
+     end
 		-- Secondary Training Ball Handler
 		local trainingFolder = workspace:FindFirstChild("TrainingBalls")
 		if trainingFolder then
@@ -1897,7 +1901,6 @@ misc_module:create_button({
 		print("--- [ Stellar Unified Debug Configuration ] ---")
 		print("Auto Parry Enabled:", Stellar.__properties.__autoparry_enabled)
 		print("Auto Spam Enabled :", Stellar.__properties.__auto_spam_enabled)
-		print("Spam Rate (CPS)   :", Stellar.__properties.__spam_rate)
 		print("Spam Batch Mode   :", Stellar.__properties.__spam_batch_amount)
 		print("Spam Distance     :", Stellar.__properties.__spam_threshold)
 		print("Parry Mode        :", getgenv().AutoParryMode or "Remote")
@@ -1908,4 +1911,4 @@ misc_module:create_button({
 
 -- Library Load Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.2 Initialized.", duration = 3 })
