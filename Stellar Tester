@@ -1155,6 +1155,8 @@ function Stellar.detection.is_curved(ball)
 end
 
 -- Fixed Primary Auto Parry Execution Engine
+Stellar.autoparry = {}
+
 local parryFlag = false
 local lastParryReset = 0
 local isExecutingSlashes = false
