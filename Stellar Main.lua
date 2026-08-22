@@ -84,8 +84,7 @@ local Stellar = {
 		__first_parry_done = false,
 		__connections = {},
 		__spam_accumulator = 0,
-		__spam_rate = 15,
-		__spam_batch_amount = "Fast Speed",
+		__spam_batch_amount = "FPS Priority",
 		__randomized_accuracy_enabled = false,
 		__is_mobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled,
 		__speed_display_enabled = false,
@@ -1284,65 +1283,43 @@ local maxClashDistance = Stellar.__properties.__spam_threshold
 local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
 
 			
--- Rapid Auto-Spam Processing Logic (Zero-Overhead + Math Optimizations)
-
-if autoSpamConditionsMet and distance <= spamThresh then
-	Stellar.animation.play_grab_parry()
-	
-	-- 1. Real-Time Latency & FPS Math (Multiplication optimization)
-	local pingValue = 0
-	pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-	local ping = pingValue * 0.001 -- Replaced / 1000 with * 0.001
-	
-	local currentFPS = (dt and dt > 0) and (1 / dt) or 50
-	
-	-- 2. Fetch Opponent Proximity
-	local closest_opponent = Stellar.player.get_closest()
-	local opponent_dist = (closest_opponent and closest_opponent.PrimaryPart) 
-		and LocalPlayer:DistanceFromCharacter(closest_opponent.PrimaryPart.Position) 
-		or math.huge
-	
-	-- 3. Smart Multipliers (Optimized Math)
-	local speedScale = math.clamp(ballSpeed * 0.0125, 1, 4) -- Replaced / 80 with * 0.0125
-	local ballDistanceScale = math.clamp(20 / math.max(distance, 1), 0.5, 3) 
-	local latencyScale = 1 + (ping * 1.5) 
-	local opponentScale = math.clamp(20 / math.max(opponent_dist, 1), 1, 3.5) 
-	local fpsScale = math.clamp(currentFPS * 0.33, 0.8, 1.0) -- Replaced / 50 with * 0.02
-	
-	-- Calculate burst count
-	local rawBurst = 8 * speedScale * ballDistanceScale * latencyScale * opponentScale
-	local burstCount = math.clamp(math.floor(rawBurst * fpsScale), 4, 25)
-	
-	-- 4. Zero-Overhead Execution Pipeline
-	if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
-		local keyIndex = Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.KeyTable[3]
-		local currentKey = keyIndex and Stellar.ZX_Parry.KeyTable[1][keyIndex]
-		if currentKey then
-			local token = generateToken(currentKey)
-			if token then
-				-- Evaluate all static variables ONCE outside the firing loop
-				local pCF = Stellar.curve.get_cframe()
-				local remote = Stellar.ZX_Parry.Remote
-				local hash = Stellar.ZX_Parry.ParryHash
-				local vpCenter = { cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5 } -- Replaced / 2 with * 0.5
+-- Rapid Auto-Spam Processing Logic (Optimized for Engine Performance)
+			if autoSpamConditionsMet and distance <= spamThresh then
+				Stellar.animation.play_grab_parry()
+				local batchAmount = Stellar.__properties.__spam_batch_amount
+				local burstCount = (batchAmount == "FPS Priority" and 4) or (batchAmount == "Bruteforce" and 15) or (batchAmount == "Extremely Fast" and 20) or 8
 				
-				-- Zero-Overhead Firing Loop: Only executes the Remote call
-				for _ = 1, burstCount do
-					remote:FireServer(hash, currentKey, token, 0.5, pCF, Last_Positions_Cache, vpCenter, false)
+				if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
+					local keyIndex = Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.KeyTable[3]
+					local currentKey = keyIndex and Stellar.ZX_Parry.KeyTable[1][keyIndex]
+					if currentKey then
+						local token = generateToken(currentKey)
+						if token then
+							-- OPTIMIZATION 1: Pre-calculate all payload variables before the loop.
+							-- Multiplication (* 0.5) is faster for the Luau engine than division (/ 2).
+							local vpSize = cam.ViewportSize
+							local vpCenter = { vpSize.X * 0.5, vpSize.Y * 0.5 }
+							local pCF = Stellar.curve.get_cframe()
+							local remote = Stellar.ZX_Parry.Remote
+							local hash = Stellar.ZX_Parry.ParryHash
+							
+							-- OPTIMIZATION 2: Removed the per-frame Alive:GetChildren() loop. 
+							-- We now rely on the Last_Positions_Cache which is updated asynchronously elsewhere,
+							-- stripping out massive CPU overhead during the spam burst.
+							for _ = 1, burstCount do
+								remote:FireServer(hash, currentKey, token, 0.5, pCF, Last_Positions_Cache, vpCenter, false)
+							end
+						end
+					end
+				else
+					local cachedCF = Stellar.curve.get_cframe()
+					for _ = 1, burstCount do Stellar.parry.execute_bruteforce(cachedCF) end
 				end
+				
+				Stellar.__properties.__parries = Stellar.__properties.__parries + burstCount
+				task.delay(0.2, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - burstCount) end)
 			end
-		end
-	else
-		-- Fallback execution with pre-calculated CFrame
-		local cachedCF = Stellar.curve.get_cframe()
-		for _ = 1, burstCount do 
-			Stellar.parry.execute_bruteforce(cachedCF) 
-		end
-	end
-	
-	Stellar.__properties.__parries = Stellar.__properties.__parries + burstCount
-	task.delay(0.2, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - burstCount) end)
-end
+
 			
 			if not isTargeted or parryFlag then continue end
 
@@ -1630,10 +1607,17 @@ spam_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__spam_threshold = value end
 })
+spam_module:create_dropdown({
+	title = "Spam Batch Mode",
+	flag = "SpamBatchAmount",
+	options = { "FPS Priority", "Balanced", "Bruteforce", "Extremely Fast" },
+	maximum_options = 1,
+	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
+})
 
 local manual_spam_module = SpamTab:create_module({
 	title = "Manual Spam",
-	description = "Spam speed based on Batch mod you chose.",
+	description = "Spam speed based on Batch mode you chose.",
 	flag = "ManualSpamModule",
 	section = "right",
 	callback = function(state)
@@ -1648,14 +1632,6 @@ local manual_spam_module = SpamTab:create_module({
 			end
 		end
 	end
-})
-
-manual_spam_module:create_dropdown({
-	title = "Spam Batch Mode",
-	flag = "SpamBatchAmount",
-	options = { "FPS Priority", "Balanced", "Bruteforce", "Extremely Fast" },
-	maximum_options = 1,
-	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
 })
 
 local detection_module = DetectionTab:create_module({
@@ -1911,4 +1887,4 @@ misc_module:create_button({
 
 -- Library Load Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.2 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.2.5 Initialized.", duration = 3 })
