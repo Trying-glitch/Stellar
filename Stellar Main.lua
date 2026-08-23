@@ -160,158 +160,665 @@ local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Alive = workspace:FindFirstChild("Alive") or workspace:WaitForChild("Alive", 10) or workspace
 local Runtime = workspace:FindFirstChild("Runtime") or workspace:WaitForChild("Runtime", 10)
 
--- GLASS MOBILE SPAM HELPER GUI
-local function is_mobile()
-    return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+-- ============================================================================
+-- INTEGRATED FLOATING TOGGLE SWITCH SUBSYSTEM
+-- ============================================================================
+local FloatingSwitchSystem = {
+	ScreenGui = nil,
+	Root = nil,
+	IsOn = false,
+	Connections = {},
+	Config = {
+		Title = "MANUAL SPAM",
+		Keybind = Enum.KeyCode.V,
+		StartPosition = UDim2.new(1, -190, 1, -168),
+		ColorOff = Color3.fromRGB(40, 40, 46),
+		ColorOn = Color3.fromRGB(48, 224, 158),
+		KnobColor = Color3.fromRGB(248, 248, 252)
+	}
+}
+
+local function buildFloatingToggleSwitch()
+	if CoreGui:FindFirstChild("StellarFloatingToggle") then
+		CoreGui.StellarFloatingToggle:Destroy()
+	end
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "StellarFloatingToggle"
+	screenGui.ResetOnSpawn = false
+	screenGui.IgnoreGuiInset = true
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.Enabled = false
+	screenGui.Parent = CoreGui
+	FloatingSwitchSystem.ScreenGui = screenGui
+
+	local root = Instance.new("CanvasGroup")
+	root.Name = "Root"
+	root.Size = UDim2.fromOffset(168, 114)
+	root.Position = FloatingSwitchSystem.Config.StartPosition
+	root.BackgroundTransparency = 1
+	root.GroupTransparency = 1
+	root.Parent = screenGui
+	FloatingSwitchSystem.Root = root
+
+	local rootScale = Instance.new("UIScale")
+	rootScale.Scale = 0.75
+	rootScale.Parent = root
+
+	local shadow = Instance.new("Frame")
+	shadow.Name = "Shadow"
+	shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+	shadow.Position = UDim2.new(0.5, 0, 0.5, 4)
+	shadow.Size = UDim2.fromOffset(154, 100)
+	shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	shadow.BackgroundTransparency = 0.5
+	shadow.BorderSizePixel = 0
+	shadow.ZIndex = 0
+	shadow.Parent = root
+	local sc = Instance.new("UICorner") sc.CornerRadius = UDim.new(0, 18) sc.Parent = shadow
+
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.Position = UDim2.new(0.5, 0, 0.5, 0)
+	card.Size = UDim2.fromOffset(150, 96)
+	card.BackgroundColor3 = Color3.fromRGB(24, 24, 29)
+	card.BackgroundTransparency = 0.05
+	card.BorderSizePixel = 0
+	card.ZIndex = 1
+	card.Parent = root
+
+	local cc = Instance.new("UICorner") cc.CornerRadius = UDim.new(0, 16) cc.Parent = card
+	local cardStroke = Instance.new("UIStroke")
+	cardStroke.Color = Color3.fromRGB(255, 255, 255)
+	cardStroke.Transparency = 0.91
+	cardStroke.Thickness = 1
+	cardStroke.Parent = card
+
+	local cardGradient = Instance.new("UIGradient")
+	cardGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 34, 40)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 16, 20))
+	})
+	cardGradient.Rotation = 60
+	cardGradient.Parent = card
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1, -16, 0, 16)
+	title.Position = UDim2.new(0, 8, 0, 8)
+	title.Font = Enum.Font.GothamBold
+	title.Text = FloatingSwitchSystem.Config.Title
+	title.TextSize = 12
+	title.TextColor3 = Color3.fromRGB(195, 195, 205)
+	title.TextTransparency = 0.1
+	title.TextXAlignment = Enum.TextXAlignment.Center
+	title.TextScaled = true
+	title.ZIndex = 2
+	title.Parent = card
+
+	local titleConstraint = Instance.new("UITextSizeConstraint")
+	titleConstraint.MaxTextSize = 12 titleConstraint.MinTextSize = 8
+	titleConstraint.Parent = title
+
+	local glowOuter = Instance.new("Frame")
+	glowOuter.Name = "GlowOuter"
+	glowOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+	glowOuter.Position = UDim2.new(0.5, 0, 0, 46)
+	glowOuter.Size = UDim2.fromOffset(104, 64)
+	glowOuter.BackgroundColor3 = FloatingSwitchSystem.Config.ColorOn
+	glowOuter.BackgroundTransparency = 1
+	glowOuter.BorderSizePixel = 0
+	glowOuter.ZIndex = 1
+	glowOuter.Parent = card
+	local goc = Instance.new("UICorner") goc.CornerRadius = UDim.new(1, 0) goc.Parent = glowOuter
+
+	local glowInner = Instance.new("Frame")
+	glowInner.Name = "GlowInner"
+	glowInner.AnchorPoint = Vector2.new(0.5, 0.5)
+	glowInner.Position = UDim2.new(0.5, 0, 0, 46)
+	glowInner.Size = UDim2.fromOffset(84, 48)
+	glowInner.BackgroundColor3 = FloatingSwitchSystem.Config.ColorOn
+	glowInner.BackgroundTransparency = 1
+	glowInner.BorderSizePixel = 0
+	glowInner.ZIndex = 1
+	glowInner.Parent = card
+	local gic = Instance.new("UICorner") gic.CornerRadius = UDim.new(1, 0) gic.Parent = glowInner
+
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.Active = true
+	track.AnchorPoint = Vector2.new(0.5, 0.5)
+	track.Position = UDim2.new(0.5, 0, 0, 46)
+	track.Size = UDim2.fromOffset(72, 34)
+	track.BackgroundColor3 = FloatingSwitchSystem.Config.ColorOff
+	track.BorderSizePixel = 0
+	track.ZIndex = 2
+	track.Parent = card
+	local tc = Instance.new("UICorner") tc.CornerRadius = UDim.new(1, 0) tc.Parent = track
+
+	local trackStroke = Instance.new("UIStroke")
+	trackStroke.Color = Color3.fromRGB(64, 64, 72)
+	trackStroke.Thickness = 1.5
+	trackStroke.Transparency = 0.2
+	trackStroke.Parent = track
+
+	local trackGradient = Instance.new("UIGradient")
+	trackGradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+	trackGradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.8),
+		NumberSequenceKeypoint.new(0.5, 0.94),
+		NumberSequenceKeypoint.new(1, 1)
+	})
+	trackGradient.Rotation = 90
+	trackGradient.Parent = track
+
+	local knob = Instance.new("Frame")
+	knob.Name = "Knob"
+	knob.AnchorPoint = Vector2.new(0, 0.5)
+	knob.Position = UDim2.new(0, 3, 0.5, 0)
+	knob.Size = UDim2.fromOffset(28, 28)
+	knob.BackgroundColor3 = FloatingSwitchSystem.Config.KnobColor
+	knob.BorderSizePixel = 0
+	knob.ZIndex = 3
+	knob.Parent = track
+	local kc = Instance.new("UICorner") kc.CornerRadius = UDim.new(1, 0) kc.Parent = knob
+
+	local knobStroke = Instance.new("UIStroke")
+	knobStroke.Color = Color3.fromRGB(224, 224, 230)
+	knobStroke.Thickness = 1
+	knobStroke.Transparency = 0.5
+	knobStroke.Parent = knob
+
+	local statusRow = Instance.new("Frame")
+	statusRow.Name = "StatusRow"
+	statusRow.AnchorPoint = Vector2.new(0.5, 0)
+	statusRow.Position = UDim2.new(0.5, 0, 0, 70)
+	statusRow.Size = UDim2.new(1, -16, 0, 20)
+	statusRow.BackgroundTransparency = 1
+	statusRow.ZIndex = 2
+	statusRow.Parent = card
+
+	local statusLayout = Instance.new("UIListLayout")
+	statusLayout.FillDirection = Enum.FillDirection.Horizontal
+	statusLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	statusLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	statusLayout.Padding = UDim.new(0, 6)
+	statusLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	statusLayout.Parent = statusRow
+
+	local dot = Instance.new("Frame")
+	dot.Name = "Dot"
+	dot.Size = UDim2.fromOffset(8, 8)
+	dot.BackgroundColor3 = FloatingSwitchSystem.Config.ColorOff
+	dot.BorderSizePixel = 0
+	dot.LayoutOrder = 1
+	dot.ZIndex = 2
+	dot.Parent = statusRow
+	local dc = Instance.new("UICorner") dc.CornerRadius = UDim.new(1, 0) dc.Parent = dot
+
+	local statusText = Instance.new("TextLabel")
+	statusText.Name = "StatusText"
+	statusText.BackgroundTransparency = 1
+	statusText.Size = UDim2.fromOffset(28, 16)
+	statusText.Font = Enum.Font.GothamBold
+	statusText.Text = "OFF"
+	statusText.TextSize = 12
+	statusText.TextColor3 = Color3.fromRGB(150, 150, 160)
+	statusText.TextXAlignment = Enum.TextXAlignment.Left
+	statusText.LayoutOrder = 2
+	statusText.ZIndex = 2
+	statusText.Parent = statusRow
+
+	local keyTag = Instance.new("TextLabel")
+	keyTag.Name = "KeyTag"
+	keyTag.AutomaticSize = Enum.AutomaticSize.X
+	keyTag.Size = UDim2.fromOffset(0, 18)
+	keyTag.BackgroundColor3 = Color3.fromRGB(32, 32, 38)
+	keyTag.Font = Enum.Font.GothamBold
+	keyTag.Text = FloatingSwitchSystem.Config.Keybind.Name
+	keyTag.TextSize = 11
+	keyTag.TextColor3 = Color3.fromRGB(205, 205, 215)
+	keyTag.LayoutOrder = 3
+	keyTag.ZIndex = 2
+	keyTag.Parent = statusRow
+	local ktc = Instance.new("UICorner") ktc.CornerRadius = UDim.new(0, 5) ktc.Parent = keyTag
+	local ktStroke = Instance.new("UIStroke") ktStroke.Color = Color3.fromRGB(68, 68, 76) ktStroke.Thickness = 1 ktStroke.Parent = keyTag
+	local ktPad = Instance.new("UIPadding") ktPad.PaddingLeft = UDim.new(0, 7) ktPad.PaddingRight = UDim.new(0, 7) ktPad.Parent = keyTag
+
+	local function applyVisualState(on, animated)
+		local quick = TweenInfo.new(animated and 0.2 or 0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local knobTween = TweenInfo.new(animated and 0.28 or 0, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		local knobPos = on and UDim2.new(1, -31, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+
+		TweenService:Create(track, quick, { BackgroundColor3 = on and FloatingSwitchSystem.Config.ColorOn or FloatingSwitchSystem.Config.ColorOff }):Play()
+		TweenService:Create(trackStroke, quick, { Color = on and FloatingSwitchSystem.Config.ColorOn or Color3.fromRGB(64, 64, 72) }):Play()
+		TweenService:Create(knob, knobTween, { Position = knobPos }):Play()
+		TweenService:Create(dot, quick, { BackgroundColor3 = on and FloatingSwitchSystem.Config.ColorOn or Color3.fromRGB(90, 90, 98) }):Play()
+		TweenService:Create(statusText, quick, { TextColor3 = on and FloatingSwitchSystem.Config.ColorOn or Color3.fromRGB(150, 150, 160) }):Play()
+		TweenService:Create(glowOuter, quick, { BackgroundTransparency = on and 0.82 or 1 }):Play()
+		TweenService:Create(glowInner, quick, { BackgroundTransparency = on and 0.7 or 1 }):Play()
+		statusText.Text = on and "ON" or "OFF"
+	end
+
+	local function toggleState()
+		FloatingSwitchSystem.IsOn = not FloatingSwitchSystem.IsOn
+		applyVisualState(FloatingSwitchSystem.IsOn, true)
+		Stellar.__properties.__gui_spam_active = FloatingSwitchSystem.IsOn
+		Stellar.__properties.__manual_spam_enabled = FloatingSwitchSystem.IsOn
+		if FloatingSwitchSystem.IsOn then
+			if Stellar.manual_spam and typeof(Stellar.manual_spam.start) == "function" then Stellar.manual_spam.start() end
+		else
+			if Stellar.manual_spam and typeof(Stellar.manual_spam.stop) == "function" then Stellar.manual_spam.stop() end
+		end
+	end
+
+	applyVisualState(FloatingSwitchSystem.IsOn, false)
+
+	local dragging, moved = false, false
+	local dragStart, startPos = Vector2.zero, Vector2.zero
+	local DRAG_TOLERANCE = 4
+
+	table.insert(FloatingSwitchSystem.Connections, track.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true moved = false
+			dragStart = Vector2.new(input.Position.X, input.Position.Y)
+			startPos = root.AbsolutePosition
+			TweenService:Create(track, TweenInfo.new(0.12), { Size = UDim2.fromOffset(76, 36) }):Play()
+		end
+	end))
+
+	table.insert(FloatingSwitchSystem.Connections, UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local point = Vector2.new(input.Position.X, input.Position.Y)
+			local delta = point - dragStart
+			if delta.Magnitude > DRAG_TOLERANCE then moved = true end
+			local camera = workspace.CurrentCamera
+			local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+			local size = root.AbsoluteSize
+			local x = math.clamp(startPos.X + delta.X, 0, math.max(viewport.X - size.X, 0))
+			local y = math.clamp(startPos.Y + delta.Y, 0, math.max(viewport.Y - size.Y, 0))
+			root.Position = UDim2.fromOffset(x, y)
+		end
+	end))
+
+	table.insert(FloatingSwitchSystem.Connections, UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if dragging then
+				dragging = false
+				TweenService:Create(track, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(72, 34) }):Play()
+				if not moved then toggleState() end
+			end
+		end
+	end))
+
+	table.insert(FloatingSwitchSystem.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == FloatingSwitchSystem.Config.Keybind then
+			toggleState()
+			local resting = keyTag.BackgroundColor3
+			TweenService:Create(keyTag, TweenInfo.new(0.06), { BackgroundColor3 = FloatingSwitchSystem.Config.ColorOn }):Play()
+			task.delay(0.15, function()
+				TweenService:Create(keyTag, TweenInfo.new(0.25), { BackgroundColor3 = resting }):Play()
+			end)
+		end
+	end))
+
+	TweenService:Create(root, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+	TweenService:Create(rootScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 end
 
-local oldGui = CoreGui:FindFirstChild("MobileSpamHelper")
-if oldGui then oldGui:Destroy() end
+buildFloatingToggleSwitch()
 
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "MobileSpamHelper"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Enabled = false
-ScreenGui.Parent = CoreGui
+-- ============================================================================
+-- INTEGRATED PERFORMANCE MONITOR SUBSYSTEM
+-- ============================================================================
+local PerfMonitorSystem = {
+	ScreenGui = nil,
+	Card = nil,
+	Connections = {},
+	Config = {
+		FPS_GOOD = 50, FPS_OK = 30,
+		PING_GOOD = 80, PING_OK = 140,
+		UPDATE_RATE = 0.15,
+		SMOOTHING = 0.25,
+		GRAPH_SAMPLES = 36,
+		CARD_WIDTH = 214,
+		EXPANDED_HEIGHT = 140,
+		COLLAPSED_HEIGHT = 46,
+		START_POSITION = UDim2.new(0, 20, 0, 20)
+	},
+	Colors = {
+		bg = Color3.fromRGB(19, 19, 26),
+		textDim = Color3.fromRGB(150, 152, 172),
+		textBright = Color3.fromRGB(238, 239, 246),
+		good = Color3.fromRGB(88, 234, 150),
+		ok = Color3.fromRGB(255, 196, 84),
+		bad = Color3.fromRGB(255, 99, 99)
+	}
+}
 
-local SIZE = UDim2.new(0, 58, 0, 58)
-local CORNER = UDim.new(0, 18)
+local function buildPerformanceMonitor()
+	if CoreGui:FindFirstChild("StellarPerformanceMonitor") then
+		CoreGui.StellarPerformanceMonitor:Destroy()
+	end
 
-local Shadow = Instance.new("Frame")
-Shadow.Name = "Shadow"
-Shadow.AnchorPoint = Vector2.new(0.5, 0.5)
-Shadow.Position = UDim2.new(1, -70 + 29, 0.5, -25 + 29 + 4)
-Shadow.Size = UDim2.new(0, 64, 0, 64)
-Shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-Shadow.BackgroundTransparency = 0.55
-Shadow.BorderSizePixel = 0
-Shadow.ZIndex = 1
-Shadow.Parent = ScreenGui
+	local function createInst(className, props, children)
+		local inst = Instance.new(className)
+		for prop, val in pairs(props or {}) do inst[prop] = val end
+		for _, child in ipairs(children or {}) do child.Parent = inst end
+		return inst
+	end
 
-local ShadowCorner = Instance.new("UICorner")
-ShadowCorner.CornerRadius = CORNER
-ShadowCorner.Parent = Shadow
+	local function corner(radius)
+		return createInst("UICorner", { CornerRadius = UDim.new(0, radius) })
+	end
 
-local ShadowBlurGradient = Instance.new("UIGradient")
-ShadowBlurGradient.Rotation = 90
-ShadowBlurGradient.Transparency = NumberSequence.new({
-    NumberSequenceKeypoint.new(0, 0.3),
-    NumberSequenceKeypoint.new(1, 0.75),
-})
-ShadowBlurGradient.Parent = Shadow
+	local statusDot = createInst("Frame", {
+		Size = UDim2.new(0, 8, 0, 8),
+		Position = UDim2.new(0, 2, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		BackgroundColor3 = PerfMonitorSystem.Colors.good,
+		BorderSizePixel = 0
+	}, { corner(4) })
 
-local Button = Instance.new("ImageButton")
-Button.Name = "Toggle"
-Button.AnchorPoint = Vector2.new(0.5, 0.5)
-Button.Position = UDim2.new(1, -70 + 29, 0.5, -25 + 29)
-Button.Size = SIZE
-Button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-Button.BackgroundTransparency = 0.75
-Button.BorderSizePixel = 0
-Button.AutoButtonColor = false
-Button.Image = ""
-Button.ZIndex = 2
-Button.Parent = ScreenGui
+	local titleLabel = createInst("TextLabel", {
+		Text = "PERFORMANCE",
+		Font = Enum.Font.GothamBold,
+		TextSize = 11,
+		TextColor3 = PerfMonitorSystem.Colors.textDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 16, 0, 0),
+		Size = UDim2.new(1, -16, 1, 0)
+	})
 
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = CORNER
-Corner.Parent = Button
+	local dragHandle = createInst("Frame", {
+		Name = "DragHandle",
+		BackgroundTransparency = 1,
+		Active = true,
+		Size = UDim2.new(1, -30, 1, 0)
+	}, { statusDot, titleLabel })
 
-local Sheen = Instance.new("UIGradient")
-Sheen.Name = "Sheen"
-Sheen.Rotation = 105
-Sheen.Transparency = NumberSequence.new({
-    NumberSequenceKeypoint.new(0, 0.15),
-    NumberSequenceKeypoint.new(0.45, 0.65),
-    NumberSequenceKeypoint.new(1, 0.35),
-})
-Sheen.Parent = Button
+	local toggleButton = createInst("TextButton", {
+		Name = "Toggle",
+		Text = "-",
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		TextColor3 = PerfMonitorSystem.Colors.textDim,
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.93,
+		AutoButtonColor = false,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.new(0, 22, 0, 22)
+	}, { corner(7) })
 
-local Glint = Instance.new("Frame")
-Glint.Name = "Glint"
-Glint.AnchorPoint = Vector2.new(0, 0)
-Glint.Position = UDim2.new(0, 6, 0, 5)
-Glint.Size = UDim2.new(0, 22, 0, 14)
-Glint.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-Glint.BackgroundTransparency = 0.55
-Glint.BorderSizePixel = 0
-Glint.ZIndex = 3
-Glint.Parent = Button
+	local header = createInst("Frame", {
+		Name = "Header",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 22),
+		LayoutOrder = 1
+	}, { dragHandle, toggleButton })
 
-local GlintCorner = Instance.new("UICorner")
-GlintCorner.CornerRadius = UDim.new(1, 0)
-GlintCorner.Parent = Glint
+	local fpsValue = createInst("TextLabel", {
+		Name = "FPSValue",
+		Text = "--",
+		Font = Enum.Font.GothamBold,
+		TextSize = 28,
+		TextColor3 = PerfMonitorSystem.Colors.textBright,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 0, 0, 16),
+		Size = UDim2.new(1, 0, 0, 30)
+	})
 
-local GlintFade = Instance.new("UIGradient")
-GlintFade.Rotation = 90
-GlintFade.Transparency = NumberSequence.new({
-    NumberSequenceKeypoint.new(0, 0),
-    NumberSequenceKeypoint.new(1, 1),
-})
-GlintFade.Parent = Glint
+	local fpsBlock = createInst("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(0, 82, 1, 0)
+	}, {
+		createInst("TextLabel", {
+			Text = "FPS", Font = Enum.Font.GothamMedium, TextSize = 11,
+			TextColor3 = PerfMonitorSystem.Colors.textDim, TextXAlignment = Enum.TextXAlignment.Left,
+			BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16)
+		}),
+		fpsValue
+	})
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(255, 100, 100)
-Stroke.Thickness = 1.5
-Stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-Stroke.Parent = Button
+	local divider = createInst("Frame", {
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.9,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 90, 0.5, 0),
+		Size = UDim2.new(0, 1, 0, 34)
+	})
 
-local StatusText = Instance.new("TextLabel")
-StatusText.Name = "StatusText"
-StatusText.Size = UDim2.new(1, 0, 1, 0)
-StatusText.BackgroundTransparency = 1
-StatusText.ZIndex = 4
-StatusText.Font = Enum.Font.GothamBold
-StatusText.Text = "SPAM\nOFF"
-StatusText.TextColor3 = Color3.fromRGB(255, 100, 100)
-StatusText.TextSize = 12
-StatusText.Parent = Button
+	local pingValue = createInst("TextLabel", {
+		Name = "PingValue",
+		Text = "--",
+		RichText = true,
+		Font = Enum.Font.GothamBold,
+		TextSize = 28,
+		TextColor3 = PerfMonitorSystem.Colors.textBright,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 0, 0, 16),
+		Size = UDim2.new(1, 0, 0, 30)
+	})
 
-Button.Visible = is_mobile()
-Shadow.Visible = is_mobile()
+	local pingBlock = createInst("Frame", {
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 100, 0, 0),
+		Size = UDim2.new(0, 82, 1, 0)
+	}, {
+		createInst("TextLabel", {
+			Text = "PING", Font = Enum.Font.GothamMedium, TextSize = 11,
+			TextColor3 = PerfMonitorSystem.Colors.textDim, TextXAlignment = Enum.TextXAlignment.Left,
+			BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16)
+		}),
+		pingValue
+	})
 
-local dragging = false
-local drag_start, button_start, shadow_start
+	local statsFrame = createInst("Frame", {
+		Name = "Stats",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 48),
+		LayoutOrder = 2
+	}, { fpsBlock, divider, pingBlock })
 
-Button.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        drag_start = input.Position
-        button_start = Button.Position
-        shadow_start = Shadow.Position
-    end
-end)
+	local BAR_WIDTH, BAR_GAP = 3, 2
+	local bars = {}
+	local graph = createInst("Frame", {
+		Name = "Graph",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 26),
+		LayoutOrder = 3
+	})
 
-UserInputService.InputChanged:Connect(function(input)
-    if not dragging then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-    local delta = input.Position - drag_start
-    Button.Position = UDim2.new(button_start.X.Scale, button_start.X.Offset + delta.X, button_start.Y.Scale, button_start.Y.Offset + delta.Y)
-    Shadow.Position = UDim2.new(shadow_start.X.Scale, shadow_start.X.Offset + delta.X, shadow_start.Y.Scale, shadow_start.Y.Offset + delta.Y)
-end)
+	for i = 1, PerfMonitorSystem.Config.GRAPH_SAMPLES do
+		local bar = createInst("Frame", {
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, (i - 1) * (BAR_WIDTH + BAR_GAP), 1, 0),
+			Size = UDim2.new(0, BAR_WIDTH, 0, 2),
+			BackgroundColor3 = PerfMonitorSystem.Colors.good,
+			BorderSizePixel = 0
+		}, { corner(1) })
+		bar.Parent = graph
+		bars[i] = bar
+	end
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-    end
-end)
+	local cardStroke = createInst("UIStroke", {
+		Color = Color3.fromRGB(255, 255, 255),
+		Transparency = 0.87,
+		Thickness = 1
+	})
 
-Button.Activated:Connect(function()
-    Stellar.__properties.__gui_spam_active = not Stellar.__properties.__gui_spam_active
-    Stellar.__properties.__manual_spam_enabled = Stellar.__properties.__gui_spam_active
-    if Stellar.__properties.__gui_spam_active then
-        StatusText.Text = "SPAM\nON"
-        StatusText.TextColor3 = Color3.fromRGB(100, 255, 100)
-        Stroke.Color = Color3.fromRGB(100, 255, 100)
-        if Stellar.manual_spam and typeof(Stellar.manual_spam.start) == "function" then Stellar.manual_spam.start() end
-    else
-        StatusText.Text = "SPAM\nOFF"
-        StatusText.TextColor3 = Color3.fromRGB(255, 100, 100)
-        Stroke.Color = Color3.fromRGB(255, 100, 100)
-        if Stellar.manual_spam and typeof(Stellar.manual_spam.stop) == "function" then Stellar.manual_spam.stop() end
-    end
-end)
+	local card = createInst("Frame", {
+		Name = "Card",
+		BackgroundColor3 = PerfMonitorSystem.Colors.bg,
+		BackgroundTransparency = 0.05,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		Position = PerfMonitorSystem.Config.START_POSITION,
+		Size = UDim2.new(0, PerfMonitorSystem.Config.CARD_WIDTH, 0, PerfMonitorSystem.Config.EXPANDED_HEIGHT)
+	}, {
+		corner(14),
+		cardStroke,
+		createInst("UIGradient", {
+			Rotation = 90,
+			Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)),
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.93),
+				NumberSequenceKeypoint.new(1, 1)
+			})
+		}),
+		createInst("UIPadding", {
+			PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16),
+			PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 12)
+		}),
+		createInst("UIListLayout", {
+			FillDirection = Enum.FillDirection.Vertical,
+			Padding = UDim.new(0, 10),
+			SortOrder = Enum.SortOrder.LayoutOrder
+		}),
+		header, statsFrame, graph
+	})
+
+	local screenGui = createInst("ScreenGui", {
+		Name = "StellarPerformanceMonitor",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = false,
+		DisplayOrder = 999
+	}, { card })
+	screenGui.Parent = CoreGui
+	PerfMonitorSystem.ScreenGui = screenGui
+	PerfMonitorSystem.Card = card
+
+	local expanded = true
+	table.insert(PerfMonitorSystem.Connections, toggleButton.MouseButton1Click:Connect(function()
+		expanded = not expanded
+		toggleButton.Text = expanded and "-" or "+"
+		TweenService:Create(card, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			Size = UDim2.new(0, PerfMonitorSystem.Config.CARD_WIDTH, 0, expanded and PerfMonitorSystem.Config.EXPANDED_HEIGHT or PerfMonitorSystem.Config.COLLAPSED_HEIGHT)
+		}):Play()
+	end))
+
+	local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
+	table.insert(PerfMonitorSystem.Connections, dragHandle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true dragStart = input.Position startPos = card.Position
+			TweenService:Create(cardStroke, TweenInfo.new(0.15), { Transparency = 0.5 }):Play()
+		end
+	end))
+
+	table.insert(PerfMonitorSystem.Connections, dragHandle.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end))
+
+	table.insert(PerfMonitorSystem.Connections, UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			local delta = input.Position - dragStart
+			local viewport = workspace.CurrentCamera.ViewportSize
+			local size = card.AbsoluteSize
+			local newX = math.clamp(startPos.X.Offset + delta.X, 0, math.max(0, viewport.X - size.X))
+			local newY = math.clamp(startPos.Y.Offset + delta.Y, 0, math.max(0, viewport.Y - size.Y))
+			card.Position = UDim2.new(0, newX, 0, newY)
+		end
+	end))
+
+	table.insert(PerfMonitorSystem.Connections, UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if dragging then
+				dragging = false
+				TweenService:Create(cardStroke, TweenInfo.new(0.3), { Transparency = 0.87 }):Play()
+			end
+		end
+	end))
+
+	-- Telemetry Update Thread
+	local frameTimes = {}
+	table.insert(PerfMonitorSystem.Connections, RunService.RenderStepped:Connect(function(dt)
+		table.insert(frameTimes, dt)
+		if #frameTimes > 30 then table.remove(frameTimes, 1) end
+	end))
+
+	local function getFPS()
+		if #frameTimes == 0 then return 0 end
+		local sum = 0 for _, dt in ipairs(frameTimes) do sum = sum + dt end
+		local avg = sum / #frameTimes
+		return avg > 0 and (1 / avg) or 0
+	end
+
+	local function getPing()
+		local ok, val = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+		return ok and val or 0
+	end
+
+	local function fpsColor(fps)
+		if fps >= PerfMonitorSystem.Config.FPS_GOOD then return PerfMonitorSystem.Colors.good
+		elseif fps >= PerfMonitorSystem.Config.FPS_OK then return PerfMonitorSystem.Colors.ok
+		else return PerfMonitorSystem.Colors.bad end
+	end
+
+	local function pingColor(ping)
+		if ping <= PerfMonitorSystem.Config.PING_GOOD then return PerfMonitorSystem.Colors.good
+		elseif ping <= PerfMonitorSystem.Config.PING_OK then return PerfMonitorSystem.Colors.ok
+		else return PerfMonitorSystem.Colors.bad end
+	end
+
+	local displayFps, displayPing = 0, 0
+	local history = table.create(PerfMonitorSystem.Config.GRAPH_SAMPLES, 0)
+
+	task.spawn(function()
+		while card and card.Parent do
+			local targetFps = getFPS()
+			local targetPing = getPing()
+			
+			-- Sync telemetry back to global state
+			Stellar.__properties.__cached_fps = targetFps
+			Stellar.__properties.__cached_ping = targetPing
+
+			displayFps = displayFps + (targetFps - displayFps) * PerfMonitorSystem.Config.SMOOTHING
+			displayPing = displayPing + (targetPing - displayPing) * PerfMonitorSystem.Config.SMOOTHING
+
+			local roundedFps = math.floor(displayFps + 0.5)
+			local roundedPing = math.floor(displayPing + 0.5)
+
+			fpsValue.Text = tostring(roundedFps)
+			pingValue.Text = string.format('%d<font size="14" transparency="0.4"> ms</font>', roundedPing)
+
+			local fColor = fpsColor(roundedFps)
+			local pColor = pingColor(roundedPing)
+
+			TweenService:Create(fpsValue, TweenInfo.new(PerfMonitorSystem.Config.UPDATE_RATE), { TextColor3 = fColor }):Play()
+			TweenService:Create(pingValue, TweenInfo.new(PerfMonitorSystem.Config.UPDATE_RATE), { TextColor3 = pColor }):Play()
+
+			local overall = (fColor == PerfMonitorSystem.Colors.bad or pColor == PerfMonitorSystem.Colors.bad) and PerfMonitorSystem.Colors.bad
+				or (fColor == PerfMonitorSystem.Colors.ok or pColor == PerfMonitorSystem.Colors.ok) and PerfMonitorSystem.Colors.ok
+				or PerfMonitorSystem.Colors.good
+			TweenService:Create(statusDot, TweenInfo.new(PerfMonitorSystem.Config.UPDATE_RATE), { BackgroundColor3 = overall }):Play()
+
+			table.insert(history, roundedFps)
+			table.remove(history, 1)
+
+			local maxVal = 30
+			for _, v in ipairs(history) do if v > maxVal then maxVal = v end end
+
+			for i, bar in ipairs(bars) do
+				local v = history[i] or 0
+				bar.Size = UDim2.new(0, BAR_WIDTH, 0, math.clamp((v / maxVal) * 24, 2, 24))
+				bar.BackgroundColor3 = fpsColor(v)
+			end
+			task.wait(PerfMonitorSystem.Config.UPDATE_RATE)
+		end
+	end)
+end
+
+buildPerformanceMonitor()
 
 -- Ability ESP Subsystem
 local billboardLabels = {}
@@ -1616,23 +2123,18 @@ spam_module:create_dropdown({
 })
 
 local manual_spam_module = SpamTab:create_module({
-	title = "Manual Spam",
-	description = "Spam speed based on Batch mode you chose.",
-	flag = "ManualSpamModule",
-	section = "right",
+	title = "Manual Spam", description = "Floating switch interface controller", flag = "ManualSpamModule", section = "right",
 	callback = function(state)
 		Stellar.__properties.__manual_spam_enabled = state
-		if ScreenGui then ScreenGui.Enabled = state end
+		if FloatingSwitchSystem.ScreenGui then FloatingSwitchSystem.ScreenGui.Enabled = state end
 		if not state then
 			Stellar.__properties.__gui_spam_active = false
-			if StatusText then
-				StatusText.Text = "SPAM\nOFF"
-				StatusText.TextColor3 = Color3.fromRGB(255, 100, 100)
-				Stroke.Color = Color3.fromRGB(255, 100, 100)
-			end
+			FloatingSwitchSystem.IsOn = false
+			if Stellar.manual_spam then Stellar.manual_spam.stop() end
 		end
 	end
 })
+
 
 local detection_module = DetectionTab:create_module({
 	title = "Ability Detections",
@@ -1887,4 +2389,4 @@ misc_module:create_button({
 
 -- Library Load Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.2.5 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3 Initialized.", duration = 3 })
