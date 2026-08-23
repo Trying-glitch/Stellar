@@ -160,6 +160,22 @@ local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Alive = workspace:FindFirstChild("Alive") or workspace:WaitForChild("Alive", 10) or workspace
 local Runtime = workspace:FindFirstChild("Runtime") or workspace:WaitForChild("Runtime", 10)
 
+local originalClockTime
+local originalGlobalShadows
+local originalEffectStates = {}
+local originalBloomProps = {}
+local createdBloom = nil
+local initialized = false
+
+-- Store disabled atmospheres to restore later
+local disabledAtmispheres = {}
+
+-- Connections for background loops
+local timeConnection = nil 
+local descendantConnection = nil
+
+-- Use a weak table for parts to prevent memory leaks if parts get destroyed
+local originalPartShadows = setmetatable({}, {__mode = "k"})
 -- ============================================================================
 -- INTEGRATED FLOATING TOGGLE SWITCH SUBSYSTEM
 -- ============================================================================
@@ -1882,12 +1898,13 @@ local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (curr
 			end
 
 			-- Optimized Ping-Compensated Distance Threshold (Prevents Early Parries)
-			local latencyDistanceOffset = (ping * 0.7) * approachSpeed
+			local latencyDistanceOffset = (ping * 1.0) * approachSpeed
 			local pingAdjustedDistance = math.max(0, distance - latencyDistanceOffset)
 
-			-- FIX 3: Increased base reactionWindow and distanceThreshold scale
-			local reactionWindow = 0.20 + (ping * 1.1)
-			local distanceThreshold = 14 + (Stellar.__properties.__accuracy / 10)
+-- Dynamically expands the prediction window for heavy latency
+         local pingScalar = (ping > 0.2) and 1.35 or 0.95
+         local reactionWindow = 0.10 + (ping * pingScalar)
+			local distanceThreshold = 8 + (Stellar.__properties.__accuracy / 15) + (ping * 12)
 
 
 			if isCurved then
@@ -2284,18 +2301,170 @@ immortality_module:create_slider({
 })
 
 local visuals_module = VisualsTab:create_module({
-	title = "Render Exploits",
-	description = "Enhance on-screen visual assets",
+	title = "Visual",
+	description = "Changes Visual",
 	flag = "VisualsModule",
 	section = "left",
 	callback = function(state) end
 })
 visuals_module:create_button({
-	title = "Unlock All (No GUI)",
+	title = "Unlock All",
 	callback = function()
 		pcall(function()
 			loadstring(game:HttpGet("https://raw.githubusercontent.com/Trying-glitch/RlxProject/refs/heads/main/unlocked%20all%20BB%20no%20gui.txt"))()
 		end)
+	end
+})
+
+local reduce_lag_module = VisualsTab:create_module({
+	title = "Reduce Lag",
+	description = "Reduce Lag while maintaining visuals",
+	flag = "ReduceLagModule",
+	section = "right",
+	callback = function(state)
+		if state then
+			-- === TURNED ON ===
+			
+			if not initialized then
+				originalClockTime = Lighting.ClockTime
+				originalGlobalShadows = Lighting.GlobalShadows
+				
+				for _, effect in pairs(Lighting:GetChildren()) do
+					if effect:IsA("PostEffect") then
+						originalEffectStates[effect] = effect.Enabled
+					end
+				end
+				
+				local existingBloom = Lighting:FindFirstChildOfClass("BloomEffect")
+				if existingBloom then
+					originalBloomProps = {
+						Intensity = existingBloom.Intensity,
+						Size = existingBloom.Size,
+						Threshold = existingBloom.Threshold,
+						Enabled = existingBloom.Enabled
+					}
+				end
+				
+				-- Save original states of existing parts
+				for _, obj in pairs(Workspace:GetDescendants()) do
+					if obj:IsA("BasePart") then
+						originalPartShadows[obj] = obj.CastShadow
+					end
+				end
+				
+				initialized = true
+			end
+
+			-- 1. Apply static optimizations
+			Lighting.ClockTime = 0
+			Lighting.GlobalShadows = false
+
+			for _, effect in pairs(Lighting:GetChildren()) do
+				if effect:IsA("PostEffect") and not effect:IsA("BloomEffect") then
+					effect.Enabled = false
+				elseif effect:IsA("Atmosphere") then
+					table.insert(disabledAtmispheres, effect)
+					effect.Parent = nil -- Temporarily hide Atmosphere instead of toggling Enabled
+				end
+			end
+
+			local bloom = Lighting:FindFirstChildOfClass("BloomEffect")
+			if not bloom then
+				bloom = Instance.new("BloomEffect")
+				bloom.Parent = Lighting
+				createdBloom = bloom
+			end
+			bloom.Enabled = true
+			bloom.Intensity = 1.5
+			bloom.Size = 24
+			bloom.Threshold = 0.8
+
+			-- Remove shadows from parts currently in the game
+			for _, obj in pairs(Workspace:GetDescendants()) do
+				if obj:IsA("BasePart") then
+					obj.CastShadow = false
+				end
+			end
+
+			-- 2. Activate Active Listeners (Time & New Parts)
+			
+			-- Force time to stay at midnight
+			if not timeConnection then
+				timeConnection = Lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
+					if Lighting.ClockTime ~= 0 then
+						Lighting.ClockTime = 0
+					end
+				end)
+			end
+			
+			-- Strip shadows from new parts as they spawn in
+			if not descendantConnection then
+				descendantConnection = Workspace.DescendantAdded:Connect(function(obj)
+					if obj:IsA("BasePart") then
+						if originalPartShadows[obj] == nil then
+							originalPartShadows[obj] = obj.CastShadow
+						end
+						obj.CastShadow = false
+					end
+				end)
+			end
+
+			Library.SendNotification({ title = "Stellar Engine", text = "Potato Mode and Night theme initialize", duration = 2 })
+		else
+			-- === TURNED OFF (Restore original states) ===
+			if not initialized then return end
+			
+			-- Disconnect active listeners
+			if timeConnection then
+				timeConnection:Disconnect()
+				timeConnection = nil
+			end
+			
+			if descendantConnection then
+				descendantConnection:Disconnect()
+				descendantConnection = nil
+			end
+			
+			-- Restore lighting states
+			Lighting.ClockTime = originalClockTime
+			Lighting.GlobalShadows = originalGlobalShadows
+			
+			-- Restore atmospheres
+			for _, atmos in pairs(disabledAtmispheres) do
+				if atmos then
+					atmos.Parent = Lighting
+				end
+			end
+			table.clear(disabledAtmispheres)
+			
+			for effect, wasEnabled in pairs(originalEffectStates) do
+				if effect and effect.Parent then
+					effect.Enabled = wasEnabled
+				end
+			end
+			
+			if createdBloom then
+				createdBloom:Destroy()
+				createdBloom = nil
+			else
+				local bloom = Lighting:FindFirstChildOfClass("BloomEffect")
+				if bloom and originalBloomProps.Intensity then
+					bloom.Intensity = originalBloomProps.Intensity
+					bloom.Size = originalBloomProps.Size
+					bloom.Threshold = originalBloomProps.Threshold
+					bloom.Enabled = originalBloomProps.Enabled
+				end
+			end
+			
+			-- Restore part shadows
+			for obj, hadShadow in pairs(originalPartShadows) do
+				if obj and obj.Parent then
+					obj.CastShadow = hadShadow
+				end
+			end
+
+			Library.SendNotification({ title = "Stellar Engine", text = "Potato Mode and Night theme unloaded", duration = 2 })
+		end
 	end
 })
 
@@ -2389,4 +2558,4 @@ misc_module:create_button({
 
 -- Library Load Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3.1 Initialized.", duration = 3 })
