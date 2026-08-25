@@ -1451,105 +1451,53 @@ function Stellar.parry.execute_bruteforce(precalc_cframe)
 end
 
 -- Animation Subsystem
+Stellar.animation = {}
+local SwordAPI = ReplicatedStorage:WaitForChild("Shared", 9e9):WaitForChild("SwordAPI", 9e9)
 local last_anim_tick = 0
-Stellar.animation = {
-    _active_animator = nil,
-    _track_cache = {},
-    _resolved_swords = {}
-}
-
-local function resolve_parry_animation(character, sword_name)
-    local sword_api = ReplicatedStorage:WaitForChild("Shared", 9e9):WaitForChild("SwordAPI", 9e9):WaitForChild("Collection", 9e9)
-    local default_anim = sword_api:WaitForChild("Default", 9e9):FindFirstChild("GrabParry")
-
-    if not sword_name or sword_name == "" then
-        return default_anim
+function Stellar.animation.play_grab_parry()
+    if not Stellar.__properties.__play_animation then
+        return
     end
-
-    if Stellar.animation._resolved_swords[sword_name] then
-        return Stellar.animation._resolved_swords[sword_name]
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoid = character:FindFirstChildOfClass('Humanoid')
+    local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
+    if not humanoid or not animator then return end
+    
+    local sword_name
+    if getgenv().skinChangerEnabled then
+        sword_name = getgenv().swordAnimations
+    else
+        sword_name = character:GetAttribute('CurrentlyEquippedSword')
     end
-
-    local parry_animation = default_anim
-    local success, sword_data = pcall(function()
-        return ReplicatedStorage.Shared.ReplicatedInstances.Swords.GetSword:Invoke(sword_name)
-    end)
-
-    if success and type(sword_data) == "table" and sword_data then
-        for _, object in pairs(sword_api:GetChildren()) do
-            if object.Name == sword_data then
-                local animation_type = object:FindFirstChild("GrabParry") and "GrabParry" or "Grab"
-                if object:FindFirstChild(animation_type) then
-                    parry_animation = object[animation_type]
-                    break
-                end
+    if not sword_name then return end
+    
+    local sword_api = ReplicatedStorage.Shared.SwordAPI.Collection
+    local parry_animation = sword_api.Default:FindFirstChild('GrabParry')
+    if not parry_animation then return end
+    
+    local sword_data = ReplicatedStorage.Shared.ReplicatedInstances.Swords.GetSword:Invoke(sword_name)
+    if not sword_data or not sword_data['AnimationType'] then return end
+    
+    for _, object in pairs(sword_api:GetChildren()) do
+        if object.Name == sword_data['AnimationType'] then
+            if object:FindFirstChild('GrabParry') or object:FindFirstChild('Grab') then
+                local animation_type = object:FindFirstChild('GrabParry') and 'GrabParry' or 'Grab'
+                parry_animation = object[animation_type]
             end
         end
     end
-
-    Stellar.animation._resolved_swords[sword_name] = parry_animation
-    return parry_animation
+    
+    if Stellar.__properties.__grab_animation and Stellar.__properties.__grab_animation.IsPlaying then
+        Stellar.__properties.__grab_animation:Stop()
+    end
+    
+    Stellar.__properties.__grab_animation = animator:LoadAnimation(parry_animation)
+    Stellar.__properties.__grab_animation.Priority = Enum.AnimationPriority.Action4
+    Stellar.__properties.__grab_animation:Play()
 end
-
-function Stellar.animation.play_grab_parry()
-    if not Stellar.__properties.__play_animation or (tick() - last_anim_tick) < 0.25 then 
-        return 
-    end
-
-    local character = LocalPlayer.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-    if not animator then return end
-
-    if Stellar.animation._active_animator ~= animator then
-        table.clear(Stellar.animation._track_cache)
-        Stellar.animation._active_animator = animator
-    end
-
-    local sword_name = character:GetAttribute("CurrentlyEquippedSword")
-    local parry_animation = resolve_parry_animation(character, sword_name)
-    if not parry_animation then return end
-
-    local anim_id = parry_animation.AnimationId
-    local track = Stellar.animation._track_cache[anim_id]
-
-    if not track or not track.Parent then
-        local ok, loadedTrack = pcall(function() return animator:LoadAnimation(parry_animation) end)
-        if not ok or not loadedTrack then return end
-        track = loadedTrack
-        track.Priority = Enum.AnimationPriority.Action4
-        Stellar.animation._track_cache[anim_id] = track
-    end
-
-    if track.IsPlaying then
-        track:Stop(0)
-    end
-
-    track.TimePosition = 0
-    last_anim_tick = tick()
-    track:Play(0.05, 1.0, 1.0)
-end
-
-task.spawn(function()
-    pcall(function()
-        local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-        local parrySuccessRemote = remotes and remotes:WaitForChild("ParrySuccess", 10)
-        if parrySuccessRemote then
-            parrySuccessRemote.OnClientEvent:Connect(function()
-                local character = LocalPlayer.Character
-                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-                local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-                if animator then
-                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
-                        if track.Name == "GrabParry" or track.Name == "Grab" or track.Priority == Enum.AnimationPriority.Action4 then
-                            track:Stop(0.1)
-                        end
-                    end
-                end
-            end)
-        end
-    end)
-end)
 
 -- Fused Anti-Curve Physics Engine
 Stellar.detection = {
