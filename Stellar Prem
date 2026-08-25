@@ -1057,6 +1057,20 @@ Stellar.__properties.__connections.__immortality = RunService.Heartbeat:Connect(
     end)
 end)
 
+task.spawn(function()
+	while true do
+		if _captured and _captured.remote then
+			Library.SendNotification({
+				title = "Stellar Engine",
+				text = " Remotes Captured: " .. _captured.remote.Name,
+				duration = 3
+			})
+			break -- Stops checking once captured and notified
+		end
+		task.wait(0.5)
+	end
+end)
+
 -- Dynamic Accuracy & Ping Scaling
 local function update_divisor()
 	local reversed_accuracy = 101 - Stellar.__properties.__accuracy
@@ -1819,8 +1833,8 @@ function Stellar.autoparry.start()
 			local pingAdjustedDistance = math.max(0, distance - latencyDistanceOffset)
 
 			local pingScalar = (ping > 0.2) and 1.35 or 0.95
-			local reactionWindow = 0.11 + (ping * pingScalar)
-			local distanceThreshold = 8 + (Stellar.__properties.__accuracy / 15) + (ping * 12)
+			local reactionWindow = 0.12 + (ping * pingScalar)
+			local distanceThreshold = 9 + (Stellar.__properties.__accuracy / 15) + (ping * 12)
 
 			if isCurved then
 				reactionWindow = reactionWindow * 0.25
@@ -2489,5 +2503,5 @@ misc_module:create_button({
 
 -- Script Initialization Launch
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3.1 (bypassed) Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3.6 (bypassed) Initialized.", duration = 3 })
 Library.SendNotification({ title = "Stellar Engine", text = "[IMPORTANT] Please Parry Manually First", duration = 5 })
