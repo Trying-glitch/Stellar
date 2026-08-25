@@ -1,4 +1,4 @@
--- Stellar V3.40 Engine - Fused with Angeli Architecture & Advanced Kinematic Anti-Curve
+-- Stellar V5.3.1 Engine - Integrated with Dynamic GC Tokenization & Precision Metatable Proxying
 local cloneref = cloneref or function(obj) return obj end
 local getconnections = getconnections or function() return {} end
 local getupvalues = debug.getupvalues or getupvalues or function() return {} end
@@ -9,8 +9,11 @@ local isourclosure = isourclosure or function() return false end
 local setthreadidentity = setthreadidentity or function() end
 local hookfunction = hookfunction or (getgenv and getgenv().hookfunction) or (getgenv and getgenv().hookfunc)
 local newcclosure = newcclosure or (getgenv and getgenv().newcclosure) or function(f) return f end
+local getgc = getgc or function() return {} end
+local getrawmetatable = getrawmetatable or function() return {} end
+local setreadonly = setreadonly or function() end
 
--- Services Cached
+-- Core Services Cached
 local UserInputService = cloneref(game:GetService('UserInputService'))
 local ContentProvider = cloneref(game:GetService('ContentProvider'))
 local TweenService = cloneref(game:GetService('TweenService'))
@@ -24,7 +27,7 @@ local Debris = cloneref(game:GetService('Debris'))
 local ReplicatedStorage = cloneref(game:GetService('ReplicatedStorage'))
 local Stats = cloneref(game:GetService('Stats'))
 
--- Stellar Original Anti-Cheat Bypass
+-- Stellar Original Anti-Cheat Environment Hardening
 if hookfunction and getrenv then
 	pcall(function()
 		local _BAC_oldDebugInfo
@@ -46,7 +49,7 @@ if hookfunction and getrenv then
 	end)
 end
 
--- Stellar UI Library Loading
+-- Stellar UI Library Initialization
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Trying-glitch/Stellar/refs/heads/main/Stellar%20UI.lua"))()
 local library = Library.new()
 library:set_background({
@@ -54,7 +57,7 @@ library:set_background({
     transparency = 0.2,
 })
 
--- UI Tabs (Strict Stellar Organization)
+-- UI Tab Allocation
 local AutoparryTab = library:create_tab("Autoparry", "rbxassetid://76499042599127")
 local SpamTab = library:create_tab("Spam Core", "rbxassetid://126017907477623")
 local DetectionTab = library:create_tab("Detection", "rbxassetid://126017907477623")
@@ -62,7 +65,7 @@ local PlayerTab = library:create_tab("Player Mod", "rbxassetid://126017907477623
 local VisualsTab = library:create_tab("Visuals", "rbxassetid://126017907477623")
 local MiscTab = library:create_tab("Misc Spec", "rbxassetid://126017907477623")
 
--- Global State Initialization (Fused State Machine)
+-- Global State Machine Initialization
 local Stellar = {
 	__properties = {
 		__autoparry_enabled = false,
@@ -81,7 +84,6 @@ local Stellar = {
 		__parry_key = nil,
 		__grab_animation = nil,
 		__tornado_time = tick(),
-		__first_parry_done = false,
 		__connections = {},
 		__spam_accumulator = 0,
 		__spam_batch_amount = "FPS Priority",
@@ -166,16 +168,109 @@ local originalEffectStates = {}
 local originalBloomProps = {}
 local createdBloom = nil
 local initialized = false
-
--- Store disabled atmospheres to restore later
 local disabledAtmispheres = {}
-
--- Connections for background loops
 local timeConnection = nil 
 local descendantConnection = nil
-
--- Use a weak table for parts to prevent memory leaks if parts get destroyed
 local originalPartShadows = setmetatable({}, {__mode = "k"})
+
+-- ============================================================================
+-- INTEGRATED DYNAMIC GC TOKENIZATION & METATABLE PROXY SUBSYSTEM
+-- ============================================================================
+local _token = nil
+
+task.spawn(function()
+	for _, Function in ipairs(getgc(true)) do
+		if type(Function) == 'function' and debug.info(Function, 's'):find('PRY', 1, true) then
+			for _, value in ipairs(debug.getupvalues(Function)) do
+				if type(value) == 'function' then
+					_token = value
+					break
+				end
+			end
+			if _token then break end
+		end
+	end
+end)
+
+local function _tokenize(_remote_uid)
+	if not _token then return nil end
+	local time_str = tostring(math.floor(workspace:GetServerTimeNow() * 100))
+	local key = _token(_remote_uid, 'TIME')
+	if not key then return nil end
+	local characters = table.create(#time_str)
+
+	for index = 1, #time_str do
+		characters[index] = string.char(bit32.bxor(
+			(string.byte(time_str, index) + index) % 256,
+			string.byte(key, (index - 1) % #key + 1)
+		))
+	end
+
+	return table.concat(characters)
+end
+
+local _reverted = setmetatable({}, { __mode = "k" })
+local _original = {}
+local _captured = nil
+
+local function _is_valid(args)
+	return #args == 8 
+		and type(args[2]) == "string" 
+		and type(args[3]) == "string" 
+		and type(args[4]) == "number" 
+		and typeof(args[5]) == "CFrame" 
+		and type(args[6]) == "table" 
+		and type(args[7]) == "table" 
+		and type(args[8]) == "boolean"
+end
+
+local function _hook(remote)
+	if not _reverted[remote] then
+		local meta = getrawmetatable(remote)
+		if meta and not _original[meta] then
+			_original[meta] = true
+			setreadonly(meta, false)
+
+			local _old = meta.__index
+			meta.__index = function(self, key)
+				if (key == 'FireServer' and self:IsA('RemoteEvent')) or
+				   (key == 'InvokeServer' and self:IsA('RemoteFunction')) then
+					return function(_, ...)
+						local _arguments = {...}
+						if _is_valid(_arguments) then
+							if not _reverted[self] then
+								_reverted[self] = _arguments
+								_captured = {
+									remote = self,
+									args = _arguments
+								}
+							end
+						end
+						return _old(self, key)(_, unpack(_arguments))
+					end
+				end
+				return _old(self, key)
+			end
+			setreadonly(meta, true)
+		end
+	end
+end
+
+for _, _remote in ipairs(ReplicatedStorage:GetDescendants()) do
+	if _remote:IsA('RemoteEvent') or _remote:IsA('RemoteFunction') then
+		_hook(_remote)
+	end
+end
+
+ReplicatedStorage.DescendantAdded:Connect(function(_remote)
+	if _remote:IsA('RemoteEvent') or _remote:IsA('RemoteFunction') then
+		_hook(_remote)
+	end
+end)
+
+-- Legacy Compatibility Binding Wrapper
+Stellar.ZX_Parry = { Hooked = true }
+
 -- ============================================================================
 -- INTEGRATED FLOATING TOGGLE SWITCH SUBSYSTEM
 -- ============================================================================
@@ -755,7 +850,6 @@ local function buildPerformanceMonitor()
 		end
 	end))
 
-	-- Telemetry Update Thread
 	local frameTimes = {}
 	table.insert(PerfMonitorSystem.Connections, RunService.RenderStepped:Connect(function(dt)
 		table.insert(frameTimes, dt)
@@ -794,7 +888,6 @@ local function buildPerformanceMonitor()
 			local targetFps = getFPS()
 			local targetPing = getPing()
 			
-			-- Sync telemetry back to global state
 			Stellar.__properties.__cached_fps = targetFps
 			Stellar.__properties.__cached_ping = targetPing
 
@@ -892,99 +985,6 @@ Players.PlayerAdded:Connect(function(p)
 	p.CharacterAdded:Connect(function() createBillboardGui(p) end)
 end)
 
--- Stellar Token Generator Pipeline
-Stellar.ZX_Parry = {
-	Remote = nil,
-	Function = nil,
-	KeyTable = nil,
-	TransformFn = nil,
-	NetModule = nil,
-	RemoteId = nil,
-	ParryHash = nil,
-	Hooked = false
-}
-task.spawn(function()
-	pcall(function()
-		local SC = ReplicatedStorage:WaitForChild("Controllers", 10):FindFirstChild("SwordsController \12")
-		local PRY = SC and SC:WaitForChild("PRY", 10)
-		if not PRY then return end
-		Stellar.ZX_Parry.Function = require(PRY)
-		local ups = getupvalues(Stellar.ZX_Parry.Function)
-		Stellar.ZX_Parry.KeyTable = ups[3]
-		Stellar.ZX_Parry.TransformFn = ups[4]
-		Stellar.ZX_Parry.NetModule = ups[6]
-		Stellar.ZX_Parry.RemoteId = ups[7]
-		Stellar.ZX_Parry.ParryHash = ups[8]
-		if Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.TransformFn and Stellar.ZX_Parry.NetModule and Stellar.ZX_Parry.RemoteId then
-			Stellar.ZX_Parry.Remote = Stellar.ZX_Parry.NetModule:RemoteEvent(Stellar.ZX_Parry.RemoteId)
-			Stellar.ZX_Parry.Hooked = true
-		end
-	end)
-end)
-
-local cachedToken = nil
-local lastTokenTick = 0
-local function generateToken(currentKey)
-	if not currentKey or not Stellar.ZX_Parry.TransformFn then return nil end
-	if tick() - lastTokenTick < 0.015 and cachedToken then return cachedToken end
-	local tok, transformed = pcall(Stellar.ZX_Parry.TransformFn, currentKey, "TIME")
-	if not tok or not transformed then return nil end
-	local serverTime = workspace:GetServerTimeNow() * 100
-	local timeStr = tostring(math.floor(serverTime))
-	local tokenChars = {}
-	for i = 1, #timeStr do
-		local ki = (i - 1) % #transformed + 1
-		local xb = bit32.bxor((string.byte(timeStr, i) + i) % 256, string.byte(transformed, ki))
-		tokenChars[i] = string.char(xb)
-	end
-	cachedToken = table.concat(tokenChars)
-	lastTokenTick = tick()
-	return cachedToken
-end
-
--- Metatable Interception Fallback Architecture
-local StellarBypassSystem = {
-	__properties = {
-		__captured_data = nil,
-		__test_bypass_enabled = true,
-		__original_metatables = {},
-		__reverted_remotes = setmetatable({}, { __mode = "k" })
-	}
-}
-function StellarBypassSystem.isValidRemoteArgs(args)
-	return #args >= 4 and typeof(args[4]) == "CFrame"
-end
-pcall(function()
-	local mt = getrawmetatable(game)
-	local old = mt.__index
-	setreadonly(mt, false)
-	mt.__index = function(self, key)
-		if typeof(self) == "Instance" then
-			if (key == "FireServer" and self:IsA("RemoteEvent")) or (key == "InvokeServer" and self:IsA("RemoteFunction")) then
-				return function(instance, ...)
-					if not instance then return end
-					local args = { ... }
-					if StellarBypassSystem.isValidRemoteArgs(args) then
-						if not StellarBypassSystem.__properties.__captured_data then
-							StellarBypassSystem.__properties.__captured_data = {
-								remote = instance,
-								args = args,
-								func = old(instance, key)
-							}
-						end
-						if not StellarBypassSystem.__properties.__reverted_remotes[instance] then
-							StellarBypassSystem.__properties.__reverted_remotes[instance] = args
-						end
-					end
-					return old(self, key)(instance, ...)
-				end
-			end
-		end
-		return old(self, key)
-	end
-	setreadonly(mt, true)
-end)
-
 -- Immortality Orbital Desync Module
 local function getSafeCharacterComponents()
     local char = LocalPlayer.Character
@@ -1062,6 +1062,7 @@ local function update_divisor()
 	local reversed_accuracy = 101 - Stellar.__properties.__accuracy
 	Stellar.__properties.__divisor_multiplier = 0.7 + (reversed_accuracy - 1) * 0.0035353535353535
 end
+
 local function update_randomized_accuracy()
 	if not Stellar.__properties.__randomized_accuracy_enabled then return end
 	local ping_str = Stats.Network.ServerStatsItem:GetValueString()
@@ -1070,6 +1071,7 @@ local function update_randomized_accuracy()
 	Stellar.__properties.__accuracy = new_accuracy
 	update_divisor()
 end
+
 task.spawn(function()
 	while task.wait(1) do
 		if Stellar.__properties.__randomized_accuracy_enabled then
@@ -1296,7 +1298,7 @@ function Stellar.player.get_closest_to_cursor()
 	return closest_player
 end
 
--- Curve Provider (Stellar Mode Suite)
+-- Curve Provider Module
 Stellar.curve = {}
 function Stellar.curve.get_cframe()
 	local camera = workspace.CurrentCamera
@@ -1343,23 +1345,15 @@ function Stellar.curve.get_cframe()
 	return selected_func()
 end
 
--- Primary Parry Pipeline
+-- Universal Parry Execution Subsystem
 local Cache_Update_Tick = 0
 local Last_Positions_Cache = {}
 local lastHitTick = 0
 
 local function fireParry(precalc_cframe)
-	if not Stellar.__properties.__first_parry_done then
-		Stellar.__properties.__first_parry_done = true
-		pcall(function()
-			local conns = getconnections(LocalPlayer.PlayerGui.Hotbar.Block.Activated)
-			if #conns > 0 then
-				for _, connection in pairs(conns) do connection:Fire() end
-			end
-		end)
-	end
 	local cam = workspace.CurrentCamera
 	local pCF = precalc_cframe or Stellar.curve.get_cframe()
+
 	if tick() - Cache_Update_Tick > 0.1 then
 		table.clear(Last_Positions_Cache)
 		if Alive and cam then
@@ -1373,35 +1367,61 @@ local function fireParry(precalc_cframe)
 		end
 		Cache_Update_Tick = tick()
 	end
-	if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
-		local keyIndex = Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.KeyTable[3]
-		local currentKey = keyIndex and Stellar.ZX_Parry.KeyTable[1][keyIndex]
-		if currentKey then
-			local token = generateToken(currentKey)
-			if token then
-				lastHitTick = tick()
-				pcall(function()
-					Stellar.ZX_Parry.Remote:FireServer(
-						Stellar.ZX_Parry.ParryHash, currentKey, token, 0.5, pCF, Last_Positions_Cache, {
-							cam.ViewportSize.X / 2,
-							cam.ViewportSize.Y / 2
-						}, false)
-				end)
-				return
+
+	local vp = cam.ViewportSize
+	local viewport_center = { vp.X / 2, vp.Y / 2 }
+
+	-- Dispatch via Intercepted Metatable Cache
+	if _captured and _captured.remote and _captured.args then
+		local remote_uid = _captured.args[2]
+		local token = _tokenize(remote_uid)
+		if token then
+			local packet = {
+				_captured.args[1],
+				remote_uid,
+				token,
+				0.5,
+				pCF,
+				Last_Positions_Cache,
+				viewport_center,
+				false
+			}
+			lastHitTick = tick()
+			if _captured.remote:IsA("RemoteEvent") then
+				_captured.remote:FireServer(unpack(packet))
+			elseif _captured.remote:IsA("RemoteFunction") then
+				_captured.remote:InvokeServer(unpack(packet))
 			end
+			return
 		end
 	end
-	local captured = StellarBypassSystem.__properties.__captured_data
-	if captured and captured.remote and captured.func then
-		local vp = cam.ViewportSize
-		pcall(function()
-			captured.func(captured.remote, captured.args[1], captured.args[2], captured.args[3], pCF, Last_Positions_Cache, {
-				vp.X / 2,
-				vp.Y / 2
-			}, captured.args[7])
-		end)
+
+	-- Secondary Fallback across All Intercepted Remotes
+	for _remote, _arg_list in pairs(_reverted) do
+		local remote_uid = _arg_list[2]
+		local token = _tokenize(remote_uid)
+		if token then
+			local packet = {
+				_arg_list[1],
+				remote_uid,
+				token,
+				0.5,
+				pCF,
+				Last_Positions_Cache,
+				viewport_center,
+				false
+			}
+			lastHitTick = tick()
+			if _remote:IsA("RemoteEvent") then
+				_remote:FireServer(unpack(packet))
+			elseif _remote:IsA("RemoteFunction") then
+				_remote:InvokeServer(unpack(packet))
+			end
+			return
+		end
 	end
 end
+
 
 Stellar.parry = {}
 function Stellar.parry.execute(precalc_cframe)
@@ -1410,16 +1430,19 @@ function Stellar.parry.execute(precalc_cframe)
 	Stellar.__properties.__parries = Stellar.__properties.__parries + 1
 	task.delay(0.5, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - 1) end)
 end
+
 function Stellar.parry.keypress(precalc_cframe)
 	if Stellar.__properties.__parries > 10000 or not LocalPlayer.Character then return end
 	fireParry(precalc_cframe)
 	Stellar.__properties.__parries = Stellar.__properties.__parries + 1
 	task.delay(0.5, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - 1) end)
 end
+
 function Stellar.parry.execute_action(precalc_cframe)
 	Stellar.animation.play_grab_parry()
 	Stellar.parry.execute(precalc_cframe)
 end
+
 function Stellar.parry.execute_bruteforce(precalc_cframe)
 	if Stellar.__properties.__parries > 10000 or not LocalPlayer.Character then return end
 	fireParry(precalc_cframe)
@@ -1427,26 +1450,14 @@ function Stellar.parry.execute_bruteforce(precalc_cframe)
 	task.delay(0.5, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - 1) end)
 end
 
--- ============================================================================
--- STELLAR ENGINE V5 ANIMATION SUBSYSTEM (REMEDIATED)
--- Restores ParrySuccess listening, dynamic sword resolution, and safe caching
--- ============================================================================
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-
--- Explicitly scoped timing baseline
+-- Animation Subsystem
 local last_anim_tick = 0
-
--- Refactored Hybrid Animator & Track Lifecycle Manager
 Stellar.animation = {
     _active_animator = nil,
     _track_cache = {},
-    _resolved_swords = {} -- Local memory cache for sword skin animations
+    _resolved_swords = {}
 }
 
--- Fully restored dynamic sword resolution with local memory fallback
 local function resolve_parry_animation(character, sword_name)
     local sword_api = ReplicatedStorage:WaitForChild("Shared", 9e9):WaitForChild("SwordAPI", 9e9):WaitForChild("Collection", 9e9)
     local default_anim = sword_api:WaitForChild("Default", 9e9):FindFirstChild("GrabParry")
@@ -1455,7 +1466,6 @@ local function resolve_parry_animation(character, sword_name)
         return default_anim
     end
 
-    -- Check local memory cache to avoid unnecessary RPC calls on every parry
     if Stellar.animation._resolved_swords[sword_name] then
         return Stellar.animation._resolved_swords[sword_name]
     end
@@ -1477,13 +1487,11 @@ local function resolve_parry_animation(character, sword_name)
         end
     end
 
-    -- Store resolved asset reference in local memory cache
     Stellar.animation._resolved_swords[sword_name] = parry_animation
     return parry_animation
 end
 
 function Stellar.animation.play_grab_parry()
-    -- Enforce strict 0.25-second rate limit using local baseline
     if not Stellar.__properties.__play_animation or (tick() - last_anim_tick) < 0.25 then 
         return 
     end
@@ -1493,7 +1501,6 @@ function Stellar.animation.play_grab_parry()
     local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
     if not animator then return end
 
-    -- Automatically purge track cache if character or animator reference changes (e.g., respawn)
     if Stellar.animation._active_animator ~= animator then
         table.clear(Stellar.animation._track_cache)
         Stellar.animation._active_animator = animator
@@ -1503,7 +1510,6 @@ function Stellar.animation.play_grab_parry()
     local parry_animation = resolve_parry_animation(character, sword_name)
     if not parry_animation then return end
 
-    -- Track Retrieval and Safe Lifecycle Playback
     local anim_id = parry_animation.AnimationId
     local track = Stellar.animation._track_cache[anim_id]
 
@@ -1515,17 +1521,15 @@ function Stellar.animation.play_grab_parry()
         Stellar.animation._track_cache[anim_id] = track
     end
 
-    -- Safe resetting sequence to prevent engine-level weight blend locks
     if track.IsPlaying then
-        track:Stop(0) -- Instant stop without fade buffer
+        track:Stop(0)
     end
 
-    track.TimePosition = 0 -- Force track keyframe position back to start
+    track.TimePosition = 0
     last_anim_tick = tick()
     track:Play(0.05, 1.0, 1.0)
 end
 
--- Restored ParrySuccess Client Event Listener
 task.spawn(function()
     pcall(function()
         local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
@@ -1538,7 +1542,7 @@ task.spawn(function()
                 if animator then
                     for _, track in pairs(animator:GetPlayingAnimationTracks()) do
                         if track.Name == "GrabParry" or track.Name == "Grab" or track.Priority == Enum.AnimationPriority.Action4 then
-                            track:Stop(0.1) -- Smooth 0.1s fade out on successful parry confirmation
+                            track:Stop(0.1)
                         end
                     end
                 end
@@ -1547,8 +1551,7 @@ task.spawn(function()
     end)
 end)
 
-
--- Fused Anti-Curve Physics Engine (Kinematic Vectors + Arc Warping)
+-- Fused Anti-Curve Physics Engine
 Stellar.detection = {
 	__ball_properties = {
 		__lerp_radians = 0,
@@ -1655,7 +1658,6 @@ function Stellar.detection.is_curved(ball)
 		end
 	end
 
-	-- Secondary Geometric Arc Fallback Check
 	local clamped_dot = math.clamp(currentDot, -1, 1)
 	local radians = math.asin(clamped_dot)
 	local ballProps = Stellar.detection.__ball_properties
@@ -1696,13 +1698,12 @@ function Stellar.autoparry.start()
 		local playerPos = LocalPlayer.Character.PrimaryPart.Position
 		local cam = workspace.CurrentCamera
 		
-		-- Special Capability Suppression Assertions
 		if Stellar.__config.__detections.__infinity and Stellar.__properties.__infinity_active then return end
 		if Stellar.__config.__detections.__deathslash and Stellar.__properties.__deathslash_active then return end
 		if Stellar.__config.__detections.__timehole and Stellar.__properties.__timehole_active then return end
 		if Stellar.__config.__detections.__slashesoffury and Stellar.__properties.__slashesoffury_active then return end
 
-		-- Auto Ability Module Engine
+		-- Auto Ability Engine
 		if getgenv().AutoAbility or (Stellar and Stellar.__properties and Stellar.__properties.__auto_ability_enabled) then
 			local hotbar = LocalPlayer.PlayerGui:FindFirstChild("Hotbar")
 			local abilityGui = hotbar and hotbar:FindFirstChild("Ability")
@@ -1756,7 +1757,7 @@ function Stellar.autoparry.start()
 			end
 		end
 
-		-- Standard Ball Loop Processor
+		-- Ball Trajectory Processing Loop
 		local balls = Stellar.ball.get_all()
 		for _, ball in pairs(balls) do
 			if LocalPlayer.Character.PrimaryPart:FindFirstChild('SingularityCape') then continue end
@@ -1799,54 +1800,25 @@ function Stellar.autoparry.start()
 			local ballSpeed = math.max(velocity.Magnitude, 0)
 			local spamThresh = Stellar.__properties.__spam_threshold * Stellar.__properties.__auto_spam_distance_multiplier
 			local currentParryCount = Stellar.__properties.__parries or 0
-			-- Using your exact UI variable, with the 'or 35' fallback just in case the UI hasn't loaded yet
-local maxClashDistance = Stellar.__properties.__spam_threshold
+			local maxClashDistance = Stellar.__properties.__spam_threshold
 
--- The updated condition
-local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
+			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
 
-			
--- Rapid Auto-Spam Processing Logic (Optimized for Engine Performance)
 			if autoSpamConditionsMet and distance <= spamThresh then
 				Stellar.animation.play_grab_parry()
 				local batchAmount = Stellar.__properties.__spam_batch_amount
 				local burstCount = (batchAmount == "FPS Priority" and 4) or (batchAmount == "Bruteforce" and 15) or (batchAmount == "Extremely Fast" and 20) or 8
 				
-				if Stellar.ZX_Parry.Hooked and Stellar.ZX_Parry.Remote then
-					local keyIndex = Stellar.ZX_Parry.KeyTable and Stellar.ZX_Parry.KeyTable[3]
-					local currentKey = keyIndex and Stellar.ZX_Parry.KeyTable[1][keyIndex]
-					if currentKey then
-						local token = generateToken(currentKey)
-						if token then
-							-- OPTIMIZATION 1: Pre-calculate all payload variables before the loop.
-							-- Multiplication (* 0.5) is faster for the Luau engine than division (/ 2).
-							local vpSize = cam.ViewportSize
-							local vpCenter = { vpSize.X * 0.5, vpSize.Y * 0.5 }
-							local pCF = Stellar.curve.get_cframe()
-							local remote = Stellar.ZX_Parry.Remote
-							local hash = Stellar.ZX_Parry.ParryHash
-							
-							-- OPTIMIZATION 2: Removed the per-frame Alive:GetChildren() loop. 
-							-- We now rely on the Last_Positions_Cache which is updated asynchronously elsewhere,
-							-- stripping out massive CPU overhead during the spam burst.
-							for _ = 1, burstCount do
-								remote:FireServer(hash, currentKey, token, 0.5, pCF, Last_Positions_Cache, vpCenter, false)
-							end
-						end
-					end
-				else
-					local cachedCF = Stellar.curve.get_cframe()
-					for _ = 1, burstCount do Stellar.parry.execute_bruteforce(cachedCF) end
-				end
+				local cachedCF = Stellar.curve.get_cframe()
+				for _ = 1, burstCount do Stellar.parry.execute_bruteforce(cachedCF) end
 				
 				Stellar.__properties.__parries = Stellar.__properties.__parries + burstCount
 				task.delay(0.2, function() Stellar.__properties.__parries = math.max(0, Stellar.__properties.__parries - burstCount) end)
 			end
 
-			
 			if not isTargeted or parryFlag then continue end
 
-			-- Teleportation/Velocity Spike Interception
+			-- Teleportation/Spike Interception
 			if _ZX_VelHistory[ball] and #_ZX_VelHistory[ball] >= 2 then
 				local lastPos = _ZX_VelHistory[ball][2].pos
 				local currentPos = _ZX_VelHistory[ball][1].pos
@@ -1860,17 +1832,15 @@ local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (curr
 				end
 			end
 			
-			-- Advanced Kinematic Autoparry Execution Pipeline
+			-- Kinematic Autoparry Pipeline
 			local isCurved = Stellar.detection.is_curved(ball)
 			local pingValue = 0
 			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
 			local ping = pingValue / 1000
 
-			-- Vector approach calculation
 			local approachDir = (distance > 0) and (toPlayerVec / distance) or Vector3.new()
 			local approachSpeed = velocity:Dot(approachDir)
 
-			-- Solve Quadratic Kinematic TTI: 0.5 * a * t^2 + v * t - d = 0
 			local kinematicProps = Stellar.detection.__kinematic_properties[ball]
 			local accelVec = kinematicProps and kinematicProps.smooth_accel_vec or Vector3.new()
 			local approachAccel = accelVec:Dot(approachDir)
@@ -1897,15 +1867,12 @@ local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (curr
 				calculatedTTI = distance / approachSpeed
 			end
 
-			-- Optimized Ping-Compensated Distance Threshold (Prevents Early Parries)
 			local latencyDistanceOffset = (ping * 1.0) * approachSpeed
 			local pingAdjustedDistance = math.max(0, distance - latencyDistanceOffset)
 
--- Dynamically expands the prediction window for heavy latency
-         local pingScalar = (ping > 0.2) and 1.35 or 0.95
-         local reactionWindow = 0.10 + (ping * pingScalar)
+			local pingScalar = (ping > 0.2) and 1.35 or 0.95
+			local reactionWindow = 0.11 + (ping * pingScalar)
 			local distanceThreshold = 8 + (Stellar.__properties.__accuracy / 15) + (ping * 12)
-
 
 			if isCurved then
 				reactionWindow = reactionWindow * 0.25
@@ -1921,7 +1888,6 @@ local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (curr
 			if satisfiesTTI or satisfiesDistance then
 				parryFlag = true
 				
-				-- Asynchronous Execution Wrapper
 				task.spawn(function()
 					local cachedCF = Stellar.curve.get_cframe()
 					if getgenv().AutoParryMode == "Keypress" then 
@@ -1937,7 +1903,8 @@ local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (curr
 					parryFlag = false
 				end)
 			end
-     end
+		end
+
 		-- Secondary Training Ball Handler
 		local trainingFolder = workspace:FindFirstChild("TrainingBalls")
 		if trainingFolder then
@@ -1969,7 +1936,7 @@ function Stellar.autoparry.stop()
 	end
 end
 
--- Instant Triggerbot Engine
+-- Instant Triggerbot Subsystem
 Stellar.triggerbot = {}
 function Stellar.triggerbot.trigger(ball)
 	if Stellar.__triggerbot.__is_parrying or Stellar.__triggerbot.__parries > Stellar.__triggerbot.__max_parries then return end
@@ -2019,7 +1986,7 @@ function Stellar.triggerbot.enable(enabled)
 	end
 end
 
--- Manual High-Frequency Spam Engine
+-- Manual High-Frequency Spam Subsystem
 Stellar.manual_spam = {}
 local manualSpamActive = false
 local manualConnection = nil
@@ -2040,6 +2007,7 @@ function Stellar.manual_spam.start()
 		if Stellar.__properties.__play_animation then Stellar.animation.play_grab_parry() end
 	end)
 end
+
 function Stellar.manual_spam.stop()
 	manualSpamActive = false
 	if manualConnection then manualConnection:Disconnect(); manualConnection = nil end
@@ -2057,6 +2025,7 @@ local autoparry_module = AutoparryTab:create_module({
 		if state then pcall(Stellar.autoparry.start) else pcall(Stellar.autoparry.stop) end
 	end
 })
+
 autoparry_module:create_slider({
 	title = "Parry Accuracy",
 	flag = "ParryAccuracy",
@@ -2069,6 +2038,7 @@ autoparry_module:create_slider({
 		update_divisor()
 	end
 })
+
 autoparry_module:create_dropdown({
 	title = "Parry Mode",
 	flag = "ParryMode",
@@ -2076,6 +2046,7 @@ autoparry_module:create_dropdown({
 	maximum_options = 1,
 	callback = function(value) getgenv().AutoParryMode = value end
 })
+
 autoparry_module:create_dropdown({
 	title = "Mode curve",
 	flag = "ModeCurve",
@@ -2087,6 +2058,7 @@ autoparry_module:create_dropdown({
 		end
 	end
 })
+
 autoparry_module:create_divider({})
 autoparry_module:create_checkbox({
 	title = "Randomize Accuracy",
@@ -2100,11 +2072,13 @@ autoparry_module:create_checkbox({
 		end
 	end
 })
+
 autoparry_module:create_checkbox({
 	title = "Auto Abilities",
 	flag = "AutoAbilities",
 	callback = function(state) Stellar.__properties.__auto_ability_enabled = state end
 })
+
 autoparry_module:create_checkbox({
 	title = "Instant Triggerbot",
 	flag = "TriggerbotModule",
@@ -2116,7 +2090,7 @@ autoparry_module:create_checkbox({
 
 local spam_module = SpamTab:create_module({
 	title = "Auto Spam",
-	description = "Smart Spam that changes it's speed accordingly",
+	description = "Smart Spam that changes its speed accordingly",
 	flag = "AutoSpamModule",
 	section = "left",
 	callback = function(state) Stellar.__properties.__auto_spam_enabled = state end
@@ -2131,6 +2105,7 @@ spam_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__spam_threshold = value end
 })
+
 spam_module:create_dropdown({
 	title = "Spam Batch Mode",
 	flag = "SpamBatchAmount",
@@ -2140,7 +2115,10 @@ spam_module:create_dropdown({
 })
 
 local manual_spam_module = SpamTab:create_module({
-	title = "Manual Spam", description = "Floating switch interface controller", flag = "ManualSpamModule", section = "right",
+	title = "Manual Spam", 
+	description = "Floating switch interface controller", 
+	flag = "ManualSpamModule", 
+	section = "right",
 	callback = function(state)
 		Stellar.__properties.__manual_spam_enabled = state
 		if FloatingSwitchSystem.ScreenGui then FloatingSwitchSystem.ScreenGui.Enabled = state end
@@ -2152,7 +2130,6 @@ local manual_spam_module = SpamTab:create_module({
 	end
 })
 
-
 local detection_module = DetectionTab:create_module({
 	title = "Ability Detections",
 	description = "Adjust auto-parry parameters per enemy skills",
@@ -2160,27 +2137,32 @@ local detection_module = DetectionTab:create_module({
 	section = "left",
 	callback = function(state) end
 })
+
 detection_module:create_divider({})
 detection_module:create_checkbox({
 	title = "Phantom",
 	flag = "PhantomDetectToggle",
 	callback = function(state) Stellar.__config.__detections.__phantom = state end
 })
+
 detection_module:create_checkbox({
 	title = "Time Hole Auto Parry",
 	flag = "TimeHoleDetectToggle",
 	callback = function(state) Stellar.__config.__detections.__timehole = state end
 })
+
 detection_module:create_checkbox({
 	title = "Slashes of Fury Auto Counter",
 	flag = "SlashesOfFuryDetectToggle",
 	callback = function(state) Stellar.__config.__detections.__slashesoffury = state end
 })
+
 detection_module:create_checkbox({
 	title = "Infinity Ball Detection",
 	flag = "InfinityDetectToggle",
 	callback = function(state) Stellar.__config.__detections.__infinity = state end
 })
+
 detection_module:create_checkbox({
 	title = "Death Slash Detection",
 	flag = "DeathSlashDetectToggle",
@@ -2194,6 +2176,7 @@ local player_module = PlayerTab:create_module({
 	section = "left",
 	callback = function(state) Stellar.__properties.__modify_player = state end
 })
+
 player_module:create_slider({
 	title = "WalkSpeed",
 	flag = "WalkSpeedMod",
@@ -2203,6 +2186,7 @@ player_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__walkspeed = value end
 })
+
 player_module:create_slider({
 	title = "JumpPower",
 	flag = "JumpPowerMod",
@@ -2238,6 +2222,7 @@ local fov_module = PlayerTab:create_module({
 		end
 	end
 })
+
 fov_module:create_slider({
 	title = "Camera FOV",
 	flag = "CameraFOVSlider",
@@ -2258,11 +2243,13 @@ local immortality_module = PlayerTab:create_module({
 	section = "right",
 	callback = function(state) Stellar.__properties.__immortality_enabled = state end
 })
+
 immortality_module:create_checkbox({
 	title = "Speed Bypass",
 	flag = "ImmortalitySpeedBypass",
 	callback = function(state) Stellar.__properties.__immortality_speed_bypass = state end
 })
+
 immortality_module:create_slider({
 	title = "Orbital Angle",
 	flag = "ImmortalityAngle",
@@ -2272,6 +2259,7 @@ immortality_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__immortality_angle = value end
 })
+
 immortality_module:create_slider({
 	title = "Peak Height",
 	flag = "ImmortalityHeight",
@@ -2281,6 +2269,7 @@ immortality_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__immortality_height = value end
 })
+
 immortality_module:create_slider({
 	title = "Desync Depth",
 	flag = "ImmortalityDepth",
@@ -2290,6 +2279,7 @@ immortality_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__immortality_depth = -value end
 })
+
 immortality_module:create_slider({
 	title = "Orbit Radius",
 	flag = "ImmortalityRadius",
@@ -2307,6 +2297,7 @@ local visuals_module = VisualsTab:create_module({
 	section = "left",
 	callback = function(state) end
 })
+
 visuals_module:create_button({
 	title = "Unlock All",
 	callback = function()
@@ -2323,8 +2314,6 @@ local reduce_lag_module = VisualsTab:create_module({
 	section = "right",
 	callback = function(state)
 		if state then
-			-- === TURNED ON ===
-			
 			if not initialized then
 				originalClockTime = Lighting.ClockTime
 				originalGlobalShadows = Lighting.GlobalShadows
@@ -2345,7 +2334,6 @@ local reduce_lag_module = VisualsTab:create_module({
 					}
 				end
 				
-				-- Save original states of existing parts
 				for _, obj in pairs(Workspace:GetDescendants()) do
 					if obj:IsA("BasePart") then
 						originalPartShadows[obj] = obj.CastShadow
@@ -2355,7 +2343,6 @@ local reduce_lag_module = VisualsTab:create_module({
 				initialized = true
 			end
 
-			-- 1. Apply static optimizations
 			Lighting.ClockTime = 0
 			Lighting.GlobalShadows = false
 
@@ -2364,7 +2351,7 @@ local reduce_lag_module = VisualsTab:create_module({
 					effect.Enabled = false
 				elseif effect:IsA("Atmosphere") then
 					table.insert(disabledAtmispheres, effect)
-					effect.Parent = nil -- Temporarily hide Atmosphere instead of toggling Enabled
+					effect.Parent = nil
 				end
 			end
 
@@ -2379,16 +2366,12 @@ local reduce_lag_module = VisualsTab:create_module({
 			bloom.Size = 24
 			bloom.Threshold = 0.8
 
-			-- Remove shadows from parts currently in the game
 			for _, obj in pairs(Workspace:GetDescendants()) do
 				if obj:IsA("BasePart") then
 					obj.CastShadow = false
 				end
 			end
 
-			-- 2. Activate Active Listeners (Time & New Parts)
-			
-			-- Force time to stay at midnight
 			if not timeConnection then
 				timeConnection = Lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
 					if Lighting.ClockTime ~= 0 then
@@ -2397,7 +2380,6 @@ local reduce_lag_module = VisualsTab:create_module({
 				end)
 			end
 			
-			-- Strip shadows from new parts as they spawn in
 			if not descendantConnection then
 				descendantConnection = Workspace.DescendantAdded:Connect(function(obj)
 					if obj:IsA("BasePart") then
@@ -2411,10 +2393,8 @@ local reduce_lag_module = VisualsTab:create_module({
 
 			Library.SendNotification({ title = "Stellar Engine", text = "Potato Mode and Night theme initialize", duration = 2 })
 		else
-			-- === TURNED OFF (Restore original states) ===
 			if not initialized then return end
 			
-			-- Disconnect active listeners
 			if timeConnection then
 				timeConnection:Disconnect()
 				timeConnection = nil
@@ -2425,11 +2405,9 @@ local reduce_lag_module = VisualsTab:create_module({
 				descendantConnection = nil
 			end
 			
-			-- Restore lighting states
 			Lighting.ClockTime = originalClockTime
 			Lighting.GlobalShadows = originalGlobalShadows
 			
-			-- Restore atmospheres
 			for _, atmos in pairs(disabledAtmispheres) do
 				if atmos then
 					atmos.Parent = Lighting
@@ -2456,7 +2434,6 @@ local reduce_lag_module = VisualsTab:create_module({
 				end
 			end
 			
-			-- Restore part shadows
 			for obj, hadShadow in pairs(originalPartShadows) do
 				if obj and obj.Parent then
 					obj.CastShadow = hadShadow
@@ -2475,6 +2452,7 @@ local misc_module = MiscTab:create_module({
 	section = "left",
 	callback = function(state) end
 })
+
 local ability_esp_module = MiscTab:create_module({
 	title = "Ability ESP",
 	description = "Displays equipped abilities over players",
@@ -2487,6 +2465,7 @@ local ability_esp_module = MiscTab:create_module({
 		end
 	end
 })
+
 local no_render_module = MiscTab:create_module({
 	title = "No Render",
 	description = "Disables rendering of heavy effects",
@@ -2515,6 +2494,7 @@ local no_render_module = MiscTab:create_module({
 		end
 	end
 })
+
 misc_module:create_button({
 	title = "Unload Stellar Engine",
 	callback = function()
@@ -2542,6 +2522,7 @@ misc_module:create_button({
 		print("[Stellar Engine] Safely unloaded from memory without resource leaks.")
 	end
 })
+
 misc_module:create_button({
 	title = "Print Debug Configuration",
 	callback = function()
@@ -2552,10 +2533,13 @@ misc_module:create_button({
 		print("Spam Distance     :", Stellar.__properties.__spam_threshold)
 		print("Parry Mode        :", getgenv().AutoParryMode or "Remote")
 		print("Immortality       :", Stellar.__properties.__immortality_enabled)
+		print("GC Token Status   :", _token ~= nil and "Active" or "Unbound")
+		print("Captured Remote   :", _captured and _captured.remote:GetFullName() or "None")
 		print("-----------------------------------------------")
 	end
 })
 
--- Library Load Initialization
+-- Script Initialization Launch
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3.1 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3.1 (bypassed) Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "[IMPORTANT] Please Parry Manually First", duration = 5 })
