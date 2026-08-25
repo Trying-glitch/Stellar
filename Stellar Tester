@@ -1,4 +1,4 @@
--- Stellar V5.3.2 Engine - Performance & Memory Leak Fix
+-- Stellar Engine - Fully Refactored Performance Architecture
 local cloneref = cloneref or function(obj) return obj end
 local getconnections = getconnections or function() return {} end
 local getupvalues = debug.getupvalues or getupvalues or function() return {} end
@@ -27,7 +27,7 @@ local Debris = cloneref(game:GetService('Debris'))
 local ReplicatedStorage = cloneref(game:GetService('ReplicatedStorage'))
 local Stats = cloneref(game:GetService('Stats'))
 
--- Stellar Original Anti-Cheat Environment Hardening
+-- Stellar Anti-Cheat Environment Hardening
 if hookfunction and getrenv then
 	pcall(function()
 		local _BAC_oldDebugInfo
@@ -83,7 +83,7 @@ local Stellar = {
 		__parries = 0,
 		__parry_key = nil,
 		__grab_animation = nil,
-		__tornado_time = os.clock(),
+		__tornado_time = workspace:GetServerTimeNow(),
 		__connections = {},
 		__spam_accumulator = 0,
 		__spam_batch_amount = "FPS Priority",
@@ -142,10 +142,10 @@ local Stellar = {
 	}
 }
 
--- Weak-table structure for dynamic velocity tracking without memory leaks
-getgenv()._ZX_VelHistory = getgenv()._ZX_VelHistory or setmetatable({
+-- Reverted Strong-Reference Container for Dynamic Velocity Tracking
+getgenv()._ZX_VelHistory = getgenv()._ZX_VelHistory or {
 	MAX_SAMPLES = 7
-}, { __mode = "k" })
+}
 local _ZX_VelHistory = getgenv()._ZX_VelHistory
 
 -- Environment Validation
@@ -158,8 +158,18 @@ while not LocalPlayer do
 	LocalPlayer = Players.LocalPlayer
 end
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local Alive = workspace:FindFirstChild("Alive") or workspace:WaitForChild("Alive", 10) or workspace
-local Runtime = workspace:FindFirstChild("Runtime") or workspace:WaitForChild("Runtime", 10)
+
+-- Resilient Persistent Workspace Reference Setup
+local Alive, Runtime
+task.spawn(function()
+	Alive = workspace:WaitForChild("Alive", 10) or workspace
+	Runtime = workspace:WaitForChild("Runtime", 10) or workspace
+	
+	Stellar.__properties.__connections.__workspace_alive_listener = workspace.ChildAdded:Connect(function(child)
+		if child.Name == "Alive" then Alive = child
+		elseif child.Name == "Runtime" then Runtime = child end
+	end)
+end)
 
 local originalClockTime
 local originalGlobalShadows
@@ -170,11 +180,11 @@ local initialized = false
 local disabledAtmispheres = {}
 local timeConnection = nil 
 local descendantConnection = nil
-local originalPartShadows = setmetatable({}, {__mode = "k"})
+local originalPartShadows = {}
 
--- Dynamic GC Tokenization Processing (Non-blocking)
+-- Un-Yielded Synchronous GC Tokenization Routine
 local _token = nil
-task.spawn(function()
+pcall(function()
 	local gcObjects = getgc(true)
 	for i = 1, #gcObjects do
 		local Function = gcObjects[i]
@@ -188,7 +198,6 @@ task.spawn(function()
 			end
 			if _token then break end
 		end
-		if i % 100 == 0 then task.wait() end
 	end
 end)
 
@@ -209,8 +218,9 @@ local function _tokenize(_remote_uid)
 	return table.concat(characters)
 end
 
-local _reverted = setmetatable({}, { __mode = "k" })
-local _original = setmetatable({}, { __mode = "k" })
+-- Strong Reference Intercept Cache
+local _reverted = {}
+local _original = {}
 local _captured = nil
 
 local function _is_valid(args)
@@ -256,7 +266,8 @@ local function _hook(remote)
 	end
 end
 
-for _, _remote in ipairs(ReplicatedStorage:GetDescendants()) do
+-- Resilient Remote Hook Initializer & Listener
+for _, _remote in pairs(ReplicatedStorage:GetDescendants()) do
 	if _remote:IsA('RemoteEvent') or _remote:IsA('RemoteFunction') then
 		_hook(_remote)
 	end
@@ -613,7 +624,7 @@ local function buildPerformanceMonitor()
 	local function createInst(className, props, children)
 		local inst = Instance.new(className)
 		for prop, val in pairs(props or {}) do inst[prop] = val end
-		for _, child in ipairs(children or {}) do child.Parent = inst end
+		for _, child in pairs(children or {}) do child.Parent = inst end
 		return inst
 	end
 
@@ -853,7 +864,7 @@ local function buildPerformanceMonitor()
 
 	local function getFPS()
 		if #frameTimes == 0 then return 0 end
-		local sum = 0 for _, dt in ipairs(frameTimes) do sum = sum + dt end
+		local sum = 0 for _, dt in pairs(frameTimes) do sum = sum + dt end
 		local avg = sum / #frameTimes
 		return avg > 0 and (1 / avg) or 0
 	end
@@ -910,9 +921,9 @@ local function buildPerformanceMonitor()
 			table.remove(history, 1)
 
 			local maxVal = 30
-			for _, v in ipairs(history) do if v > maxVal then maxVal = v end end
+			for _, v in pairs(history) do if v > maxVal then maxVal = v end end
 
-			for i, bar in ipairs(bars) do
+			for i, bar in pairs(bars) do
 				local v = history[i] or 0
 				bar.Size = UDim2.new(0, BAR_WIDTH, 0, math.clamp((v / maxVal) * 24, 2, 24))
 				bar.BackgroundColor3 = fpsColor(v)
@@ -925,7 +936,7 @@ end
 buildPerformanceMonitor()
 
 -- Ability ESP Subsystem
-local billboardLabels = setmetatable({}, { __mode = "k" })
+local billboardLabels = {}
 local function createBillboardGui(p)
 	task.spawn(function()
 		local character = p.Character
@@ -1030,7 +1041,7 @@ Stellar.__properties.__connections.__immortality = RunService.Heartbeat:Connect(
     local cache = Stellar.__properties.__immortality_desync_types
     cache[1] = realCFrame
     cache[2] = realVelocity
-    local currentTime = os.clock()
+    local currentTime = workspace:GetServerTimeNow()
     local angle = Stellar.__properties.__immortality_angle or 72
     local height = Stellar.__properties.__immortality_height or 15
     local depth = Stellar.__properties.__immortality_depth or -8
@@ -1103,23 +1114,19 @@ function Stellar.playermod.update()
 end
 Stellar.__properties.__connections.__playermod = RunService.Heartbeat:Connect(Stellar.playermod.update)
 
--- Ability Remote Listener Pipeline
+-- Resilient Ability Remote Listener Pipeline with Dynamic Folder Tracking
 task.spawn(function()
+	local packages = ReplicatedStorage:WaitForChild("Packages", 10)
+	local indexFolder = packages and packages:WaitForChild("_Index", 10)
 	local netFolder = nil
-	local indexFolder = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("_Index")
-	if indexFolder then
-		for _, child in ipairs(indexFolder:GetChildren()) do
-			if string.match(child.Name, "sleitnick_net") then
-				netFolder = child:FindFirstChild("net")
-				if netFolder then break end
-			end
-		end
-	end
 	
-	if netFolder then
-		Stellar.__properties.__connections.__detections_list = {}
-		if netFolder:FindFirstChild("RE/TimeHoleActivate") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/TimeHoleActivate"].OnClientEvent:Connect(function(...)
+	local function attachNetListeners(folder)
+		if not folder then return end
+		Stellar.__properties.__connections.__detections_list = Stellar.__properties.__connections.__detections_list or {}
+		
+		local timeHoleAct = folder:WaitForChild("RE/TimeHoleActivate", 5)
+		if timeHoleAct then
+			table.insert(Stellar.__properties.__connections.__detections_list, timeHoleAct.OnClientEvent:Connect(function(...)
 				if not Stellar.__config.__detections.__timehole then return end
 				local args = { ... }
 				local player = args[1]
@@ -1128,16 +1135,19 @@ task.spawn(function()
 				end
 			end))
 		end
-		if netFolder:FindFirstChild("RE/TimeHoleDeactivate") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/TimeHoleDeactivate"].OnClientEvent:Connect(function()
+
+		local timeHoleDeact = folder:WaitForChild("RE/TimeHoleDeactivate", 5)
+		if timeHoleDeact then
+			table.insert(Stellar.__properties.__connections.__detections_list, timeHoleDeact.OnClientEvent:Connect(function()
 				Stellar.__properties.__timehole_active = false
 			end))
 		end
 		
 		local maxParryCount = 35
 		local parryDelay = 0.05
-		if netFolder:FindFirstChild("RE/SlashesOfFuryActivate") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryActivate"].OnClientEvent:Connect(function(...)
+		local slashesAct = folder:WaitForChild("RE/SlashesOfFuryActivate", 5)
+		if slashesAct then
+			table.insert(Stellar.__properties.__connections.__detections_list, slashesAct.OnClientEvent:Connect(function(...)
 				if not Stellar.__config.__detections.__slashesoffury then return end
 				local args = { ... }
 				local player = args[1]
@@ -1147,25 +1157,31 @@ task.spawn(function()
 				end
 			end))
 		end
-		if netFolder:FindFirstChild("RE/SlashesOfFuryEnd") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryEnd"].OnClientEvent:Connect(function()
+
+		local slashesEnd = folder:WaitForChild("RE/SlashesOfFuryEnd", 5)
+		if slashesEnd then
+			table.insert(Stellar.__properties.__connections.__detections_list, slashesEnd.OnClientEvent:Connect(function()
 				Stellar.__properties.__slashesoffury_active = false
 				Stellar.__properties.__slashesoffury_count = 0
 			end))
 		end
-		if netFolder:FindFirstChild("RE/SlashesOfFuryParry") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryParry"].OnClientEvent:Connect(function()
+
+		local slashesParry = folder:WaitForChild("RE/SlashesOfFuryParry", 5)
+		if slashesParry then
+			table.insert(Stellar.__properties.__connections.__detections_list, slashesParry.OnClientEvent:Connect(function()
 				if not Stellar.__config.__detections.__slashesoffury then return end
 				Stellar.__properties.__slashesoffury_count = Stellar.__properties.__slashesoffury_count + 1
 			end))
 		end
-		if netFolder:FindFirstChild("RE/SlashesOfFuryCatch") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryCatch"].OnClientEvent:Connect(function()
+
+		local slashesCatch = folder:WaitForChild("RE/SlashesOfFuryCatch", 5)
+		if slashesCatch then
+			table.insert(Stellar.__properties.__connections.__detections_list, slashesCatch.OnClientEvent:Connect(function()
 				task.spawn(function()
 					while Stellar.__properties.__slashesoffury_active and Stellar.__properties.__slashesoffury_count < maxParryCount do
 						if Stellar.__config.__detections.__slashesoffury then
-							if os.clock() - (Stellar.__properties.__last_global_parry or 0) >= parryDelay then
-								Stellar.__properties.__last_global_parry = os.clock()
+							if workspace:GetServerTimeNow() - (Stellar.__properties.__last_global_parry or 0) >= parryDelay then
+								Stellar.__properties.__last_global_parry = workspace:GetServerTimeNow()
 								Stellar.parry.execute()
 							end
 							task.wait(parryDelay)
@@ -1178,72 +1194,101 @@ task.spawn(function()
 		end
 	end
 
-	pcall(function()
-		local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
-		if remotes then
-			if remotes:FindFirstChild("DeathBall") then
-				remotes.DeathBall.OnClientEvent:Connect(function(c, d)
-					if Stellar.__config.__detections.__deathslash then
-						Stellar.__properties.__deathslash_active = d or false
-					end
-				end)
-			end
-			if remotes:FindFirstChild("InfinityBall") then
-				remotes.InfinityBall.OnClientEvent:Connect(function(a, b)
-					if Stellar.__config.__detections.__infinity then
-						Stellar.__properties.__infinity_active = b or false
-					end
-				end)
+	if indexFolder then
+		for _, child in pairs(indexFolder:GetChildren()) do
+			if string.match(child.Name, "sleitnick_net") then
+				netFolder = child:FindFirstChild("net")
+				if netFolder then attachNetListeners(netFolder) break end
 			end
 		end
+		
+		Stellar.__properties.__connections.__index_child_added = indexFolder.ChildAdded:Connect(function(child)
+			if string.match(child.Name, "sleitnick_net") then
+				local net = child:WaitForChild("net", 5)
+				if net then attachNetListeners(net) end
+			end
+		end)
+	end
+
+	local function attachRemotesFolder(remotes)
+		if not remotes then return end
+		local deathBall = remotes:WaitForChild("DeathBall", 5)
+		if deathBall then
+			deathBall.OnClientEvent:Connect(function(c, d)
+				if Stellar.__config.__detections.__deathslash then
+					Stellar.__properties.__deathslash_active = d or false
+				end
+			end)
+		end
+		local infinityBall = remotes:WaitForChild("InfinityBall", 5)
+		if infinityBall then
+			infinityBall.OnClientEvent:Connect(function(a, b)
+				if Stellar.__config.__detections.__infinity then
+					Stellar.__properties.__infinity_active = b or false
+				end
+			end)
+		end
+	end
+
+	local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+	if remotes then attachRemotesFolder(remotes) end
+	Stellar.__properties.__connections.__remotes_listener = ReplicatedStorage.ChildAdded:Connect(function(child)
+		if child.Name == "Remotes" then attachRemotesFolder(child) end
 	end)
 end)
 
 -- Anti-Phantom Execution Routine
-if Runtime then
-	Stellar.__properties.__connections.__phantom = Runtime.ChildAdded:Connect(function(Object)
-		if Stellar.__config.__detections.__phantom then
-			if Object.Name == "maxTransmission" or Object.Name == "transmissionpart" then
-				local Weld = Object:FindFirstChildWhichIsA("WeldConstraint")
-				if Weld then
-					local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-					if Character and Weld.Part1 == Character:FindFirstChild("HumanoidRootPart") then
-						local CurrentBall = Stellar.ball.get()
-						Weld:Destroy()
-						if CurrentBall then
-							local FocusConnection
-							FocusConnection = RunService.RenderStepped:Connect(function()
-								local Highlighted = CurrentBall:GetAttribute("highlighted")
-								if Highlighted == true then
-									if os.clock() - (Stellar.__properties.__last_global_parry or 0) >= 0.1 then
-										Stellar.__properties.__last_global_parry = os.clock()
-										Stellar.parry.execute()
+task.spawn(function()
+	local runtimeFolder = workspace:WaitForChild("Runtime", 10) or workspace
+	local function attachPhantomListener(rt)
+		if not rt then return end
+		Stellar.__properties.__connections.__phantom = rt.ChildAdded:Connect(function(Object)
+			if Stellar.__config.__detections.__phantom then
+				if Object.Name == "maxTransmission" or Object.Name == "transmissionpart" then
+					local Weld = Object:FindFirstChildWhichIsA("WeldConstraint")
+					if Weld then
+						local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+						if Character and Weld.Part1 == Character:FindFirstChild("HumanoidRootPart") then
+							local CurrentBall = Stellar.ball.get()
+							Weld:Destroy()
+							if CurrentBall then
+								local FocusConnection
+								FocusConnection = RunService.RenderStepped:Connect(function()
+									local Highlighted = CurrentBall:GetAttribute("highlighted")
+									if Highlighted == true then
+										if workspace:GetServerTimeNow() - (Stellar.__properties.__last_global_parry or 0) >= 0.1 then
+											Stellar.__properties.__last_global_parry = workspace:GetServerTimeNow()
+											Stellar.parry.execute()
+										end
+									elseif Highlighted == false then
+										FocusConnection:Disconnect()
 									end
-								elseif Highlighted == false then
-									FocusConnection:Disconnect()
-								end
-							end)
-							task.delay(3, function()
-								if FocusConnection and FocusConnection.Connected then
-									FocusConnection:Disconnect()
-								end
-							end)
+								end)
+								task.delay(3, function()
+									if FocusConnection and FocusConnection.Connected then
+										FocusConnection:Disconnect()
+									end
+								end)
+							end
 						end
 					end
 				end
 			end
-		end
-	end)
-end
+		end)
+	end
 
--- Sensor & Target Selection Modules
+	attachPhantomListener(runtimeFolder)
+	Stellar.__properties.__connections.__runtime_listener = workspace.ChildAdded:Connect(function(child)
+		if child.Name == "Runtime" then attachPhantomListener(child) end
+	end)
+end)
+
+-- Sensor & Dynamic Iteration Target Selection Modules
 Stellar.ball = {}
 function Stellar.ball.get()
 	local balls = workspace:FindFirstChild('Balls')
 	if not balls then return nil end
-	local children = balls:GetChildren()
-	for i = 1, #children do
-		local ball = children[i]
+	for _, ball in pairs(balls:GetChildren()) do
 		if ball:GetAttribute('realBall') then
 			ball.CanCollide = false
 			return ball
@@ -1256,9 +1301,7 @@ function Stellar.ball.get_all()
 	local balls_table = {}
 	local balls = workspace:FindFirstChild('Balls')
 	if balls then
-		local children = balls:GetChildren()
-		for i = 1, #children do
-			local ball = children[i]
+		for _, ball in pairs(balls:GetChildren()) do
 			if ball:GetAttribute('realBall') then
 				ball.CanCollide = false
 				table.insert(balls_table, ball)
@@ -1272,15 +1315,13 @@ Stellar.player = {}
 local Closest_Entity = nil
 local last_closest_check = 0
 function Stellar.player.get_closest()
-	local now = os.clock()
+	local now = workspace:GetServerTimeNow()
 	if now - last_closest_check < 0.1 then return Closest_Entity end
 	last_closest_check = now
 	local max_distance = math.huge
 	local closest_entity = nil
 	if not Alive then return nil end
-	local entities = Alive:GetChildren()
-	for i = 1, #entities do
-		local entity = entities[i]
+	for _, entity in pairs(Alive:GetChildren()) do
 		if entity ~= LocalPlayer.Character and entity.PrimaryPart then
 			local distance = LocalPlayer:DistanceFromCharacter(entity.PrimaryPart.Position)
 			if distance < max_distance then
@@ -1302,9 +1343,7 @@ function Stellar.player.get_closest_to_cursor()
 	if not success then return nil end
 	local ray = camera:ScreenPointToRay(mouse_location.X, mouse_location.Y)
 	local pointer = CFrame.lookAt(ray.Origin, ray.Origin + ray.Direction)
-	local playersList = Alive:GetChildren()
-	for i = 1, #playersList do
-		local player = playersList[i]
+	for _, player in pairs(Alive:GetChildren()) do
 		if player == LocalPlayer.Character or not player:FindFirstChild('HumanoidRootPart') then continue end
 		local direction = (player.HumanoidRootPart.Position - camera.CFrame.Position).Unit
 		local dot = pointer.LookVector:Dot(direction)
@@ -1345,9 +1384,7 @@ function Stellar.curve.get_cframe()
 		[7] = function()
 			local candidates = {}
 			if Alive then
-				local entities = Alive:GetChildren()
-				for i = 1, #entities do
-					local pl = entities[i]
+				for _, pl in pairs(Alive:GetChildren()) do
 					if pl ~= LocalPlayer.Character and pl.PrimaryPart then
 						table.insert(candidates, pl)
 					end
@@ -1374,12 +1411,10 @@ local function fireParry(precalc_cframe)
 	local cam = workspace.CurrentCamera
 	local pCF = precalc_cframe or Stellar.curve.get_cframe()
 
-	if os.clock() - Cache_Update_Tick > 0.1 then
+	if workspace:GetServerTimeNow() - Cache_Update_Tick > 0.1 then
 		table.clear(Last_Positions_Cache)
 		if Alive and cam then
-			local entities = Alive:GetChildren()
-			for i = 1, #entities do
-				local character = entities[i]
+			for _, character in pairs(Alive:GetChildren()) do
 				local primary = character.PrimaryPart
 				if primary and character.Name ~= LocalPlayer.Name then
 					local ok, sp = pcall(cam.WorldToScreenPoint, cam, primary.Position)
@@ -1387,7 +1422,7 @@ local function fireParry(precalc_cframe)
 				end
 			end
 		end
-		Cache_Update_Tick = os.clock()
+		Cache_Update_Tick = workspace:GetServerTimeNow()
 	end
 
 	local vp = cam.ViewportSize
@@ -1408,7 +1443,7 @@ local function fireParry(precalc_cframe)
 				viewport_center,
 				false
 			}
-			lastHitTick = os.clock()
+			lastHitTick = workspace:GetServerTimeNow()
 			if _captured.remote:IsA("RemoteEvent") then
 				_captured.remote:FireServer(unpack(packet))
 			elseif _captured.remote:IsA("RemoteFunction") then
@@ -1433,7 +1468,7 @@ local function fireParry(precalc_cframe)
 				viewport_center,
 				false
 			}
-			lastHitTick = os.clock()
+			lastHitTick = workspace:GetServerTimeNow()
 			if _remote:IsA("RemoteEvent") then
 				_remote:FireServer(unpack(packet))
 			elseif _remote:IsA("RemoteFunction") then
@@ -1474,25 +1509,15 @@ end
 -- Animation Subsystem
 Stellar.animation = {}
 local SwordAPI = ReplicatedStorage:WaitForChild("Shared", 9e9):WaitForChild("SwordAPI", 9e9)
-local last_anim_tick = 0
 function Stellar.animation.play_grab_parry()
-    if not Stellar.__properties.__play_animation then
-        return
-    end
-    
+    if not Stellar.__properties.__play_animation then return end
     local character = LocalPlayer.Character
     if not character then return end
-    
     local humanoid = character:FindFirstChildOfClass('Humanoid')
     local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
     if not humanoid or not animator then return end
     
-    local sword_name
-    if getgenv().skinChangerEnabled then
-        sword_name = getgenv().swordAnimations
-    else
-        sword_name = character:GetAttribute('CurrentlyEquippedSword')
-    end
+    local sword_name = getgenv().skinChangerEnabled and getgenv().swordAnimations or character:GetAttribute('CurrentlyEquippedSword')
     if not sword_name then return end
     
     local sword_api = ReplicatedStorage.Shared.SwordAPI.Collection
@@ -1502,9 +1527,7 @@ function Stellar.animation.play_grab_parry()
     local sword_data = ReplicatedStorage.Shared.ReplicatedInstances.Swords.GetSword:Invoke(sword_name)
     if not sword_data or not sword_data['AnimationType'] then return end
     
-    local apiChildren = sword_api:GetChildren()
-    for i = 1, #apiChildren do
-        local object = apiChildren[i]
+    for _, object in pairs(sword_api:GetChildren()) do
         if object.Name == sword_data['AnimationType'] then
             if object:FindFirstChild('GrabParry') or object:FindFirstChild('Grab') then
                 local animation_type = object:FindFirstChild('GrabParry') and 'GrabParry' or 'Grab'
@@ -1522,14 +1545,14 @@ function Stellar.animation.play_grab_parry()
     Stellar.__properties.__grab_animation:Play()
 end
 
--- Fused Anti-Curve Physics Engine
+-- Reverted Strong-Reference Anti-Curve Physics Engine
 Stellar.detection = {
 	__ball_properties = {
 		__lerp_radians = 0,
-		__last_warping = os.clock(),
-		__curving = os.clock()
+		__last_warping = workspace:GetServerTimeNow(),
+		__curving = workspace:GetServerTimeNow()
 	},
-	__kinematic_properties = setmetatable({}, { __mode = "k" })
+	__kinematic_properties = {}
 }
 
 function Stellar.detection.is_curved(ball)
@@ -1556,9 +1579,7 @@ function Stellar.detection.is_curved(ball)
 	local velocityDir = velocity / speed
 	local currentDot = toPlayerDir:Dot(velocityDir)
 
-	if currentDot < -0.30 then
-		return true
-	end
+	if currentDot < -0.30 then return true end
 
 	if not Stellar.detection.__kinematic_properties[ball] then
 		local initial_history = table.create(6)
@@ -1576,7 +1597,7 @@ function Stellar.detection.is_curved(ball)
 	end
 
 	local props = Stellar.detection.__kinematic_properties[ball]
-	local now = os.clock()
+	local now = workspace:GetServerTimeNow()
 
 	props.idx = (props.idx % 6) + 1
 	props.history[props.idx].v = velocity
@@ -1623,9 +1644,7 @@ function Stellar.detection.is_curved(ball)
 		local predictedDistance = (playerPos - predictedPos).Magnitude
 
 		if predictedDistance < distance or distance <= 25 then
-			if currentDot < 0.35 then
-				return true
-			end
+			if currentDot < 0.35 then return true end
 		end
 	end
 
@@ -1635,10 +1654,10 @@ function Stellar.detection.is_curved(ball)
 	ballProps.__lerp_radians = ballProps.__lerp_radians + (radians - ballProps.__lerp_radians) * 0.85
 
 	if ballProps.__lerp_radians < 0.016 then
-		ballProps.__last_warping = os.clock()
+		ballProps.__last_warping = workspace:GetServerTimeNow()
 	end
 
-	local sudden_curve = (os.clock() - ballProps.__last_warping) < (reachTime / 1.4)
+	local sudden_curve = (workspace:GetServerTimeNow() - ballProps.__last_warping) < (reachTime / 1.4)
 	if sudden_curve and distance > 3.5 then
 		return true
 	end
@@ -1646,12 +1665,23 @@ function Stellar.detection.is_curved(ball)
 	return false
 end
 
-if workspace:FindFirstChild('Balls') then
-	Stellar.__properties.__connections.__balls_child_removed = workspace.Balls.ChildRemoved:Connect(function(child)
+-- Deterministic Explicit Memory Teardown Event Hooks
+local function setupBallsFolderCleanup(ballsFolder)
+	if not ballsFolder then return end
+	Stellar.__properties.__connections.__balls_child_removed = ballsFolder.ChildRemoved:Connect(function(child)
 		Stellar.detection.__kinematic_properties[child] = nil
 		_ZX_VelHistory[child] = nil
 	end)
 end
+
+task.spawn(function()
+	local ballsFolder = workspace:WaitForChild("Balls", 10) or workspace:FindFirstChild("Balls")
+	if ballsFolder then setupBallsFolderCleanup(ballsFolder) end
+	
+	Stellar.__properties.__connections.__balls_folder_listener = workspace.ChildAdded:Connect(function(child)
+		if child.Name == "Balls" then setupBallsFolderCleanup(child) end
+	end)
+end)
 
 -- Primary Auto Parry Execution Engine
 Stellar.autoparry = {}
@@ -1730,10 +1760,9 @@ function Stellar.autoparry.start()
 			end
 		end
 
-		-- Ball Trajectory Processing Loop
+		-- Dynamic Iteration Trajectory Loop
 		local balls = Stellar.ball.get_all()
-		for i = 1, #balls do
-			local ball = balls[i]
+		for _, ball in pairs(balls) do
 			if LocalPlayer.Character.PrimaryPart:FindFirstChild('SingularityCape') then continue end
 			local zoomies = ball:FindFirstChild('zoomies')
 			if not zoomies then continue end
@@ -1741,14 +1770,14 @@ function Stellar.autoparry.start()
 			if not Stellar.__properties.__tornado_time then Stellar.__properties.__tornado_time = 0 end
 			local aeroVFX = ball:FindFirstChild('AeroDynamicSlashVFX')
 			if aeroVFX then
-				Stellar.__properties.__tornado_time = os.clock()
+				Stellar.__properties.__tornado_time = workspace:GetServerTimeNow()
 				aeroVFX:Destroy()
 			end
 			
 			local currentTornado = Runtime and Runtime:FindFirstChild('Tornado')
 			if currentTornado then
 				local tornadoDuration = currentTornado:GetAttribute('TornadoTime') or 1
-				if (os.clock() - Stellar.__properties.__tornado_time) < (tornadoDuration + 0.314159) then continue end
+				if (workspace:GetServerTimeNow() - Stellar.__properties.__tornado_time) < (tornadoDuration + 0.314159) then continue end
 			end
 
 			if not ball:GetAttribute("Stellar_TargetTracked") then
@@ -1757,6 +1786,8 @@ function Stellar.autoparry.start()
 				local destroyConn; destroyConn = ball.Destroying:Connect(function()
 					if targetConn then targetConn:Disconnect() end
 					if destroyConn then destroyConn:Disconnect() end
+					_ZX_VelHistory[ball] = nil
+					Stellar.detection.__kinematic_properties[ball] = nil
 				end)
 			end
 			
@@ -1768,7 +1799,7 @@ function Stellar.autoparry.start()
 			local distance = toPlayerVec.Magnitude
 
 			if not _ZX_VelHistory[ball] then _ZX_VelHistory[ball] = {} end
-			table.insert(_ZX_VelHistory[ball], 1, { pos = ballPos, vel = velocity, t = os.clock() })
+			table.insert(_ZX_VelHistory[ball], 1, { pos = ballPos, vel = velocity, t = workspace:GetServerTimeNow() })
 			if #_ZX_VelHistory[ball] > _ZX_VelHistory.MAX_SAMPLES then table.remove(_ZX_VelHistory[ball], #_ZX_VelHistory[ball]) end
 			
 			local ballSpeed = math.max(velocity.Magnitude, 0)
@@ -1806,7 +1837,7 @@ function Stellar.autoparry.start()
 				end
 			end
 			
-			-- Kinematic Autoparry Pipeline
+			-- Kinematic Autoparry Pipeline with Synchronized Temporal Metrics
 			local isCurved = Stellar.detection.is_curved(ball)
 			local pingValue = 0
 			pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
@@ -1871,20 +1902,18 @@ function Stellar.autoparry.start()
 					end
 				end)
 				
-				local lastCycle = os.clock()
+				local lastCycle = workspace:GetServerTimeNow()
 				task.spawn(function()
-					repeat RunService.PreSimulation:Wait() until (os.clock() - lastCycle) >= 1 or not parryFlag
+					repeat RunService.PreSimulation:Wait() until (workspace:GetServerTimeNow() - lastCycle) >= 1 or not parryFlag
 					parryFlag = false
 				end)
 			end
 		end
 
-		-- Secondary Training Ball Handler
+		-- Secondary Training Ball Handler with Dynamic Iteration
 		local trainingFolder = workspace:FindFirstChild("TrainingBalls")
 		if trainingFolder then
-			local tBalls = trainingFolder:GetChildren()
-			for i = 1, #tBalls do
-				local tBall = tBalls[i]
+			for _, tBall in pairs(trainingFolder:GetChildren()) do
 				if tBall:GetAttribute("realBall") then
 					local zoomies = tBall:FindFirstChild('zoomies')
 					if zoomies and tBall:GetAttribute('target') == localName then
@@ -1928,8 +1957,8 @@ function Stellar.triggerbot.trigger(ball)
 		if connection then connection:Disconnect() end
 	end)
 	task.spawn(function()
-		local start_time = os.clock()
-		repeat RunService.Heartbeat:Wait() until (os.clock() - start_time >= 1 or not Stellar.__triggerbot.__is_parrying)
+		local start_time = workspace:GetServerTimeNow()
+		repeat RunService.Heartbeat:Wait() until (workspace:GetServerTimeNow() - start_time >= 1 or not Stellar.__triggerbot.__is_parrying)
 		Stellar.__triggerbot.__is_parrying = false
 	end)
 end
@@ -1938,9 +1967,7 @@ function Stellar.triggerbot.loop()
 	if not Stellar.__triggerbot.__enabled then return end
 	local balls = workspace:FindFirstChild('Balls')
 	if not balls then return end
-	local children = balls:GetChildren()
-	for i = 1, #children do
-		local ball = children[i]
+	for _, ball in pairs(balls:GetChildren()) do
 		if ball:IsA('BasePart') and ball:GetAttribute('target') == LocalPlayer.Name then
 			Stellar.triggerbot.trigger(ball)
 			break
@@ -2299,9 +2326,7 @@ local reduce_lag_module = VisualsTab:create_module({
 				originalClockTime = Lighting.ClockTime
 				originalGlobalShadows = Lighting.GlobalShadows
 				
-				local effects = Lighting:GetChildren()
-				for i = 1, #effects do
-					local effect = effects[i]
+				for _, effect in pairs(Lighting:GetChildren()) do
 					if effect:IsA("PostEffect") then
 						originalEffectStates[effect] = effect.Enabled
 					end
@@ -2317,9 +2342,7 @@ local reduce_lag_module = VisualsTab:create_module({
 					}
 				end
 				
-				local desc = Workspace:GetDescendants()
-				for i = 1, #desc do
-					local obj = desc[i]
+				for _, obj in pairs(Workspace:GetDescendants()) do
 					if obj:IsA("BasePart") then
 						originalPartShadows[obj] = obj.CastShadow
 					end
@@ -2331,9 +2354,7 @@ local reduce_lag_module = VisualsTab:create_module({
 			Lighting.ClockTime = 0
 			Lighting.GlobalShadows = false
 
-			local effects = Lighting:GetChildren()
-			for i = 1, #effects do
-				local effect = effects[i]
+			for _, effect in pairs(Lighting:GetChildren()) do
 				if effect:IsA("PostEffect") and not effect:IsA("BloomEffect") then
 					effect.Enabled = false
 				elseif effect:IsA("Atmosphere") then
@@ -2353,9 +2374,7 @@ local reduce_lag_module = VisualsTab:create_module({
 			bloom.Size = 24
 			bloom.Threshold = 0.8
 
-			local desc = Workspace:GetDescendants()
-			for i = 1, #desc do
-				local obj = desc[i]
+			for _, obj in pairs(Workspace:GetDescendants()) do
 				if obj:IsA("BasePart") then
 					obj.CastShadow = false
 				end
@@ -2397,8 +2416,7 @@ local reduce_lag_module = VisualsTab:create_module({
 			Lighting.ClockTime = originalClockTime
 			Lighting.GlobalShadows = originalGlobalShadows
 			
-			for i = 1, #disabledAtmispheres do
-				local atmos = disabledAtmispheres[i]
+			for _, atmos in pairs(disabledAtmispheres) do
 				if atmos then
 					atmos.Parent = Lighting
 				end
@@ -2509,10 +2527,10 @@ misc_module:create_button({
 		end
 		table.clear(Stellar.__properties.__connections)
 		if FloatingSwitchSystem.Connections then
-			for _, conn in ipairs(FloatingSwitchSystem.Connections) do conn:Disconnect() end
+			for _, conn in pairs(FloatingSwitchSystem.Connections) do conn:Disconnect() end
 		end
 		if PerfMonitorSystem.Connections then
-			for _, conn in ipairs(PerfMonitorSystem.Connections) do conn:Disconnect() end
+			for _, conn in pairs(PerfMonitorSystem.Connections) do conn:Disconnect() end
 		end
 		if library and library.unload then pcall(library.unload) end
 		print("[Stellar Engine] Safely unloaded from memory without resource leaks.")
@@ -2535,7 +2553,7 @@ misc_module:create_button({
 	end
 })
 
--- Script Initialization Launch
+-- Script Launch
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.4 (bypassed) Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar Refactored Engine Initialized.", duration = 3 })
 Library.SendNotification({ title = "Stellar Engine", text = "[IMPORTANT] Please Parry Manually First", duration = 5 })
