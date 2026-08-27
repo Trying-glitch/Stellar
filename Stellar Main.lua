@@ -95,6 +95,8 @@ local Stellar = {
 		__timehole_active = false,
 		__slashesoffury_active = false,
 		__slashesoffury_count = 0,
+      __slashesoffury_delay = 0.05,
+      __slashesoffury_max_count = 36,
 		__infinity_active = false,
 		__deathslash_active = false,
 		__auto_spam_distance_multiplier = 1.0,
@@ -111,7 +113,12 @@ local Stellar = {
 		__immortality_radius = 10,
 		__immortality_desync_types = {},
 		__auto_ability_enabled = false,
-		__ability_esp_enabled = false
+		__ability_esp_enabled = false,
+      __staff_group_id = 12836673,
+      __staff_min_rank = 10,
+      __detected_staff_members = {},
+     __staff_rank_cache = {}
+
 	},
 	__config = {
 		__curve_names = {
@@ -130,7 +137,12 @@ local Stellar = {
 			__slashesoffury = false,
 			__phantom = false,
 			__infinity = false,
-			__deathslash = false
+			__deathslash = false,
+         __dribble = false,
+         __cooldown_protection = false,
+         __thunder_dash_nocooldown = false,
+         __staff_detection = false,
+         __staff_action_mode = "Notification" -- "Notification" or "Kick"
 		}
 	},
 	__triggerbot = {
@@ -1107,137 +1119,388 @@ function Stellar.playermod.update()
 end
 Stellar.__properties.__connections.__playermod = RunService.Heartbeat:Connect(Stellar.playermod.update)
 
--- Ability Remote Listener Pipeline
-task.spawn(function()
-	local netFolder = nil
-	local indexFolder = ReplicatedStorage:FindFirstChild("Packages") and ReplicatedStorage.Packages:FindFirstChild("_Index")
-	if indexFolder then
-		for _, child in ipairs(indexFolder:GetChildren()) do
-			if string.match(child.Name, "sleitnick_net") then
-				netFolder = child:FindFirstChild("net")
-				if netFolder then break end
+
+Stellar.dribble_detection = {}
+
+--- Audits workspace.Balls to evaluate active dribble status
+function Stellar.dribble_detection.scan()
+	if not Stellar.__config.__detections.__dribble then
+		Stellar.__properties.__dribble_active = false
+		return
+	end
+
+	local ballsFolder = workspace:FindFirstChild("Balls")
+	if not ballsFolder then
+		Stellar.__properties.__dribble_active = false
+		return
+	end
+
+	local dribbleFound = false
+	for _, ball in ipairs(ballsFolder:GetChildren()) do
+		if ball:IsA("BasePart") then
+			-- 1. Attribute Check (Removed pcall - GetAttribute is safe and returns nil if absent)
+			local hasAttribute = ball:GetAttribute("dribble") or ball:GetAttribute("Dribble")
+
+			-- 2. Name Substring Check
+			local nameMatch = ball.Name and string.find(string.lower(ball.Name), "dribble") ~= nil
+
+			-- 3. Child Instance Check
+			local childMatch = ball:FindFirstChild("Dribble") ~= nil or ball:FindFirstChild("Dribbling") ~= nil
+
+			if hasAttribute or nameMatch or childMatch then
+				dribbleFound = true
+				break
 			end
 		end
+	end
+
+	Stellar.__properties.__dribble_active = dribbleFound
+end
+
+--- Starts the event-driven & periodic dribble monitoring thread
+function Stellar.dribble_detection.start()
+	Stellar.dribble_detection.stop()
+
+	Stellar.__properties.__connections.__dribble_monitor = task.spawn(function()
+		while task.wait(0.15) do
+			if Stellar.__config.__detections.__dribble then
+				Stellar.dribble_detection.scan()
+			else
+				Stellar.__properties.__dribble_active = false
+			end
+		end
+	end)
+end
+
+--- Stops monitoring and resets dribble state
+function Stellar.dribble_detection.stop()
+	if Stellar.__properties.__connections.__dribble_monitor then
+		if type(Stellar.__properties.__connections.__dribble_monitor) == "thread" then
+			task.cancel(Stellar.__properties.__connections.__dribble_monitor)
+		end
+		Stellar.__properties.__connections.__dribble_monitor = nil
+	end
+	Stellar.__properties.__dribble_active = false
+end
+
+
+-- Ability Remote Listener Pipeline
+Stellar.ability_detections = {}
+
+function Stellar.ability_detections.initialize()
+	-- Clean up existing connections
+	Stellar.ability_detections.cleanup()
+
+	task.spawn(function()
+		-- Safely resolve Sleitnick Net Package Folder
+		local packages = ReplicatedStorage:WaitForChild("Packages", 10)
+		local indexFolder = packages and packages:WaitForChild("_Index", 10)
+		local netFolder = nil
+
+		if indexFolder then
+			for _, child in ipairs(indexFolder:GetChildren()) do
+				if string.match(child.Name, "sleitnick_net") then
+					netFolder = child:WaitForChild("net", 5)
+					if netFolder then break end
+				end
+			end
+		end
+
+		if netFolder then
+			-- Time Hole Activation
+			local timeHoleAct = netFolder:FindFirstChild("RE/TimeHoleActivate")
+			if timeHoleAct then
+				Stellar.__properties.__connections.__det_timehole_act = timeHoleAct.OnClientEvent:Connect(function(...)
+					if not Stellar.__config.__detections.__timehole then return end
+					local args = { ... }
+					local player = args[1]
+					if player == LocalPlayer or player == LocalPlayer.Name or (player and player.Name == LocalPlayer.Name) then
+						Stellar.__properties.__timehole_active = true
+					end
+				end)
+			end
+
+			-- Time Hole Deactivation
+			local timeHoleDeact = netFolder:FindFirstChild("RE/TimeHoleDeactivate")
+			if timeHoleDeact then
+				Stellar.__properties.__connections.__det_timehole_deact = timeHoleDeact.OnClientEvent:Connect(function()
+					Stellar.__properties.__timehole_active = false
+				end)
+			end
+
+			-- Slashes Of Fury Activation
+			local slashesAct = netFolder:FindFirstChild("RE/SlashesOfFuryActivate")
+			if slashesAct then
+				Stellar.__properties.__connections.__det_slashes_act = slashesAct.OnClientEvent:Connect(function(...)
+					if not Stellar.__config.__detections.__slashesoffury then return end
+					local args = { ... }
+					local player = args[1]
+					if player == LocalPlayer or player == LocalPlayer.Name or (player and player.Name == LocalPlayer.Name) then
+						Stellar.__properties.__slashesoffury_active = true
+						Stellar.__properties.__slashesoffury_count = 0
+					end
+				end)
+			end
+
+			-- Slashes Of Fury End
+			local slashesEnd = netFolder:FindFirstChild("RE/SlashesOfFuryEnd")
+			if slashesEnd then
+				Stellar.__properties.__connections.__det_slashes_end = slashesEnd.OnClientEvent:Connect(function()
+					Stellar.__properties.__slashesoffury_active = false
+					Stellar.__properties.__slashesoffury_count = 0
+				end)
+			end
+
+			-- Slashes Of Fury Parry Counter
+			local slashesParry = netFolder:FindFirstChild("RE/SlashesOfFuryParry")
+			if slashesParry then
+				Stellar.__properties.__connections.__det_slashes_parry = slashesParry.OnClientEvent:Connect(function()
+					if not Stellar.__config.__detections.__slashesoffury then return end
+					Stellar.__properties.__slashesoffury_count = Stellar.__properties.__slashesoffury_count + 1
+				end)
+			end
+
+			-- Slashes Of Fury Catch Auto-Counter Execution
+			local slashesCatch = netFolder:FindFirstChild("RE/SlashesOfFuryCatch")
+			if slashesCatch then
+				Stellar.__properties.__connections.__det_slashes_catch = slashesCatch.OnClientEvent:Connect(function()
+					task.spawn(function()
+						while Stellar.__properties.__slashesoffury_active and Stellar.__properties.__slashesoffury_count < Stellar.__properties.__slashesoffury_max_count do
+							if Stellar.__config.__detections.__slashesoffury then
+								local delayVal = Stellar.__properties.__slashesoffury_delay or 0.05
+								if tick() - (Stellar.__properties.__last_global_parry or 0) >= delayVal then
+									Stellar.__properties.__last_global_parry = tick()
+									Stellar.parry.execute_action() 
+								end
+								task.wait(delayVal)
+							else
+								break
+							end
+						end
+					end)
+				end)
+			end
+		end
+
+		-- Remotes Folder Bindings (DeathBall, InfinityBall, ParrySuccessAll)
+		pcall(function()
+			local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
+			if remotes then
+				local deathBall = remotes:FindFirstChild("DeathBall")
+				if deathBall then
+					Stellar.__properties.__connections.__det_deathball = deathBall.OnClientEvent:Connect(function(c, d)
+						if Stellar.__config.__detections.__deathslash then
+							Stellar.__properties.__deathslash_active = d or false
+						end
+					end)
+				end
+
+				local infinityBall = remotes:FindFirstChild("InfinityBall")
+				if infinityBall then
+					Stellar.__properties.__connections.__det_infinityball = infinityBall.OnClientEvent:Connect(function(a, b)
+						if Stellar.__config.__detections.__infinity then
+							Stellar.__properties.__infinity_active = b or false
+						end
+					end)
+				end
+
+				-- Reactive Close-Range Parry Counter
+				local parrySuccessAll = remotes:FindFirstChild("ParrySuccessAll")
+				if parrySuccessAll then
+					Stellar.__properties.__connections.__det_parrysuccess = parrySuccessAll.OnClientEvent:Connect(function(_, root)
+						if not root or not root.Parent or root.Parent == LocalPlayer.Character then return end
+						if not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+
+						local closest = Stellar.player.get_closest()
+						local ball = Stellar.ball.get()
+						if not ball or not closest or not closest.PrimaryPart then return end
+
+						local targetDist = (LocalPlayer.Character.PrimaryPart.Position - closest.PrimaryPart.Position).Magnitude
+						local ballVec = LocalPlayer.Character.PrimaryPart.Position - ball.Position
+						if ballVec.Magnitude == 0 then return end
+
+						local ballDist = ballVec.Magnitude
+						local ballDir = ballVec.Unit
+						local ballVel = ball.AssemblyLinearVelocity or Vector3.new()
+						if ballVel.Magnitude == 0 then return end
+
+						local dot = ballDir:Dot(ballVel.Unit)
+						local isCurved = Stellar.detection.is_curved(ball)
+
+						if targetDist < 15 and ballDist < 15 and dot > -0.25 and isCurved then
+							Stellar.parry.execute_action()
+						end
+					end)
+				end
+			end
+		end)
+	end)
+
+	-- Phantom Detection Observer
+	local runtimeFolder = workspace:WaitForChild("Runtime", 10) or workspace
+	Stellar.__properties.__connections.__det_phantom = runtimeFolder.ChildAdded:Connect(function(object)
+		if not Stellar.__config.__detections.__phantom then return end
+		if object.Name == "maxTransmission" or object.Name == "transmissionpart" then
+			local weld = object:FindFirstChildWhichIsA("WeldConstraint")
+			if weld then
+				local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+				if char and weld.Part1 == char:FindFirstChild("HumanoidRootPart") then
+					local currentBall = Stellar.ball.get()
+					weld:Destroy()
+					if currentBall then
+						local focusConn
+						focusConn = RunService.RenderStepped:Connect(function()
+							local highlighted = currentBall:GetAttribute("highlighted")
+							if highlighted == true then
+								if tick() - (Stellar.__properties.__last_global_parry or 0) >= 0.1 then
+									Stellar.__properties.__last_global_parry = tick()
+									Stellar.parry.execute_action(cachedCF) 
+								end
+							elseif highlighted == false then
+								if focusConn then focusConn:Disconnect() end
+							end
+						end)
+						task.delay(3, function()
+							if focusConn and focusConn.Connected then focusConn:Disconnect() end
+						end)
+					end
+				end
+			end
+		end
+	end)
+end
+
+function Stellar.ability_detections.cleanup()
+	local keys = {
+		"__det_timehole_act",
+		"__det_timehole_deact",
+		"__det_slashes_act",
+		"__det_slashes_end",
+		"__det_slashes_parry",
+		"__det_slashes_catch",
+		"__det_deathball",
+		"__det_infinityball",
+		"__det_parrysuccess",
+		"__det_phantom"
+	}
+
+	for _, key in ipairs(keys) do
+		if Stellar.__properties.__connections[key] then
+			pcall(function() Stellar.__properties.__connections[key]:Disconnect() end)
+			Stellar.__properties.__connections[key] = nil
+		end
+	end
+end
+
+Stellar.ability_exploits = {}
+
+function Stellar.ability_exploits.apply_thunder_dash()
+    if not Stellar.__config.__detections.__thunder_dash_nocooldown then return end
+
+    local shared = ReplicatedStorage:FindFirstChild('Shared')
+    local abilities = shared and shared:FindFirstChild('Abilities')
+    local thunderDashModule = abilities and abilities:FindFirstChild('Thunder Dash')
+    if not thunderDashModule then return end
+
+    local ok, mod = pcall(require, thunderDashModule)
+    if ok and mod then
+        pcall(function()
+            mod.cooldown = 0
+            mod.cooldownReductionPerUpgrade = 0
+        end)
+    end
+end
+
+
+Stellar.staff_detection = {}
+
+--- Queries a player's rank within the target group with caching and error isolation.
+-- @param player Instance (Player)
+-- @return number
+function Stellar.staff_detection.get_rank(player)
+	if not player or not player:IsA("Player") then return 0 end
+	
+	-- Check memoized rank cache
+	if Stellar.__properties.__staff_rank_cache[player.UserId] then
+		return Stellar.__properties.__staff_rank_cache[player.UserId]
+	end
+
+	local success, rank = pcall(function()
+		return player:GetRankInGroup(Stellar.__properties.__staff_group_id)
+	end)
+
+	if success and type(rank) == "number" then
+		Stellar.__properties.__staff_rank_cache[player.UserId] = rank
+		return rank
+	end
+
+	return 0
+end
+
+--- Evaluates a target player and triggers configured defensive countermeasures.
+-- @param player Instance (Player)
+function Stellar.staff_detection.process_player(player)
+	if not player or player == LocalPlayer then return end
+	
+	local userId = player.UserId
+	if Stellar.__properties.__detected_staff_members[userId] then
+		return -- Already evaluated and action taken
+	end
+
+	task.spawn(function()
+		local rank = Stellar.staff_detection.get_rank(player)
+		if rank >= Stellar.__properties.__staff_min_rank then
+			Stellar.__properties.__detected_staff_members[userId] = {
+				Name = player.Name,
+				DisplayName = player.DisplayName,
+				Rank = rank,
+				Time = os.time()
+			}
+
+			local actionMode = Stellar.__config.__detections.__staff_action_mode
+			
+			if actionMode == "Notification" then
+				Library.SendNotification({
+					title = "STAFF DETECTED",
+					text = "Moderator in server: " .. player.Name .. " (Rank " .. tostring(rank) .. "+)",
+					duration = 6
+				})
+			elseif actionMode == "Kick" then
+				LocalPlayer:Kick("\n[Stellar Security]\nStaff member detected in session: " .. player.Name .. ".\nDisconnected to protect account integrity.")
+			end
+		end
+	end)
+end
+
+--- Initializes the event-driven staff detection monitoring system.
+function Stellar.staff_detection.start()
+	Stellar.staff_detection.stop() -- Clear existing connections if active
+
+	-- 1. Initial Batch Sweep across all currently connected players
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer then
+			Stellar.staff_detection.process_player(player)
+		end
+	end
+
+	-- 2. Event-Driven Observer for newly joining players
+	Stellar.__properties.__connections.__staff_detection = Players.PlayerAdded:Connect(function(player)
+		if Stellar.__config.__detections.__staff_detection then
+			Stellar.staff_detection.process_player(player)
+		end
+	end)
+end
+
+--- Disconnects active listeners and resets non-persistent evaluation state.
+function Stellar.staff_detection.stop()
+	if Stellar.__properties.__connections.__staff_detection then
+		if typeof(Stellar.__properties.__connections.__staff_detection) == "RBXScriptConnection" then
+			Stellar.__properties.__connections.__staff_detection:Disconnect()
+		end
+		Stellar.__properties.__connections.__staff_detection = nil
 	end
 	
-	if netFolder then
-		Stellar.__properties.__connections.__detections_list = {}
-		if netFolder:FindFirstChild("RE/TimeHoleActivate") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/TimeHoleActivate"].OnClientEvent:Connect(function(...)
-				if not Stellar.__config.__detections.__timehole then return end
-				local args = { ... }
-				local player = args[1]
-				if player == LocalPlayer or player == LocalPlayer.Name or (player and player.Name == LocalPlayer.Name) then
-					Stellar.__properties.__timehole_active = true
-				end
-			end))
-		end
-		if netFolder:FindFirstChild("RE/TimeHoleDeactivate") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/TimeHoleDeactivate"].OnClientEvent:Connect(function()
-				Stellar.__properties.__timehole_active = false
-			end))
-		end
-		
-		local maxParryCount = 35
-		local parryDelay = 0.05
-		if netFolder:FindFirstChild("RE/SlashesOfFuryActivate") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryActivate"].OnClientEvent:Connect(function(...)
-				if not Stellar.__config.__detections.__slashesoffury then return end
-				local args = { ... }
-				local player = args[1]
-				if player == LocalPlayer or player == LocalPlayer.Name or (player and player.Name == LocalPlayer.Name) then
-					Stellar.__properties.__slashesoffury_active = true
-					Stellar.__properties.__slashesoffury_count = 0
-				end
-			end))
-		end
-		if netFolder:FindFirstChild("RE/SlashesOfFuryEnd") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryEnd"].OnClientEvent:Connect(function()
-				Stellar.__properties.__slashesoffury_active = false
-				Stellar.__properties.__slashesoffury_count = 0
-			end))
-		end
-		if netFolder:FindFirstChild("RE/SlashesOfFuryParry") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryParry"].OnClientEvent:Connect(function()
-				if not Stellar.__config.__detections.__slashesoffury then return end
-				Stellar.__properties.__slashesoffury_count = Stellar.__properties.__slashesoffury_count + 1
-			end))
-		end
-		if netFolder:FindFirstChild("RE/SlashesOfFuryCatch") then
-			table.insert(Stellar.__properties.__connections.__detections_list, netFolder["RE/SlashesOfFuryCatch"].OnClientEvent:Connect(function()
-				task.spawn(function()
-					while Stellar.__properties.__slashesoffury_active and Stellar.__properties.__slashesoffury_count < maxParryCount do
-						if Stellar.__config.__detections.__slashesoffury then
-							if tick() - (Stellar.__properties.__last_global_parry or 0) >= parryDelay then
-								Stellar.__properties.__last_global_parry = tick()
-								Stellar.parry.execute()
-							end
-							task.wait(parryDelay)
-						else
-							break
-						end
-					end
-				end)
-			end))
-		end
-	end
-
-	pcall(function()
-		local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
-		if remotes then
-			if remotes:FindFirstChild("DeathBall") then
-				remotes.DeathBall.OnClientEvent:Connect(function(c, d)
-					if Stellar.__config.__detections.__deathslash then
-						Stellar.__properties.__deathslash_active = d or false
-					end
-				end)
-			end
-			if remotes:FindFirstChild("InfinityBall") then
-				remotes.InfinityBall.OnClientEvent:Connect(function(a, b)
-					if Stellar.__config.__detections.__infinity then
-						Stellar.__properties.__infinity_active = b or false
-					end
-				end)
-			end
-		end
-	end)
-end)
-
--- Anti-Phantom Execution Routine
-if Runtime then
-	Stellar.__properties.__connections.__phantom = Runtime.ChildAdded:Connect(function(Object)
-		if Stellar.__config.__detections.__phantom then
-			if Object.Name == "maxTransmission" or Object.Name == "transmissionpart" then
-				local Weld = Object:FindFirstChildWhichIsA("WeldConstraint")
-				if Weld then
-					local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-					if Character and Weld.Part1 == Character:FindFirstChild("HumanoidRootPart") then
-						local CurrentBall = Stellar.ball.get()
-						Weld:Destroy()
-						if CurrentBall then
-							local FocusConnection
-							FocusConnection = RunService.RenderStepped:Connect(function()
-								local Highlighted = CurrentBall:GetAttribute("highlighted")
-								if Highlighted == true then
-									if tick() - (Stellar.__properties.__last_global_parry or 0) >= 0.1 then
-										Stellar.__properties.__last_global_parry = tick()
-										Stellar.parry.execute()
-									end
-								elseif Highlighted == false then
-									FocusConnection:Disconnect()
-								end
-							end)
-							task.delay(3, function()
-								if FocusConnection and FocusConnection.Connected then
-									FocusConnection:Disconnect()
-								end
-							end)
-						end
-					end
-				end
-			end
-		end
-	end)
+	table.clear(Stellar.__properties.__detected_staff_members)
 end
 
 -- Sensor & Target Selection Modules
@@ -1465,53 +1728,106 @@ function Stellar.parry.execute_bruteforce(precalc_cframe)
 end
 
 -- Animation Subsystem
-Stellar.animation = {}
-local SwordAPI = ReplicatedStorage:WaitForChild("Shared", 9e9):WaitForChild("SwordAPI", 9e9)
 local last_anim_tick = 0
-function Stellar.animation.play_grab_parry()
-    if not Stellar.__properties.__play_animation then
-        return
+Stellar.animation = {
+    _active_animator = nil,
+    _track_cache = {},
+    _resolved_swords = {}
+}
+
+local function resolve_parry_animation(character, sword_name)
+    local sword_api = ReplicatedStorage:WaitForChild("Shared", 9e9):WaitForChild("SwordAPI", 9e9):WaitForChild("Collection", 9e9)
+    local default_anim = sword_api:WaitForChild("Default", 9e9):FindFirstChild("GrabParry")
+
+    if not sword_name or sword_name == "" then
+        return default_anim
     end
-    
-    local character = LocalPlayer.Character
-    if not character then return end
-    
-    local humanoid = character:FindFirstChildOfClass('Humanoid')
-    local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
-    if not humanoid or not animator then return end
-    
-    local sword_name
-    if getgenv().skinChangerEnabled then
-        sword_name = getgenv().swordAnimations
-    else
-        sword_name = character:GetAttribute('CurrentlyEquippedSword')
+
+    if Stellar.animation._resolved_swords[sword_name] then
+        return Stellar.animation._resolved_swords[sword_name]
     end
-    if not sword_name then return end
-    
-    local sword_api = ReplicatedStorage.Shared.SwordAPI.Collection
-    local parry_animation = sword_api.Default:FindFirstChild('GrabParry')
-    if not parry_animation then return end
-    
-    local sword_data = ReplicatedStorage.Shared.ReplicatedInstances.Swords.GetSword:Invoke(sword_name)
-    if not sword_data or not sword_data['AnimationType'] then return end
-    
-    for _, object in pairs(sword_api:GetChildren()) do
-        if object.Name == sword_data['AnimationType'] then
-            if object:FindFirstChild('GrabParry') or object:FindFirstChild('Grab') then
-                local animation_type = object:FindFirstChild('GrabParry') and 'GrabParry' or 'Grab'
-                parry_animation = object[animation_type]
+
+    local parry_animation = default_anim
+    local success, sword_data = pcall(function()
+        return ReplicatedStorage.Shared.ReplicatedInstances.Swords.GetSword:Invoke(sword_name)
+    end)
+
+    if success and type(sword_data) == "table" and sword_data then
+        for _, object in pairs(sword_api:GetChildren()) do
+            if object.Name == sword_data then
+                local animation_type = object:FindFirstChild("GrabParry") and "GrabParry" or "Grab"
+                if object:FindFirstChild(animation_type) then
+                    parry_animation = object[animation_type]
+                    break
+                end
             end
         end
     end
-    
-    if Stellar.__properties.__grab_animation and Stellar.__properties.__grab_animation.IsPlaying then
-        Stellar.__properties.__grab_animation:Stop()
-    end
-    
-    Stellar.__properties.__grab_animation = animator:LoadAnimation(parry_animation)
-    Stellar.__properties.__grab_animation.Priority = Enum.AnimationPriority.Action4
-    Stellar.__properties.__grab_animation:Play()
+
+    Stellar.animation._resolved_swords[sword_name] = parry_animation
+    return parry_animation
 end
+
+function Stellar.animation.play_grab_parry()
+    if not Stellar.__properties.__play_animation or (tick() - last_anim_tick) < 0.25 then 
+        return 
+    end
+
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+    if not animator then return end
+
+    if Stellar.animation._active_animator ~= animator then
+        table.clear(Stellar.animation._track_cache)
+        Stellar.animation._active_animator = animator
+    end
+
+    local sword_name = character:GetAttribute("CurrentlyEquippedSword")
+    local parry_animation = resolve_parry_animation(character, sword_name)
+    if not parry_animation then return end
+
+    local anim_id = parry_animation.AnimationId
+    local track = Stellar.animation._track_cache[anim_id]
+
+    if not track or not track.Parent then
+        local ok, loadedTrack = pcall(function() return animator:LoadAnimation(parry_animation) end)
+        if not ok or not loadedTrack then return end
+        track = loadedTrack
+        track.Priority = Enum.AnimationPriority.Action4
+        Stellar.animation._track_cache[anim_id] = track
+    end
+
+    if track.IsPlaying then
+        track:Stop(0)
+    end
+
+    track.TimePosition = 0
+    last_anim_tick = tick()
+    track:Play(0.05, 1.0, 1.0)
+end
+
+task.spawn(function()
+    pcall(function()
+        local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+        local parrySuccessRemote = remotes and remotes:WaitForChild("ParrySuccess", 10)
+        if parrySuccessRemote then
+            parrySuccessRemote.OnClientEvent:Connect(function()
+                local character = LocalPlayer.Character
+                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+                if animator then
+                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                        if track.Name == "GrabParry" or track.Name == "Grab" or track.Priority == Enum.AnimationPriority.Action4 then
+                            track:Stop(0.1)
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end)
+
 
 -- Fused Anti-Curve Physics Engine
 Stellar.detection = {
@@ -1650,76 +1966,70 @@ local isExecutingSlashes = false
 local abilityDebounce = false
 
 function Stellar.autoparry.start()
-	if Stellar.__properties.__connections.__combat then Stellar.__properties.__connections.__combat:Disconnect() end
+	if Stellar.__properties.__connections.__combat then 
+		Stellar.__properties.__connections.__combat:Disconnect() 
+	end
 	parryFlag, isExecutingSlashes, abilityDebounce = false, false, false
 
+	Stellar.ability_detections.initialize()
+	Stellar.dribble_detection.start()
+
 	Stellar.__properties.__connections.__combat = RunService.PreSimulation:Connect(function(dt)
-		if not Stellar.__properties.__autoparry_enabled or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+		if not Stellar.__properties.__autoparry_enabled or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then 
+			return 
+		end
 		
 		local localName = LocalPlayer.Name
 		local playerPos = LocalPlayer.Character.PrimaryPart.Position
 		local cam = workspace.CurrentCamera
 		
+		-- Ability override checks (inline, not as a function)
 		if Stellar.__config.__detections.__infinity and Stellar.__properties.__infinity_active then return end
 		if Stellar.__config.__detections.__deathslash and Stellar.__properties.__deathslash_active then return end
 		if Stellar.__config.__detections.__timehole and Stellar.__properties.__timehole_active then return end
 		if Stellar.__config.__detections.__slashesoffury and Stellar.__properties.__slashesoffury_active then return end
+-- Track dribble state without disabling parry completely
+local dribbleActive = Stellar.__config.__detections.__dribble and Stellar.__properties.__dribble_active
 
+-- Don't return early - just track that we're in dribble
+if dribbleActive then
+    Stellar.__properties.__dribble_was_active = true
+end
+
+-- Detect when dribble just ended (this frame)
+local justExitedDribble = Stellar.__properties.__dribble_was_active and not dribbleActive
+if justExitedDribble then
+    Stellar.__properties.__dribble_was_active = false
+    Stellar.__properties.__dribble_exit_time = tick()
+end
+
+-- Check if we're in the critical window after dribble (0.2 seconds)
+local postDribbleWindow = Stellar.__properties.__dribble_exit_time and 
+    (tick() - Stellar.__properties.__dribble_exit_time < 0.2)
+		
 		-- Auto Ability Engine
 		if getgenv().AutoAbility or (Stellar and Stellar.__properties and Stellar.__properties.__auto_ability_enabled) then
-			local hotbar = LocalPlayer.PlayerGui:FindFirstChild("Hotbar")
-			local abilityGui = hotbar and hotbar:FindFirstChild("Ability")
-			local AbilityCD = abilityGui and abilityGui:FindFirstChild("UIGradient")
-			local char = LocalPlayer.Character
-			local abs = char and char:FindFirstChild("Abilities")
-			if abs then
-				local ball = Stellar.ball.get()
-				if ball and ball.Parent then
-					local currentTarget = ball:GetAttribute("target")
-					local isTargeted = (currentTarget == localName)
-					local distance = LocalPlayer:DistanceFromCharacter(ball.Position)
-					local isAbilityReady = false
-					pcall(function() isAbilityReady = AbilityCD and math.abs(AbilityCD.Offset.Y - 0.5) < 0.05 end)
-					
-					local slashes = abs:FindFirstChild("Slashes Of Fury") or abs:FindFirstChild("Slashes of Fury")
-					local isSlashesReady = slashes and slashes.Enabled and isAbilityReady
-					
-					if isSlashesReady and isTargeted then
-						if distance <= 40 and not isExecutingSlashes then
-							task.spawn(function()
-								isExecutingSlashes = true
-								pcall(function()
-									local btn = ReplicatedStorage.Remotes:FindFirstChild("AbilityButtonPress")
-									if btn then if btn:IsA("RemoteEvent") then btn:FireServer() else btn:Fire() end end
-								end)
-								for _ = 1, 6 do
-									Stellar.parry.execute_bruteforce()
-									task.wait(0.025)
-								end
-								isExecutingSlashes = false
-							end)
-						end
-					elseif isAbilityReady and isTargeted and not abilityDebounce then
-						local standardAbilities = {"Raging Deflection", "Rapture", "Calming Deflection", "Aerodynamic Slash", "Fracture"}
-						for _, abilityName in ipairs(standardAbilities) do
-							local abilityObj = abs:FindFirstChild(abilityName)
-							if abilityObj and abilityObj.Enabled and distance <= 40 then
-								Stellar.__properties.__parried = true
-								abilityDebounce = true
-								pcall(function()
-									local btn = ReplicatedStorage.Remotes:FindFirstChild("AbilityButtonPress")
-									if btn then if btn:IsA("RemoteEvent") then btn:FireServer() else btn:Fire() end end
-								end)
-								task.delay(0.2, function() abilityDebounce = false end)
-								break
-							end
-						end
+			local AbilityCD = LocalPlayer.PlayerGui.Hotbar.Ability.UIGradient
+			if AbilityCD and AbilityCD.Offset.Y == 0.5 then
+				if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Abilities") then
+					local abilities = LocalPlayer.Character.Abilities
+					if (abilities:FindFirstChild("Raging Deflection") and abilities["Raging Deflection"].Enabled) or
+					   (abilities:FindFirstChild("Rapture") and abilities["Rapture"].Enabled) or
+					   (abilities:FindFirstChild("Calming Deflection") and abilities["Calming Deflection"].Enabled) or
+					   (abilities:FindFirstChild("Aerodynamic Slash") and abilities["Aerodynamic Slash"].Enabled) or
+					   (abilities:FindFirstChild("Fracture") and abilities["Fracture"].Enabled) or
+					   (abilities:FindFirstChild("Death Slash") and abilities["Death Slash"].Enabled) then
+						Stellar.__properties.__parried = true
+						ReplicatedStorage.Remotes.AbilityButtonPress:Fire()
+						task.wait(2.432)
+						ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("DeathSlashShootActivation"):FireServer(true)
+						return
 					end
 				end
 			end
 		end
-
-		-- Ball Trajectory Processing Loop
+		
+		-- Ball Trajectory Processing Loop (ALL THIS MUST BE INSIDE)
 		local balls = Stellar.ball.get_all()
 		for _, ball in pairs(balls) do
 			if LocalPlayer.Character.PrimaryPart:FindFirstChild('SingularityCape') then continue end
@@ -1764,7 +2074,7 @@ function Stellar.autoparry.start()
 			local currentParryCount = Stellar.__properties.__parries or 0
 			local maxClashDistance = Stellar.__properties.__spam_threshold
 
-			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
+			local autoSpamConditionsMet = Stellar.__properties.__auto_spam_enabled and not Stellar.__properties.__dribble_active and (currentParryCount > 1) and (isTargeted or (distance and distance < maxClashDistance))
 
 			if autoSpamConditionsMet and distance <= spamThresh then
 				Stellar.animation.play_grab_parry()
@@ -1792,6 +2102,10 @@ function Stellar.autoparry.start()
 					task.spawn(function() task.wait(0.5) parryFlag = false end)
 					continue
 				end
+			end
+
+         if (not isTargeted and not dribbleActive and not postDribbleWindow) or parryFlag then 
+				continue 
 			end
 			
 			-- Kinematic Autoparry Pipeline
@@ -1847,17 +2161,47 @@ function Stellar.autoparry.start()
 			local satisfiesTTI = isApproaching and (calculatedTTI <= reactionWindow)
 			local satisfiesDistance = isApproaching and (pingAdjustedDistance <= distanceThreshold)
 
-			if satisfiesTTI or satisfiesDistance then
-				parryFlag = true
-				
-				task.spawn(function()
-					local cachedCF = Stellar.curve.get_cframe()
-					if getgenv().AutoParryMode == "Keypress" then 
-						Stellar.parry.keypress(cachedCF) 
-					else 
-						Stellar.parry.execute_action(cachedCF) 
-					end
-				end)
+			local isCloseProximity = distance <= 17 and dribbleActive 
+
+			if satisfiesTTI or satisfiesDistance or isCloseProximity then
+             if isTargeted and satisfiesTTI then
+    if Stellar.__config.__detections.__cooldown_protection then
+        local hotbar = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Hotbar")
+        local blockIcon = hotbar and hotbar:FindFirstChild("Block")
+        local parryCD = blockIcon and blockIcon:FindFirstChild("UIGradient")
+        
+        if parryCD and parryCD.Offset.Y < 0.4 then
+            local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+            local abilityPress = remotes and remotes:FindFirstChild("AbilityButtonPress")
+            if abilityPress then
+                abilityPress:Fire()
+                parryFlag = true
+                task.delay(0.3, function() parryFlag = false end)
+                continue
+            end
+        end
+    end
+
+				if dribbleActive then
+					-- Let Dribble handle its own parry routine naturally; step back
+					continue
+				end
+
+				if isTargeted then
+					parryFlag = true
+					
+					task.spawn(function()
+						local cachedCF = Stellar.curve.get_cframe()
+						if getgenv().AutoParryMode == "Keypress" then 
+							Stellar.parry.keypress(cachedCF) 
+						else 
+							Stellar.parry.execute_action(cachedCF) 
+						end
+						
+						if postDribbleWindow then
+							Stellar.__properties.__dribble_exit_time = nil
+						end
+					end)
 				
 				local lastCycle = tick()
 				task.spawn(function()
@@ -1882,15 +2226,16 @@ function Stellar.autoparry.start()
 							Stellar.__properties.__training_parried = true
 							local cachedCF = Stellar.curve.get_cframe()
 							if getgenv().AutoParryMode == "Keypress" then Stellar.parry.keypress(cachedCF) else Stellar.parry.execute_action(cachedCF) end
-							task.delay(0.5, function() Stellar.__properties.__training_parried = false end)
+							task.delay(0.7, function() Stellar.__properties.__training_parried = false end)
 						end
 					end
 				end
 			end
 		end
-	end)
+	end
 end
-
+end)
+end
 function Stellar.autoparry.stop()
 	if Stellar.__properties.__connections.__combat then
 		Stellar.__properties.__connections.__combat:Disconnect()
@@ -2042,6 +2387,13 @@ autoparry_module:create_checkbox({
 })
 
 autoparry_module:create_checkbox({
+    title = "Cooldown Protection",
+    flag = "CDProtection",
+    callback = function(state)
+         Stellar.__config.__detections.__cooldown_protection = state
+    end
+})
+autoparry_module:create_checkbox({
 	title = "Instant Triggerbot",
 	flag = "TriggerbotModule",
 	callback = function(state)
@@ -2101,6 +2453,7 @@ local detection_module = DetectionTab:create_module({
 })
 
 detection_module:create_divider({})
+
 detection_module:create_checkbox({
 	title = "Phantom",
 	flag = "PhantomDetectToggle",
@@ -2119,6 +2472,30 @@ detection_module:create_checkbox({
 	callback = function(state) Stellar.__config.__detections.__slashesoffury = state end
 })
 
+detection_module:create_slider({
+	title = "Slashes Parry Delay",
+	flag = "SlashesParryDelay",
+	maximum_value = 0.25,
+	minimum_value = 0.05,
+	value = 0.05,
+	round_number = false,
+	callback = function(value)
+		Stellar.__properties.__slashesoffury_delay = value
+	end
+})
+
+detection_module:create_slider({
+	title = "Slashes Max Parry Count",
+	flag = "SlashesMaxParryCount",
+	maximum_value = 36,
+	minimum_value = 1,
+	value = 36,
+	round_number = true,
+	callback = function(value)
+		Stellar.__properties.__slashesoffury_max_count = value
+	end
+})
+
 detection_module:create_checkbox({
 	title = "Infinity Ball Detection",
 	flag = "InfinityDetectToggle",
@@ -2129,6 +2506,88 @@ detection_module:create_checkbox({
 	title = "Death Slash Detection",
 	flag = "DeathSlashDetectToggle",
 	callback = function(state) Stellar.__config.__detections.__deathslash = state end
+})
+
+local dribble_module = DetectionTab:create_module({
+	title = "Dribble Detection",
+	flag = "DribbleDetectionModule",
+	description = "Real-time dribble ball tracking & curve bypass",
+	section = "right",
+	callback = function(state)
+		Stellar.__config.__detections.__dribble = state
+		if state then
+			Stellar.dribble_detection.start()
+			Library.SendNotification({
+				title = "Stellar Engine",
+				text = "Dribble Detection Activated",
+				duration = 2
+			})
+		else
+			Stellar.dribble_detection.stop()
+			Library.SendNotification({
+				title = "Stellar Engine",
+				text = "Dribble Detection Deactivated",
+				duration = 2
+			})
+		end
+	end
+})
+
+
+local staff_module = DetectionTab:create_module({
+	title = "Staff Detection",
+	description = "Real-time moderation team identification & protection",
+	flag = "StaffDetectionModule",
+	section = "right",
+	callback = function(state)
+		Stellar.__config.__detections.__staff_detection = state
+		if state then
+			Stellar.staff_detection.start()
+			Library.SendNotification({
+				title = "Stellar Engine",
+				text = "Staff Detection System Activated",
+				duration = 2
+			})
+		else
+			Stellar.staff_detection.stop()
+			Library.SendNotification({
+				title = "Stellar Engine",
+				text = "Staff Detection System Deactivated",
+				duration = 2
+			})
+		end
+	end
+})
+
+staff_module:create_dropdown({
+	title = "Action Mode",
+	flag = "StaffActionMode",
+	options = { "Notification", "Kick" },
+	maximum_options = 1,
+	callback = function(value)
+		Stellar.__config.__detections.__staff_action_mode = value
+	end
+})
+
+staff_module:create_button({
+	title = "Scan Current Server",
+	callback = function()
+		local detectedCount = 0
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer then
+				local rank = Stellar.staff_detection.get_rank(player)
+				if rank >= Stellar.__properties.__staff_min_rank then
+					detectedCount = detectedCount + 1
+				end
+			end
+		end
+		
+		Library.SendNotification({
+			title = "Server Audit Complete",
+			text = "Active Staff Members Identified: " .. tostring(detectedCount),
+			duration = 3
+		})
+	end
 })
 
 local player_module = PlayerTab:create_module({
@@ -2172,32 +2631,35 @@ local fov_module = PlayerTab:create_module({
 			Camera.FieldOfView = Stellar.__properties.__CameraFOV
 			if not Stellar.__properties.__FOVLoop then
 				Stellar.__properties.__FOVLoop = RunService.RenderStepped:Connect(function()
-					if Stellar.__properties.__CameraEnabled then Camera.FieldOfView = Stellar.__properties.__CameraFOV end
+					if Stellar.__properties.__CameraEnabled then
+						Camera.FieldOfView = Stellar.__properties.__CameraFOV
+					end
 				end)
 			end
 		else
-			Camera.FieldOfView = 70
 			if Stellar.__properties.__FOVLoop then
 				Stellar.__properties.__FOVLoop:Disconnect()
 				Stellar.__properties.__FOVLoop = nil
 			end
+			Camera.FieldOfView = 70
 		end
 	end
 })
 
 fov_module:create_slider({
-	title = "Camera FOV",
-	flag = "CameraFOVSlider",
+	title = "Field Of View",
+	flag = "FOVSlider",
 	maximum_value = 120,
-	minimum_value = 50,
+	minimum_value = 30,
 	value = 70,
 	round_number = true,
 	callback = function(value)
 		Stellar.__properties.__CameraFOV = value
-		if Stellar.__properties.__CameraEnabled then workspace.CurrentCamera.FieldOfView = value end
+		if Stellar.__properties.__CameraEnabled then
+			workspace.CurrentCamera.FieldOfView = value
+		end
 	end
 })
-
 local immortality_module = PlayerTab:create_module({
 	title = "Immortality Desync",
 	flag = "ImmortalityModule",
@@ -2456,12 +2918,30 @@ local no_render_module = MiscTab:create_module({
 		end
 	end
 })
+local thunder_dash_module = MiscTab:create_module({
+	title = "Thunder Dash No CD",
+	description = "Disables cooldown for Thunder Dash",
+	flag = "ThunderDash",
+	section = "right",
+	callback = function(state)
 
+Stellar.__config.__detections.__thunder_dash_nocooldown = state
+    if state then
+
+Stellar.ability_exploits.apply_thunder_dash()
+
+Stellar.ability_exploits.start_thunder_dash_loop()
+else
+Stellar.ability_exploits.stop_thunder_dash_loop()
+        end
+    end
+})
 misc_module:create_button({
 	title = "Unload Stellar Engine",
 	callback = function()
 		Stellar.autoparry.stop()
 		Stellar.triggerbot.enable(false)
+      Stellar.staff_detection.stop()
 		Stellar.__properties.__modify_player = false
 		Stellar.__properties.__ability_esp_enabled = false
 		Stellar.__properties.__immortality_enabled = false
@@ -2501,7 +2981,15 @@ misc_module:create_button({
 	end
 })
 
+misc_module:create_button({
+	title = "Discord Server",
+	callback = function()
+local discord = "https://discord.gg/x6bZR5sP4"
+setclipboard(discord)
+end
+})
+
 -- Script Initialization Launch
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.3.6 (bypassed) Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.4 (bypassed) Initialized.", duration = 3 })
 Library.SendNotification({ title = "Stellar Engine", text = "[IMPORTANT] Please Parry Manually First", duration = 5 })
