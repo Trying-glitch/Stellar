@@ -1618,7 +1618,39 @@ local Cache_Update_Tick = 0
 local Last_Positions_Cache = {}
 local lastHitTick = 0
 
+local function fireParryInput()
+	-- Try virtual keypress first (0x46 is the 'F' key)
+	if keypress and keyrelease then
+		pcall(function()
+			keypress(0x46)
+			task.wait(0.03)
+			keyrelease(0x46)
+		end)
+		return true
+	end
+	
+	-- Fallback to mouse click if keypress isn't supported
+	if mouse1press and mouse1release then
+		pcall(function()
+			mouse1press()
+			task.wait(0.03)
+			mouse1release()
+		end)
+		return true
+	end
+	if mouse1click then
+		pcall(function() mouse1click() end)
+		return true
+	end
+	return false
+end
+
+
 local function fireParry(precalc_cframe)
+    if not _captured then
+		fireParryInput()
+		return
+	end
 	local cam = workspace.CurrentCamera
 	local pCF = precalc_cframe or Stellar.curve.get_cframe()
 
@@ -1690,21 +1722,6 @@ local function fireParry(precalc_cframe)
 	end
 end
 
-local function fireParryInput()
-	if mouse1press and mouse1release then
-		pcall(function()
-			mouse1press()
-			task.wait(0.03)
-			mouse1release()
-		end)
-		return true
-	end
-	if mouse1click then
-		pcall(function() mouse1click() end)
-		return true
-	end
-	return false
-end
 
 Stellar.parry = {}
 function Stellar.parry.execute(precalc_cframe)
