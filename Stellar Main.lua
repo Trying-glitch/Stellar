@@ -1,3 +1,4 @@
+setfpscap(9999)
 local cloneref = cloneref or function(obj) return obj end
 local getconnections = getconnections or function() return {} end
 local getupvalues = debug.getupvalues or getupvalues or function() return {} end
@@ -76,6 +77,10 @@ local Stellar = {
 		__curve_mode = 1,
 		__accuracy = 100,
 		__divisor_multiplier = 1.1,
+		__parry_range = 5, -- ParryRange Scale: 1 = Tightest/Legit, 10+ = Earliest/Aggressive
+		__predictive_anti_curve_enabled = true,
+		__curve_sensitivity = 50, -- Threshold scale 1-100%
+		__prediction_accuracy = 75, -- Lookahead sampling density 1-100%
 		__parried = false,
 		__training_parried = false,
 		__spam_threshold = 25,
@@ -94,8 +99,8 @@ local Stellar = {
 		__timehole_active = false,
 		__slashesoffury_active = false,
 		__slashesoffury_count = 0,
-      __slashesoffury_delay = 0.05,
-      __slashesoffury_max_count = 36,
+		__slashesoffury_delay = 0.05,
+		__slashesoffury_max_count = 36,
 		__infinity_active = false,
 		__deathslash_active = false,
 		__auto_spam_distance_multiplier = 1.0,
@@ -113,21 +118,20 @@ local Stellar = {
 		__immortality_desync_types = {},
 		__auto_ability_enabled = false,
 		__ability_esp_enabled = false,
-      __staff_group_id = 12836673,
-      __staff_min_rank = 10,
-      __detected_staff_members = {},
-     __staff_rank_cache = {},
-     __hitsound_enabled = false,
-     __hitsound_type = "Medal",
-     __hitsound_volume = 5,
-     __bgm_enabled = false,
-     __bgm_track = "Eeyuh",
-     __bgm_volume = 3,
-     __bgm_loop = false,
-     __active_emote_track = nil,
-     __selected_emote = "",
-     __emotes_enabled = false    
-
+		__staff_group_id = 12836673,
+		__staff_min_rank = 10,
+		__detected_staff_members = {},
+		__staff_rank_cache = {},
+		__hitsound_enabled = false,
+		__hitsound_type = "Medal",
+		__hitsound_volume = 5,
+		__bgm_enabled = false,
+		__bgm_track = "Eeyuh",
+		__bgm_volume = 3,
+		__bgm_loop = false,
+		__active_emote_track = nil,
+		__selected_emote = "",
+		__emotes_enabled = false    
 	},
 	__config = {
 		__curve_names = {
@@ -147,11 +151,11 @@ local Stellar = {
 			__phantom = false,
 			__infinity = false,
 			__deathslash = false,
-         __dribble = false,
-         __cooldown_protection = false,
-         __thunder_dash_nocooldown = false,
-         __staff_detection = false,
-         __staff_action_mode = "Notification" -- "Notification" or "Kick"
+			__dribble = false,
+			__cooldown_protection = false,
+			__thunder_dash_nocooldown = false,
+			__staff_detection = false,
+			__staff_action_mode = "Notification"
 		}
 	},
 	__triggerbot = {
@@ -165,7 +169,7 @@ local Stellar = {
 
 getgenv()._ZX_VelHistory = getgenv()._ZX_VelHistory or setmetatable({}, { __mode = "k" })
 local _ZX_VelHistory = getgenv()._ZX_VelHistory
-_ZX_VelHistory.MAX_SAMPLES = 7
+_ZX_VelHistory.MAX_SAMPLES = 10
 
 -- Environment Validation
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -186,9 +190,7 @@ local timeConnection = nil
 local descendantConnection = nil
 local originalPartShadows = setmetatable({}, {__mode = "k"})
 
--- ============================================================================
--- INTEGRATED DYNAMIC GC TOKENIZATION & METATABLE PROXY SUBSYSTEM
--- ============================================================================
+-- Metatable Proxy & GC Token Subsystem
 local _token = nil
 
 task.spawn(function()
@@ -281,12 +283,9 @@ ReplicatedStorage.DescendantAdded:Connect(function(_remote)
 	end
 end)
 
--- Legacy Compatibility Binding Wrapper
 Stellar.ZX_Parry = { Hooked = true }
 
--- ============================================================================
--- INTEGRATED FLOATING TOGGLE SWITCH SUBSYSTEM
--- ============================================================================
+-- Floating Toggle Switch Subsystem
 local FloatingSwitchSystem = {
 	ScreenGui = nil,
 	Root = nil,
@@ -595,9 +594,7 @@ end
 
 buildFloatingToggleSwitch()
 
--- ============================================================================
--- INTEGRATED PERFORMANCE MONITOR SUBSYSTEM
--- ============================================================================
+-- Performance Monitor Subsystem
 local PerfMonitorSystem = {
 	ScreenGui = nil,
 	Card = nil,
@@ -1078,7 +1075,7 @@ task.spawn(function()
 				text = " Remotes Captured: " .. _captured.remote.Name,
 				duration = 3
 			})
-			break -- Stops checking once captured and notified
+			break
 		end
 		task.wait(0.5)
 	end
@@ -1120,10 +1117,8 @@ function Stellar.playermod.update()
 end
 Stellar.__properties.__connections.__playermod = RunService.Heartbeat:Connect(Stellar.playermod.update)
 
-
 Stellar.dribble_detection = {}
 
---- Audits workspace.Balls to evaluate active dribble status
 function Stellar.dribble_detection.scan()
 	if not Stellar.__config.__detections.__dribble then
 		Stellar.__properties.__dribble_active = false
@@ -1139,13 +1134,8 @@ function Stellar.dribble_detection.scan()
 	local dribbleFound = false
 	for _, ball in ipairs(ballsFolder:GetChildren()) do
 		if ball:IsA("BasePart") then
-			-- 1. Attribute Check (Removed pcall - GetAttribute is safe and returns nil if absent)
 			local hasAttribute = ball:GetAttribute("dribble") or ball:GetAttribute("Dribble")
-
-			-- 2. Name Substring Check
 			local nameMatch = ball.Name and string.find(string.lower(ball.Name), "dribble") ~= nil
-
-			-- 3. Child Instance Check
 			local childMatch = ball:FindFirstChild("Dribble") ~= nil or ball:FindFirstChild("Dribbling") ~= nil
 
 			if hasAttribute or nameMatch or childMatch then
@@ -1158,7 +1148,6 @@ function Stellar.dribble_detection.scan()
 	Stellar.__properties.__dribble_active = dribbleFound
 end
 
---- Starts the event-driven & periodic dribble monitoring thread
 function Stellar.dribble_detection.start()
 	Stellar.dribble_detection.stop()
 
@@ -1173,7 +1162,6 @@ function Stellar.dribble_detection.start()
 	end)
 end
 
---- Stops monitoring and resets dribble state
 function Stellar.dribble_detection.stop()
 	if Stellar.__properties.__connections.__dribble_monitor then
 		if type(Stellar.__properties.__connections.__dribble_monitor) == "thread" then
@@ -1184,16 +1172,13 @@ function Stellar.dribble_detection.stop()
 	Stellar.__properties.__dribble_active = false
 end
 
-
 -- Ability Remote Listener Pipeline
 Stellar.ability_detections = {}
 
 function Stellar.ability_detections.initialize()
-	-- Clean up existing connections
 	Stellar.ability_detections.cleanup()
 
 	task.spawn(function()
-		-- Safely resolve Sleitnick Net Package Folder
 		local packages = ReplicatedStorage:WaitForChild("Packages", 10)
 		local indexFolder = packages and packages:WaitForChild("_Index", 10)
 		local netFolder = nil
@@ -1208,7 +1193,6 @@ function Stellar.ability_detections.initialize()
 		end
 
 		if netFolder then
-			-- Time Hole Activation
 			local timeHoleAct = netFolder:FindFirstChild("RE/TimeHoleActivate")
 			if timeHoleAct then
 				Stellar.__properties.__connections.__det_timehole_act = timeHoleAct.OnClientEvent:Connect(function(...)
@@ -1221,16 +1205,14 @@ function Stellar.ability_detections.initialize()
 				end)
 			end
 
-			-- Time Hole Deactivation
 			local timeHoleDeact = netFolder:FindFirstChild("RE/TimeHoleDeactivate")
 			if timeHoleDeact then
 				Stellar.__properties.__connections.__det_timehole_deact = timeHoleDeact.OnClientEvent:Connect(function()
 					Stellar.__properties.__timehole_active = false
 				end)
 			end
-		end -- [FIXED: Added missing 'end' here]
+		end
 
-		-- Slashes Of Fury Activation (New Visual/Counter Method)
 		local ballsFolder = workspace:FindFirstChild("Balls")
 		if ballsFolder then
 			Stellar.__properties.__connections.__det_slashes_combo = ballsFolder.ChildAdded:Connect(function(Value)
@@ -1246,8 +1228,6 @@ function Stellar.ability_detections.initialize()
 								repeat
 									if Stellar.__config.__detections.__slashesoffury then
 										local Slashes_Counter = tonumber(Sof_Label.Text)
-										
-										-- Dynamic max parry count
 										local max_parries = Stellar.__properties.__slashesoffury_max_count or 34
 
 										if Slashes_Counter and Slashes_Counter <= max_parries then
@@ -1267,7 +1247,6 @@ function Stellar.ability_detections.initialize()
 					end
 				end)
 				
-				-- Prevent memory leaks upon ball destruction
 				local destroyConn
 				destroyConn = Value.Destroying:Connect(function()
 					if childConn then childConn:Disconnect() end
@@ -1276,7 +1255,6 @@ function Stellar.ability_detections.initialize()
 			end)
 		end
 
-		-- Remotes Folder Bindings (DeathBall, InfinityBall, ParrySuccessAll)
 		pcall(function()
 			local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
 			if remotes then
@@ -1298,7 +1276,6 @@ function Stellar.ability_detections.initialize()
 					end)
 				end
 
-				-- Reactive Close-Range Parry Counter
 				local parrySuccessAll = remotes:FindFirstChild("ParrySuccessAll")
 				if parrySuccessAll then
 					Stellar.__properties.__connections.__det_parrysuccess = parrySuccessAll.OnClientEvent:Connect(function(_, root)
@@ -1330,7 +1307,6 @@ function Stellar.ability_detections.initialize()
 		end)
 	end)
 
-	-- Phantom Detection Observer
 	local runtimeFolder = workspace:WaitForChild("Runtime", 10) or workspace
 	Stellar.__properties.__connections.__det_phantom = runtimeFolder.ChildAdded:Connect(function(object)
 		if not Stellar.__config.__detections.__phantom then return end
@@ -1402,16 +1378,11 @@ function Stellar.ability_exploits.apply_thunder_dash()
     end
 end
 
-
 Stellar.staff_detection = {}
 
---- Queries a player's rank within the target group with caching and error isolation.
--- @param player Instance (Player)
--- @return number
 function Stellar.staff_detection.get_rank(player)
 	if not player or not player:IsA("Player") then return 0 end
 	
-	-- Check memoized rank cache
 	if Stellar.__properties.__staff_rank_cache[player.UserId] then
 		return Stellar.__properties.__staff_rank_cache[player.UserId]
 	end
@@ -1428,14 +1399,12 @@ function Stellar.staff_detection.get_rank(player)
 	return 0
 end
 
---- Evaluates a target player and triggers configured defensive countermeasures.
--- @param player Instance (Player)
 function Stellar.staff_detection.process_player(player)
 	if not player or player == LocalPlayer then return end
 	
 	local userId = player.UserId
 	if Stellar.__properties.__detected_staff_members[userId] then
-		return -- Already evaluated and action taken
+		return
 	end
 
 	task.spawn(function()
@@ -1463,18 +1432,15 @@ function Stellar.staff_detection.process_player(player)
 	end)
 end
 
---- Initializes the event-driven staff detection monitoring system.
 function Stellar.staff_detection.start()
-	Stellar.staff_detection.stop() -- Clear existing connections if active
+	Stellar.staff_detection.stop()
 
-	-- 1. Initial Batch Sweep across all currently connected players
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
 			Stellar.staff_detection.process_player(player)
 		end
 	end
 
-	-- 2. Event-Driven Observer for newly joining players
 	Stellar.__properties.__connections.__staff_detection = Players.PlayerAdded:Connect(function(player)
 		if Stellar.__config.__detections.__staff_detection then
 			Stellar.staff_detection.process_player(player)
@@ -1482,7 +1448,6 @@ function Stellar.staff_detection.start()
 	end)
 end
 
---- Disconnects active listeners and resets non-persistent evaluation state.
 function Stellar.staff_detection.stop()
 	if Stellar.__properties.__connections.__staff_detection then
 		if typeof(Stellar.__properties.__connections.__staff_detection) == "RBXScriptConnection" then
@@ -1619,7 +1584,6 @@ local Last_Positions_Cache = {}
 local lastHitTick = 0
 
 local function fireParryInput()
-	-- Try virtual keypress first (0x46 is the 'F' key)
 	if keypress and keyrelease then
 		pcall(function()
 			keypress(0x46)
@@ -1629,7 +1593,6 @@ local function fireParryInput()
 		return true
 	end
 	
-	-- Fallback to mouse click if keypress isn't supported
 	if mouse1press and mouse1release then
 		pcall(function()
 			mouse1press()
@@ -1644,7 +1607,6 @@ local function fireParryInput()
 	end
 	return false
 end
-
 
 local function fireParry(precalc_cframe)
     if not _captured then
@@ -1671,7 +1633,6 @@ local function fireParry(precalc_cframe)
 	local vp = cam.ViewportSize
 	local viewport_center = { vp.X / 2, vp.Y / 2 }
 
-	-- Dispatch via Intercepted Metatable Cache
 	if _captured and _captured.remote and _captured.args then
 		local remote_uid = _captured.args[2]
 		local token = _tokenize(remote_uid)
@@ -1696,7 +1657,6 @@ local function fireParry(precalc_cframe)
 		end
 	end
 
-	-- Secondary Fallback across All Intercepted Remotes
 	for _remote, _arg_list in pairs(_reverted) do
 		local remote_uid = _arg_list[2]
 		local token = _tokenize(remote_uid)
@@ -1721,7 +1681,6 @@ local function fireParry(precalc_cframe)
 		end
 	end
 end
-
 
 Stellar.parry = {}
 function Stellar.parry.execute(precalc_cframe)
@@ -1794,7 +1753,6 @@ local function resolve_parry_animation(character, sword_name)
     Stellar.animation._resolved_swords[sword_name] = parry_animation return parry_animation
 end
 
--- Fixed Animation caching/lag from "Unlock All" skin spam
 function Stellar.animation.play_grab_parry()
     if not Stellar.__properties.__play_animation or (tick() - last_anim_tick) < 0.25 then return end
     local character = LocalPlayer.Character
@@ -1822,7 +1780,7 @@ function Stellar.animation.play_grab_parry()
         Stellar.animation._track_cache[anim_id] = track
     end
 
-    if track.IsPlaying then return end -- Strict debounce for unlock all
+    if track.IsPlaying then return end
     track.TimePosition = 0
     last_anim_tick = tick()
     track:Play(0.05, 1.0, 1.0)
@@ -1847,8 +1805,7 @@ task.spawn(function()
     end)
 end)
 
--- Fused Anti-Curve Physics Engine with Close-Range Parry
--- Fused Anti-Curve Physics Engine with Close-Range Parry
+-- SYSTEM 3: REAL PREDICTIVE KINEMATIC ANTI-CURVE ENGINE
 Stellar.detection = {
     __ball_properties = {
         __lerp_radians = 0,
@@ -1861,11 +1818,12 @@ Stellar.detection = {
 function Stellar.detection.is_curved(ball)
     ball = ball or Stellar.ball.get()
     if not ball then return false end
+    if not Stellar.__properties.__predictive_anti_curve_enabled then return false end
 
     local zoomies = ball:FindFirstChild("zoomies")
     local velocity = zoomies and zoomies.VectorVelocity or ball.AssemblyLinearVelocity
     local speed = velocity.Magnitude
-    if speed < 20 then return false end
+    if speed < 15 then return false end
 
     local char = LocalPlayer.Character
     local playerPart = char and char.PrimaryPart
@@ -1876,103 +1834,67 @@ function Stellar.detection.is_curved(ball)
     local toPlayerVec = playerPos - ballPos
     local distance = toPlayerVec.Magnitude
 
-    if distance <= 5.5 then return false end
-    if distance > 50 then return false end
+    if distance <= 6.0 then return false end
 
     local toPlayerDir = toPlayerVec / distance
     local velocityDir = velocity / speed
     local currentDot = toPlayerDir:Dot(velocityDir)
 
-    -- STRICT: Ball heading AWAY from you
-    if currentDot < -0.50 then
-        return true
-    end
-
     if not Stellar.detection.__kinematic_properties[ball] then
         local initial_history = {}
-        for i = 1, 6 do initial_history[i] = { v = Vector3.new(), t = 0 } end
+        for i = 1, 8 do initial_history[i] = { p = ballPos, v = velocity, t = os.clock() } end
         Stellar.detection.__kinematic_properties[ball] = {
             history = initial_history,
             idx = 0,
             smooth_accel_vec = Vector3.new(),
-            smooth_angular = 0,
-            last_ping = 0.05,
-            last_ping_tick = 0,
-            last_ability_check = 0,
-            ability_tick = 0
+            smooth_angular = 0
         }
     end
 
     local props = Stellar.detection.__kinematic_properties[ball]
     local now = os.clock()
 
-    props.idx = (props.idx % 6) + 1
-    props.history[props.idx].v = velocity
-    props.history[props.idx].t = now
+    props.idx = (props.idx % 8) + 1
+    props.history[props.idx] = { p = ballPos, v = velocity, t = now }
 
     local raw_accel_vec = Vector3.new()
-    local raw_angular = 0
-    local oldest_idx = (props.idx % 6) + 1
+    local oldest_idx = (props.idx % 8) + 1
     local oldest = props.history[oldest_idx]
 
-    if oldest.t > 0 and oldest.v.Magnitude > 0 then
-        local time_span = now - oldest.t
-        if time_span > 0.01 then
-            local velocity_diff = velocity - oldest.v
-            -- ✅ Always compute real accel — don't zero out gradual ramps
-            raw_accel_vec = velocity_diff / time_span
-            if velocity_diff.Magnitude > 0.5 then  -- lowered, just guards asin() noise below
-                local crossVec = (oldest.v / oldest.v.Magnitude):Cross(velocityDir)
-                raw_angular = math.deg(math.asin(math.clamp(crossVec.Magnitude, -1, 1))) / time_span
-            end
+    if oldest and oldest.t > 0 and (now - oldest.t) > 0.015 then
+        local dt = now - oldest.t
+        local dv = velocity - oldest.v
+        raw_accel_vec = dv / dt
+    end
+
+    local alpha = math.clamp(Stellar.__properties.__prediction_accuracy / 100, 0.1, 0.9)
+    props.smooth_accel_vec = props.smooth_accel_vec:Lerp(raw_accel_vec, alpha)
+
+    local lookAheadHorizon = math.clamp((distance / speed) * (Stellar.__properties.__prediction_accuracy / 50), 0.05, 0.45)
+    local sampleSteps = 5
+    local dtStep = lookAheadHorizon / sampleSteps
+    local minPredictedDistance = distance
+    local threatening = false
+
+    for step = 1, sampleSteps do
+        local t = step * dtStep
+        local predictedPos = ballPos + (velocity * t) + (0.5 * props.smooth_accel_vec * t * t)
+        local predDist = (playerPos - predictedPos).Magnitude
+        if predDist < minPredictedDistance then
+            minPredictedDistance = predDist
+        end
+        if predDist <= 15 then
+            threatening = true
         end
     end
 
-    -- ✅ Converge to real accel faster (was 0.3, too slow to catch up once accel is finally seen)
-    props.smooth_accel_vec = props.smooth_accel_vec:Lerp(raw_accel_vec, 0.5)
-    props.smooth_angular = props.smooth_angular + (raw_angular - props.smooth_angular) * 0.3
+    local sensitivity = math.clamp(Stellar.__properties.__curve_sensitivity / 100, 0.1, 1.0)
+    local maxAllowedDivergence = 0.45 * (1.1 - sensitivity)
 
-    local accelMagnitude = props.smooth_accel_vec.Magnitude
-    local accelDir = accelMagnitude > 0 and (props.smooth_accel_vec / accelMagnitude) or Vector3.new()
-    local accelDot = toPlayerDir:Dot(accelDir)
-
-    local confidence = 0
-    local adaptive_accel_thresh = math.max(speed * 0.35, 35)
-
-    confidence = confidence + math.clamp((accelMagnitude / adaptive_accel_thresh) * 0.3, 0, 0.3)
-    confidence = confidence + math.clamp((props.smooth_angular / 50) * 0.3, 0, 0.3)
-    
-    if math.abs(accelDot) > 0.25 then confidence = confidence + 0.15 end
-
-    local reachTime = distance / speed
-    local required_confidence = (distance < 35) and 0.65 or 0.70
-
-    if confidence > required_confidence then
-        local lookAheadTime = math.clamp(reachTime, 0.01, 0.12)
-        local predictedPos = ballPos + (velocity * lookAheadTime) + (0.5 * props.smooth_accel_vec * lookAheadTime * lookAheadTime)
-        local predictedDistance = (playerPos - predictedPos).Magnitude
-
-        if predictedDistance < distance or distance <= 22 then
-            if currentDot < 0.50 then
-                return true
-            end
-        end
+    if not threatening and (minPredictedDistance > distance * 0.9) and (currentDot < maxAllowedDivergence) then
+        return true
     end
 
-    local clamped_dot = math.clamp(currentDot, -1, 1)
-    local radians = math.asin(clamped_dot)
-    local ballProps = Stellar.detection.__ball_properties
-    ballProps.__lerp_radians = ballProps.__lerp_radians + (radians - ballProps.__lerp_radians) * 0.80
-
-    -- ✅ FIXED: Much stricter threshold (0.05 instead of 0.025)
-    -- This prevents normal angle changes from triggering curve detection
-    if ballProps.__lerp_radians < 0.05 then
-        ballProps.__last_warping = tick()
-    end
-
-    -- ✅ REMOVED: Sudden curve is too aggressive and causes false positives
-    -- Only use the confidence-based detection above
-    
     return false
 end
 
@@ -1982,8 +1904,6 @@ if workspace:FindFirstChild('Balls') then
     end)
 end
 
---close ahh logic
-
 function Stellar.detection.get_closest_player_distance()
     local char = LocalPlayer.Character
     if not char or not char.PrimaryPart then return math.huge end
@@ -1991,20 +1911,16 @@ function Stellar.detection.get_closest_player_distance()
     local myPos = char.PrimaryPart.Position
     local minDist = math.huge
     
-    -- Check actual players
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local otherChar = player.Character
             if otherChar and otherChar.PrimaryPart then
                 local dist = (myPos - otherChar.PrimaryPart.Position).Magnitude
-                if dist < minDist then
-                    minDist = dist
-                end
+                if dist < minDist then minDist = dist end
             end
         end
     end
     
-    -- Check bots in workspace
     local alive = workspace:FindFirstChild("Alive")
     if alive then
         for _, character in ipairs(alive:GetChildren()) do
@@ -2012,9 +1928,7 @@ function Stellar.detection.get_closest_player_distance()
                 local hrp = character:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     local dist = (myPos - hrp.Position).Magnitude
-                    if dist < minDist then
-                        minDist = dist
-                    end
+                    if dist < minDist then minDist = dist end
                 end
             end
         end
@@ -2027,52 +1941,51 @@ function Stellar.detection.is_close_range_combat()
     local closestPlayerDist = Stellar.detection.get_closest_player_distance()
     return closestPlayerDist < 25
 end
--- Primary Auto Parry Execution Engine
+
+-- SYSTEM 1 & 2: REFACTORED SUB-TICK AUTO PARRY PIPELINE & PAR-RANGE TIMING
 Stellar.autoparry = {}
 local parryFlag = false
-local abilityDebounce = false
-local dynamicLockTime = 0
-local lastParryTime = 0
 local autoSpamActive = false
-local lastParryExecution = 0  -- ADD: Track actual execution time
-
--- IMPROVED: Separate cleanup task
-task.spawn(function()
-    while RunService.PreSimulation:Wait() do
-        -- Only reset if lock time has expired AND enough time has passed since last execution
-        if parryFlag and (os.clock() >= dynamicLockTime) then
-            if (tick() - lastParryExecution) > 0.09 then  -- ADD: 80ms minimum gap
-                parryFlag = false
-            end
-        end
-    end
-end)
+local lastCycle = tick()
 
 function Stellar.autoparry.start()
     if Stellar.__properties.__connections.__combat then 
         Stellar.__properties.__connections.__combat:Disconnect() 
+        Stellar.__properties.__connections.__combat = nil
     end
     
-    -- IMPROVED: Better initialization
     parryFlag = false
-    abilityDebounce = false
     autoSpamActive = false
-    dynamicLockTime = 0
-    lastParryTime = 0
-    lastParryExecution = 0
+    lastCycle = tick()
+    
+    -- Parry flag reset loop
+    task.spawn(function()
+        repeat RunService.PreSimulation:Wait() until (tick() - lastCycle) >= 1 or not parryFlag
+        parryFlag = false
+    end)
 
     Stellar.ability_detections.initialize()
     Stellar.dribble_detection.start()
 
-    Stellar.__properties.__connections.__combat = RunService.PreSimulation:Connect(function(dt)
+    local timeAccumulator = 0
+    local targetRPS = 180
+
+    Stellar.__properties.__connections.__combat = RunService.RenderStepped:Connect(function(dt)
         if not Stellar.__properties.__autoparry_enabled or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then 
             return 
         end
 
-        if autoSpamActive then
+        if autoSpamActive then return end
+
+        timeAccumulator = timeAccumulator + dt
+        local stepInterval = 1 / targetRPS
+
+        if timeAccumulator < stepInterval then
             return
         end
-        
+
+        timeAccumulator = timeAccumulator % stepInterval
+
         local now = os.clock()
         local localName = LocalPlayer.Name
         local playerPos = LocalPlayer.Character.PrimaryPart.Position
@@ -2083,10 +1996,7 @@ function Stellar.autoparry.start()
         if Stellar.__config.__detections.__slashesoffury and Stellar.__properties.__slashesoffury_active then return end
 
         local dribbleActive = Stellar.__config.__detections.__dribble and Stellar.__properties.__dribble_active
-
-        if dribbleActive then
-            Stellar.__properties.__dribble_was_active = true
-        end
+        if dribbleActive then Stellar.__properties.__dribble_was_active = true end
 
         local justExitedDribble = Stellar.__properties.__dribble_was_active and not dribbleActive
         if justExitedDribble then
@@ -2094,16 +2004,12 @@ function Stellar.autoparry.start()
             Stellar.__properties.__dribble_exit_time = tick()
         end
 
-        local postDribbleWindow = Stellar.__properties.__dribble_exit_time and 
-            (tick() - Stellar.__properties.__dribble_exit_time < 0.2)
+        local postDribbleWindow = Stellar.__properties.__dribble_exit_time and (tick() - Stellar.__properties.__dribble_exit_time < 0.2)
         
         local balls = Stellar.ball.get_all()
         local pingValue = 0
         pcall(function() pingValue = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-        local ping = pingValue / 1000
-        
-        -- IMPROVED: Better cooldown calculation
-        local minimumCooldown = math.max(0.20, (ping * 1.8) + 0.15)
+        local pingS = pingValue / 1000
 
         for _, ball in pairs(balls) do
             if LocalPlayer.Character.PrimaryPart:FindFirstChild('SingularityCape') then continue end
@@ -2140,27 +2046,22 @@ function Stellar.autoparry.start()
             local distance = toPlayerVec.Magnitude
 
             if not _ZX_VelHistory[ball] then 
-                _ZX_VelHistory[ball] = table.create(7)
+                _ZX_VelHistory[ball] = table.create(10)
             end
             table.insert(_ZX_VelHistory[ball], 1, { pos = ballPos, vel = velocity, t = now })
             if #_ZX_VelHistory[ball] > _ZX_VelHistory.MAX_SAMPLES then 
                 table.remove(_ZX_VelHistory[ball]) 
             end
             
-            local ballSpeed = math.max(velocity.Magnitude, 0)
+            local ballSpeed = math.max(velocity.Magnitude, 0.1)
             
-            -- Teleportation/Spike Interception
-            if _ZX_VelHistory[ball] and #_ZX_VelHistory[ball] >= 2 then
+            if #_ZX_VelHistory[ball] >= 2 then
                 local lastPos = _ZX_VelHistory[ball][2].pos
                 local currentPos = _ZX_VelHistory[ball][1].pos
-                local distanceJump = (currentPos - lastPos).Magnitude
-                if distanceJump > 75 and distance < 45 then
-                    -- IMPROVED: Double-check parryFlag before execution
-                    if not parryFlag and (now - lastParryTime) >= minimumCooldown then
-                        lastParryTime = now
-                        lastParryExecution = tick()  -- ADD: Track execution
+                if (currentPos - lastPos).Magnitude > 70 and distance < 50 then
+                    if not parryFlag then
                         parryFlag = true
-                        dynamicLockTime = now + minimumCooldown + 0.15
+                        lastCycle = tick()
                         
                         local cachedCF = Stellar.curve.get_cframe()
                         if getgenv().AutoParryMode == "Keypress" then 
@@ -2173,150 +2074,29 @@ function Stellar.autoparry.start()
                 end
             end
 
+            if parryFlag then continue end
             
-if parryFlag or (not isTargeted and not dribbleActive and not postDribbleWindow) then 
-                continue 
-            end
-            
-            -- ✅ DYNAMIC: Check close range combat
-            local isCloseRangeCombat = Stellar.detection.is_close_range_combat()
+            if not isTargeted and not dribbleActive and not postDribbleWindow then continue end
             
             local isCurved = Stellar.detection.is_curved(ball)
+            if isCurved then continue end
+
+            -- Restored Original Timing Calculations (Old Method Feel)
+            local rangeScale = math.clamp(Stellar.__properties.__parry_range, 1, 20)
+            local rangeMultiplier = 0.20 + (rangeScale * 0.08)
+
             local approachDir = (distance > 0) and (toPlayerVec / distance) or Vector3.new()
             local approachSpeed = velocity:Dot(approachDir)
+            local tti = (approachSpeed > 0.1) and (distance / approachSpeed) or math.huge
 
-            -- ✅ DYNAMIC: Ping-based adjustments
-            local pingMs = pingValue  -- Already have this from earlier (line 2080)
-            local pingS = pingMs / 1000
-            
-            -- Network jitter buffer: add 20-30% of ping as safety margin
-            local jitterBuffer = pingS * (0.25 + (pingMs > 150 and 0.15 or 0.05))
-            
-            -- ✅ DYNAMIC: Ball speed affects required reaction time
-            local speedFactor = math.min(ballSpeed / 80, 1.2)  -- Normalize to 80 m/s, cap at 1.2x
-            
-            -- ✅ DYNAMIC: Distance affects urgency
-            -- Close ball = need faster reaction
-            -- Far ball = can be more lenient
-            local distanceFactor = math.max(distance / 25, 0.6)  -- Normalize to 25 studs, min 0.6x
-            
-            -- Calculate kinematic stuff for TTI
-            local kinematicProps = Stellar.detection.__kinematic_properties[ball]
-            local accelVec = kinematicProps and kinematicProps.smooth_accel_vec or Vector3.new()
-            local approachAccel = accelVec:Dot(approachDir)
+            local baseReactionWindow = rangeMultiplier + (pingS * 1.5)
+            local accuracyModifier = (Stellar.__properties.__accuracy / 100) * Stellar.__properties.__divisor_multiplier
+            local effectiveReachDistance = (baseReactionWindow * math.max(ballSpeed, 20) * accuracyModifier) + (rangeScale * 1.5)
 
-            -- ✅ DYNAMIC: TTI Calculation with acceleration
-            local calculatedTTI = math.huge
-            local a_param = 0.5 * approachAccel
-            local b_param = approachSpeed
-            local c_param = -distance
+            local isApproaching = approachSpeed > 0.1
+            local triggerConditionMet = isApproaching and (tti <= baseReactionWindow or distance <= effectiveReachDistance)
 
-            if math.abs(a_param) > 0.01 then
-                local discriminant = (b_param * b_param) - (4 * a_param * c_param)
-                if discriminant >= 0 then
-                    local sqrtDisc = math.sqrt(discriminant)
-                    local twoA = 2 * a_param
-                    local t1 = (-b_param + sqrtDisc) / twoA
-                    local t2 = (-b_param - sqrtDisc) / twoA
-                    if t1 > 0 and t2 > 0 then
-                        calculatedTTI = math.min(t1, t2)
-                    elseif t1 > 0 then
-                        calculatedTTI = t1
-                    elseif t2 > 0 then
-                        calculatedTTI = t2
-                    end
-                end
-            elseif approachSpeed > 0 then
-                calculatedTTI = distance / approachSpeed
-            end
-
-            -- ✅ DYNAMIC: Latency compensation
-            -- Predict where ball WILL be after server round-trip
-            local latencyOffsetDistance = approachSpeed * pingS
-            local predictedDistance = distance - latencyOffsetDistance
-            if predictedDistance < 0 then predictedDistance = 0 end
-
-
-            -- ✅ DYNAMIC: Reaction window based on ping + speed + distance
-local baseReactionWindow = 0.36  -- INCREASED from 0.26 (earlier trigger)
-
--- Add ping delay (need to account for network round-trip)
-local pingReactionNeeded = pingS * 2.1  -- 1.8x multiplier for server sync
-
--- Subtract for high speed balls (less time to react)
-local speedScaling = math.min(speedFactor, 1.8)
-local speedReactionNeeded = (speedScaling - 1.0) * 0.25
-
--- Add for close balls (need more precision)
-local distanceReactionNeeded = (1.0 - distanceFactor) * 0.08
-
-local reactionWindow = baseReactionWindow + pingReactionNeeded + speedReactionNeeded + distanceReactionNeeded
-reactionWindow = math.max(reactionWindow, 0.18)  -- INCREASED from 0.10 (earlier minimum)
-reactionWindow = math.min(reactionWindow, 0.85)  -- INCREASED from 0.70 (more forgiving)
-
--- ✅ CLOSE COMBAT: loose window
-if isCloseRangeCombat then
-    reactionWindow = math.max(reactionWindow * 1.3, 0.12)
-end
-
--- ✅ DYNAMIC: Distance threshold based on accuracy + ping
-local baseDistanceThreshold = 12  -- INCREASED from 9 (parry from farther away)
-
--- High ping = bigger threshold (need more forgiveness)
-local pingDistanceBonus = pingS * 22  -- INCREASED from 19 (more ping forgiveness)
-
--- High accuracy = smaller threshold (tighter)
-local accuracyModifier = math.max(1.0 - (Stellar.__properties.__accuracy / 80), 0.6)
-
--- Fast balls need bigger threshold (more time to react)
-local speedDistanceBonus = math.max((speedFactor - 1.0) * 0.30, 0)
-
--- Curved balls need tighter threshold
-local curveThreshold = isCurved and 0.85 or 1.0  -- INCREASED from 0.75
-
-local distanceThreshold = (baseDistanceThreshold + pingDistanceBonus) * accuracyModifier
-distanceThreshold = distanceThreshold * (1.0 + speedDistanceBonus)
-distanceThreshold = distanceThreshold * curveThreshold  -- Apply curve factor
-distanceThreshold = math.max(distanceThreshold, 6)   -- INCREASED from 5 (earlier parry)
-distanceThreshold = math.min(distanceThreshold, 28)  -- INCREASED from 24 (more forgiveness)
-
--- ✅ CLOSE COMBAT: Bigger threshold for fast parry
-if isCloseRangeCombat then
-    distanceThreshold = math.min(distanceThreshold * 1.9, 24)  -- INCREASED from 1.8
-end
-
--- ✅ CURVE DETECTION: Adjust perception for curves
-if isCurved then
-    -- Don't touch TTI, just slightly adjust distance
-    distanceThreshold = math.max(distanceThreshold * 0.95, 5)  -- INCREASED from 0.9
-end
-
-            -- ✅ DYNAMIC: Trigger conditions
-            local isApproaching = approachSpeed > 0.5
-            
-            -- TTI-based: Does ball arrive within reaction window?
-            local satisfiesTTI = isApproaching and (calculatedTTI <= reactionWindow)
-            
-            -- Distance-based: Is ball close enough to parry?
-            local satisfiesDistance = isApproaching and (predictedDistance <= distanceThreshold)
-            
-            -- Close proximity: Very close + approaching (for dribble situations)
-            local isCloseProximity = distance <= 17 and dribbleActive
-            
-            -- Close combat: Just check if approaching + in range
-            local closeRangeCondition = isCloseRangeCombat and isApproaching and (distance < 22)
-
-            local triggerConditionMet = closeRangeCondition or satisfiesTTI or satisfiesDistance or isCloseProximity
-            
-            -- ✅ DEBUG: Uncomment to see dynamic values
-            -- if triggerConditionMet and math.random(1, 8) == 1 then
-            --     print(string.format("[PARRY] Ping=%.0fms | TTI=%.3f/%.3f | Dist=%.1f/%.1f | Window=%.3f",
-            --         pingMs, calculatedTTI, reactionWindow, predictedDistance, distanceThreshold, reactionWindow))
-            -- end
-            
             if isTargeted and triggerConditionMet then
-                
-                -- 1. Cooldown Protection
                 if Stellar.__config.__detections.__cooldown_protection then
                     local hotbar = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Hotbar")
                     local blockIcon = hotbar and hotbar:FindFirstChild("Block")
@@ -2328,14 +2108,12 @@ end
                         if abilityPress then
                             abilityPress:Fire()
                             parryFlag = true
-                            lastParryExecution = tick()
-                            dynamicLockTime = now + 0.3
+                            lastCycle = tick()
                             continue
                         end
                     end
                 end
 
-                -- 2. Auto Ability Execution
                 if getgenv().AutoAbility or Stellar.__properties.__auto_ability_enabled then
                     local hotbar = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("Hotbar")
                     local abilityIcon = hotbar and hotbar:FindFirstChild("Ability")
@@ -2353,17 +2131,14 @@ end
                                 
                                 Stellar.__properties.__parried = true
                                 parryFlag = true
-                                lastParryExecution = tick()
-                                dynamicLockTime = now + 0.3
+                                lastCycle = tick()
 
                                 local remotes = ReplicatedStorage:FindFirstChild("Remotes")
                                 if remotes and remotes:FindFirstChild("AbilityButtonPress") then
                                     remotes.AbilityButtonPress:Fire()
                                     task.wait(2.432)
                                     local deathSlashShoot = remotes:FindFirstChild("DeathSlashShootActivation")
-                                    if deathSlashShoot then
-                                        deathSlashShoot:FireServer(true)
-                                    end
+                                    if deathSlashShoot then deathSlashShoot:FireServer(true) end
                                     continue
                                 end
                             end
@@ -2371,29 +2146,12 @@ end
                     end
                 end
 
-                -- 3. Standard Parry Execution
-                -- ✅ DYNAMIC: Cooldown based on ping
-                local baseCooldown = 0.18
-                local pingCooldownBonus = pingS * 1.5  -- High ping = longer cooldown
-                local closeRangeCooldown = 0.06
-                
-                local effectiveCooldown = isCloseRangeCombat and closeRangeCooldown or (baseCooldown + pingCooldownBonus)
-                
-                if not parryFlag and (tick() - lastParryExecution) >= effectiveCooldown then 
-                    if Stellar.__config.__detections.__dribble and Stellar.__properties.__dribble_active then
-                        return
-                    end
+                -- Direct Old-Method Trigger using the reliable triggerConditionMet
+                if not parryFlag then 
+                    if Stellar.__config.__detections.__dribble and Stellar.__properties.__dribble_active then return end
                     
-                    lastParryTime = now
-                    lastParryExecution = tick()
                     parryFlag = true
-                    
-                    -- ✅ DYNAMIC: Lock duration based on ping
-                    local baseLockDuration = calculatedTTI + 0.15
-                    local pingLockBonus = pingS * 2.0  -- Give server time to process
-                    
-                    local lockDuration = isCloseRangeCombat and 0.12 or math.max(0.20, math.min(baseLockDuration + pingLockBonus, 0.7))
-                    dynamicLockTime = now + lockDuration
+                    lastCycle = tick()
                     
                     local cachedCF = Stellar.curve.get_cframe()
                     if getgenv().AutoParryMode == "Keypress" then 
@@ -2402,44 +2160,38 @@ end
                         Stellar.parry.execute_action(cachedCF) 
                     end
                     
-                    if postDribbleWindow then
-                        Stellar.__properties.__dribble_exit_time = nil
-                    end
+                    if postDribbleWindow then Stellar.__properties.__dribble_exit_time = nil end
                 end
             end
 
-        -- Training mode
-        local trainingFolder = workspace:FindFirstChild("TrainingBalls")
-        if trainingFolder then
-            for _, tBall in pairs(trainingFolder:GetChildren()) do
-                if tBall:GetAttribute("realBall") then
-                    local zoomies = tBall:FindFirstChild('zoomies')
-                    if zoomies and tBall:GetAttribute('target') == localName then
-                        local distance = LocalPlayer:DistanceFromCharacter(tBall.Position)
-                        local speed = zoomies.VectorVelocity.Magnitude
-                        local t_ping = (pingValue / 1000)
-                        local parry_acc = (t_ping * 10) + math.max(speed / (2.4 * Stellar.__properties.__divisor_multiplier), 9.5)
-                        
-                        if distance <= parry_acc and not Stellar.__properties.__training_parried then
-                            Stellar.__properties.__training_parried = true
-                            lastParryExecution = tick()
-                            local cachedCF = Stellar.curve.get_cframe()
-                            if getgenv().AutoParryMode == "Keypress" then 
-                                Stellar.parry.keypress(cachedCF) 
-                            else 
-                                Stellar.parry.execute_action(cachedCF) 
+            local trainingFolder = workspace:FindFirstChild("TrainingBalls")
+            if trainingFolder then
+                for _, tBall in pairs(trainingFolder:GetChildren()) do
+                    if tBall:GetAttribute("realBall") then
+                        local tZoomies = tBall:FindFirstChild('zoomies')
+                        if tZoomies and tBall:GetAttribute('target') == localName then
+                            local tDistance = LocalPlayer:DistanceFromCharacter(tBall.Position)
+                            local tSpeed = tZoomies.VectorVelocity.Magnitude
+                            local tReach = (rangeMultiplier * tSpeed) + 8
+                            
+                            if tDistance <= tReach and not Stellar.__properties.__training_parried then
+                                Stellar.__properties.__training_parried = true
+                                local cachedCF = Stellar.curve.get_cframe()
+                                if getgenv().AutoParryMode == "Keypress" then 
+                                    Stellar.parry.keypress(cachedCF) 
+                                else 
+                                    Stellar.parry.execute_action(cachedCF) 
+                                end
+                                task.delay(0.3, function() Stellar.__properties.__training_parried = false end)
                             end
-                            task.delay(math.max(0.3, t_ping * 2 + 0.1), function() 
-                                Stellar.__properties.__training_parried = false 
-                            end)
                         end
                     end
                 end
             end
         end
-        end
-end)
+    end)
 end
+
 function Stellar.autoparry.stop()
 	if Stellar.__properties.__connections.__combat then
 		Stellar.__properties.__connections.__combat:Disconnect()
@@ -2447,7 +2199,6 @@ function Stellar.autoparry.stop()
 	end
 	parryFlag = false
 end
-
 
 
 -- Instant Triggerbot Subsystem
@@ -2500,7 +2251,6 @@ function Stellar.triggerbot.enable(enabled)
 	end
 end
 
-
 Stellar.autospam = {}
 function Stellar.autospam.start()
     if Stellar.__properties.__connections.__autospam then
@@ -2514,9 +2264,7 @@ function Stellar.autospam.start()
             return
         end
 
-        if props.__slashesoffury_active then
-            return
-        end
+        if props.__slashesoffury_active then return end
 
         local localName = LocalPlayer.Name
         local playerPos = LocalPlayer.Character.PrimaryPart.Position
@@ -2542,9 +2290,8 @@ function Stellar.autospam.start()
         end
 
         if shouldSpam then
-            -- IMPROVED: Clear the parry flag before spam
             parryFlag = false
-            autoSpamActive = true  -- ADD: Set this flag
+            autoSpamActive = true
             
             local batchAmount = props.__spam_batch_amount
             local burstCount = (batchAmount == "FPS Priority" and 4) 
@@ -2564,14 +2311,13 @@ function Stellar.autospam.start()
             props.__parries = props.__parries + burstCount
             task.delay(0.2, function() 
                 props.__parries = math.max(0, props.__parries - burstCount)
-                autoSpamActive = false  -- ADD: Clear flag after cooldown
+                autoSpamActive = false
             end)
         else
-            autoSpamActive = false  -- ADD: Ensure flag is cleared
+            autoSpamActive = false
         end
     end)
 end
-
 
 -- Manual High-Frequency Spam Subsystem
 Stellar.manual_spam = {}
@@ -2657,16 +2403,15 @@ function Stellar.hitsounds.set_volume(val)
 	end
 end
 
--- 3. BACKGROUND SOUND CONTROLLER MODULE
 Stellar.sound_controller = {
 	__sound_instance = nil,
 	__tracks = {
 		["Eeyuh"]                             = "rbxassetid://16190782181",
-		["Low Cortisol"]                             = "rbxassetid://110919391228823",
+		["Low Cortisol"]                      = "rbxassetid://110919391228823",
 		["Bounce"]                            = "rbxassetid://5907568539",
-		["Misery"] = "rbxassetid://116571091072402",
-		["ODETARI"]                     = "rbxassetid://5877731483",
-		["PIXY"]                       = "rbxassetid://71105881541052",
+		["Misery"]                            = "rbxassetid://116571091072402",
+		["ODETARI"]                           = "rbxassetid://5877731483",
+		["PIXY"]                              = "rbxassetid://71105881541052",
 		["Erwachen"]                          = "rbxassetid://124853612881772",
 		["Grasp the Light"]                   = "rbxassetid://89549155689397",
 		["Beyond the Shadows"]                = "rbxassetid://120729792529978",
@@ -2708,7 +2453,6 @@ function Stellar.sound_controller.stop()
 	end
 end
 
--- 4. CUSTOM EMOTES ENGINE MODULE
 Stellar.emotes = {
 	__storage = {},
 	__names = {}
@@ -2788,10 +2532,10 @@ function Stellar.emotes.start_loop()
 	end)
 end
 
--- Control Elements Registration
+-- UI MODULE BINDINGS & EXPANDED CONFIGURATION SLIDERS
 local autoparry_module = AutoparryTab:create_module({
 	title = "Auto Parry Core",
-	description = "Kinematic trajectory & trajectory protections",
+	description = "Automatic ball deflection",
 	flag = "AutoParryModule",
 	section = "left",
 	callback = function(state)
@@ -2802,11 +2546,23 @@ local autoparry_module = AutoparryTab:create_module({
 })
 
 autoparry_module:create_slider({
+	title = "Parry Range Scale",
+	flag = "ParryRangeSlider",
+	maximum_value = 7,
+	minimum_value = 1,
+	value = 2,
+	round_number = true,
+	callback = function(value)
+		Stellar.__properties.__parry_range = value
+	end
+})
+
+autoparry_module:create_slider({
 	title = "Parry Accuracy",
 	flag = "ParryAccuracy",
 	maximum_value = 100,
 	minimum_value = 1,
-	value = 50,
+	value = 100,
 	round_number = true,
 	callback = function(value)
 		Stellar.__properties.__accuracy = value
@@ -2836,6 +2592,41 @@ autoparry_module:create_dropdown({
 })
 
 autoparry_module:create_divider({})
+
+autoparry_module:create_checkbox({
+	title = "Predictive Anti-Curve",
+	flag = "PredictiveAntiCurveToggle",
+	callback = function(state)
+		Stellar.__properties.__predictive_anti_curve_enabled = state
+	end
+})
+
+autoparry_module:create_slider({
+	title = "Curve Sensitivity",
+	flag = "CurveSensitivitySlider",
+	maximum_value = 100,
+	minimum_value = 1,
+	value = 50,
+	round_number = true,
+	callback = function(value)
+		Stellar.__properties.__curve_sensitivity = value
+	end
+})
+
+autoparry_module:create_slider({
+	title = "Prediction Accuracy",
+	flag = "PredictionAccuracySlider",
+	maximum_value = 100,
+	minimum_value = 1,
+	value = 75,
+	round_number = true,
+	callback = function(value)
+		Stellar.__properties.__prediction_accuracy = value
+	end
+})
+
+autoparry_module:create_divider({})
+
 autoparry_module:create_checkbox({
 	title = "Randomize Accuracy",
 	flag = "RandomizeAccuracy",
@@ -2862,6 +2653,7 @@ autoparry_module:create_checkbox({
          Stellar.__config.__detections.__cooldown_protection = state
     end
 })
+
 autoparry_module:create_checkbox({
 	title = "Instant Triggerbot",
 	flag = "TriggerbotModule",
@@ -2934,13 +2726,13 @@ detection_module:create_checkbox({
 })
 
 detection_module:create_checkbox({
-	title = "Time Hole Auto Parry",
+	title = "Time Hole",
 	flag = "TimeHoleDetectToggle",
 	callback = function(state) Stellar.__config.__detections.__timehole = state end
 })
 
 detection_module:create_checkbox({
-	title = "Slashes of Fury Auto Counter",
+	title = "Slashes of Fury",
 	flag = "SlashesOfFuryDetectToggle",
 	callback = function(state) Stellar.__config.__detections.__slashesoffury = state end
 })
@@ -3005,7 +2797,6 @@ local dribble_module = DetectionTab:create_module({
 		end
 	end
 })
-
 
 local staff_module = DetectionTab:create_module({
 	title = "Staff Detection",
@@ -3134,6 +2925,7 @@ fov_module:create_slider({
 		end
 	end
 })
+
 local immortality_module = PlayerTab:create_module({
 	title = "Immortality Desync",
 	flag = "ImmortalityModule",
@@ -3187,194 +2979,169 @@ immortality_module:create_slider({
 	round_number = true,
 	callback = function(value) Stellar.__properties.__immortality_radius = value end
 })
+
 _G.PlayerCosmeticsCleanup = {}
     
-    local PlayerCosmetics = PlayerTab:create_module({
-        title = "Player Cosmetics",
-        flag = "Player_Cosmetics",
-        description = "Apply headless and korblox",
-        section = "left",
-        callback = function(value)
-            local players = game:GetService("Players")
-            local lp = players.LocalPlayer
-    
-            local function applyKorblox(character)
-                local rightLeg = character:FindFirstChild("RightLeg") or character:FindFirstChild("Right Leg")
-                if not rightLeg then
-                    warn("Right leg not found on character")
-                    return
-                end
-                
-                for _, child in pairs(rightLeg:GetChildren()) do
-                    if child:IsA("SpecialMesh") then
-                        child:Destroy()
-                    end
-                end
-                local specialMesh = Instance.new("SpecialMesh")
-                specialMesh.MeshId = "rbxassetid://101851696"
-                specialMesh.TextureId = "rbxassetid://115727863"
-                specialMesh.Scale = Vector3.new(1, 1, 1)
-                specialMesh.Parent = rightLeg
-            end
-    
-            local function saveRightLegProperties(char)
-                if char then
-                    local rightLeg = char:FindFirstChild("RightLeg") or char:FindFirstChild("Right Leg")
-                    if rightLeg then
-                        local originalMesh = rightLeg:FindFirstChildOfClass("SpecialMesh")
-                        if originalMesh then
-                            _G.PlayerCosmeticsCleanup.originalMeshId = originalMesh.MeshId
-                            _G.PlayerCosmeticsCleanup.originalTextureId = originalMesh.TextureId
-                            _G.PlayerCosmeticsCleanup.originalScale = originalMesh.Scale
-                        else
-                            _G.PlayerCosmeticsCleanup.hadNoMesh = true
-                        end
-                        
-                        _G.PlayerCosmeticsCleanup.rightLegChildren = {}
-                        for _, child in pairs(rightLeg:GetChildren()) do
-                            if child:IsA("SpecialMesh") then
-                                table.insert(_G.PlayerCosmeticsCleanup.rightLegChildren, {
-                                    ClassName = child.ClassName,
-                                    Properties = {
-                                        MeshId = child.MeshId,
-                                        TextureId = child.TextureId,
-                                        Scale = child.Scale
-                                    }
-                                })
-                            end
-                        end
-                    end
-                end
-            end
-            
-            local function restoreRightLeg(char)
-                if char then
-                    local rightLeg = char:FindFirstChild("RightLeg") or char:FindFirstChild("Right Leg")
-                    if rightLeg and _G.PlayerCosmeticsCleanup.rightLegChildren then
-                        for _, child in pairs(rightLeg:GetChildren()) do
-                            if child:IsA("SpecialMesh") then
-                                child:Destroy()
-                            end
-                        end
-                        
-                        if _G.PlayerCosmeticsCleanup.hadNoMesh then
-                            return
-                        end
-                        
-                        for _, childData in ipairs(_G.PlayerCosmeticsCleanup.rightLegChildren) do
-                            if childData.ClassName == "SpecialMesh" then
-                                local newMesh = Instance.new("SpecialMesh")
-                                newMesh.MeshId = childData.Properties.MeshId
-                                newMesh.TextureId = childData.Properties.TextureId
-                                newMesh.Scale = childData.Properties.Scale
-                                newMesh.Parent = rightLeg
-                            end
-                        end
-                    end
-                end
-            end
-    
-            if value then
-                CosmeticsActive = true
-    
-                getgenv().Config = {
-                    Headless = true
-                }
-                
-                if lp.Character then
-                    local head = lp.Character:FindFirstChild("Head")
-                    if head and getgenv().Config.Headless then
-                        _G.PlayerCosmeticsCleanup.headTransparency = head.Transparency
-                        
-                        local decal = head:FindFirstChildOfClass("Decal")
-                        if decal then
-                            _G.PlayerCosmeticsCleanup.faceDecalId = decal.Texture
-                            _G.PlayerCosmeticsCleanup.faceDecalName = decal.Name
-                        end
-                    end
-                    
-                    saveRightLegProperties(lp.Character)
-                    applyKorblox(lp.Character)
-                end
-                
-                _G.PlayerCosmeticsCleanup.characterAddedConn = lp.CharacterAdded:Connect(function(char)
-                    local head = char:FindFirstChild("Head")
-                    if head and getgenv().Config.Headless then
-                        _G.PlayerCosmeticsCleanup.headTransparency = head.Transparency
-                        
-                        local decal = head:FindFirstChildOfClass("Decal")
-                        if decal then
-                            _G.PlayerCosmeticsCleanup.faceDecalId = decal.Texture
-                            _G.PlayerCosmeticsCleanup.faceDecalName = decal.Name
-                        end
-                    end
-                    
-                    saveRightLegProperties(char)
-                    applyKorblox(char)
-                end)
-                
-                if getgenv().Config.Headless then
-                    headLoop = task.spawn(function()
-                        while CosmeticsActive do
-                            local char = lp.Character
-                            if char then
-                                local head = char:FindFirstChild("Head")
-                                if head then
-                                    head.Transparency = 1
-                                    local decal = head:FindFirstChildOfClass("Decal")
-                                    if decal then
-                                        decal:Destroy()
-                                    end
-                                end
-                            end
-                            task.wait(0.1)
-                        end
-                    end)
-                end
-    
-            else
-                CosmeticsActive = false
-    
-                if _G.PlayerCosmeticsCleanup.characterAddedConn then
-                    _G.PlayerCosmeticsCleanup.characterAddedConn:Disconnect()
-                    _G.PlayerCosmeticsCleanup.characterAddedConn = nil
-                end
-    
-                if headLoop then
-                    task.cancel(headLoop)
-                    headLoop = nil
-                end
-    
-                local char = lp.Character
-                if char then
-                    local head = char:FindFirstChild("Head")
-                    if head and _G.PlayerCosmeticsCleanup.headTransparency ~= nil then
-                        head.Transparency = _G.PlayerCosmeticsCleanup.headTransparency
-                        
-                        if _G.PlayerCosmeticsCleanup.faceDecalId then
-                            local newDecal = head:FindFirstChildOfClass("Decal") or Instance.new("Decal", head)
-                            newDecal.Name = _G.PlayerCosmeticsCleanup.faceDecalName or "face"
-                            newDecal.Texture = _G.PlayerCosmeticsCleanup.faceDecalId
-                            newDecal.Face = Enum.NormalId.Front
-                        end
-                    end
-                    
-                    restoreRightLeg(char)
-                end
-    
-                _G.PlayerCosmeticsCleanup = {}
-            end
-        end
-    })
+local PlayerCosmetics = PlayerTab:create_module({
+	title = "Player Cosmetics",
+	flag = "Player_Cosmetics",
+	description = "Apply headless and korblox",
+	section = "left",
+	callback = function(value)
+		local players = game:GetService("Players")
+		local lp = players.LocalPlayer
+
+		local function applyKorblox(character)
+			local rightLeg = character:FindFirstChild("RightLeg") or character:FindFirstChild("Right Leg")
+			if not rightLeg then return end
+			
+			for _, child in pairs(rightLeg:GetChildren()) do
+				if child:IsA("SpecialMesh") then child:Destroy() end
+			end
+			local specialMesh = Instance.new("SpecialMesh")
+			specialMesh.MeshId = "rbxassetid://101851696"
+			specialMesh.TextureId = "rbxassetid://115727863"
+			specialMesh.Scale = Vector3.new(1, 1, 1)
+			specialMesh.Parent = rightLeg
+		end
+
+		local function saveRightLegProperties(char)
+			if char then
+				local rightLeg = char:FindFirstChild("RightLeg") or char:FindFirstChild("Right Leg")
+				if rightLeg then
+					local originalMesh = rightLeg:FindFirstChildOfClass("SpecialMesh")
+					if originalMesh then
+						_G.PlayerCosmeticsCleanup.originalMeshId = originalMesh.MeshId
+						_G.PlayerCosmeticsCleanup.originalTextureId = originalMesh.TextureId
+						_G.PlayerCosmeticsCleanup.originalScale = originalMesh.Scale
+					else
+						_G.PlayerCosmeticsCleanup.hadNoMesh = true
+					end
+					
+					_G.PlayerCosmeticsCleanup.rightLegChildren = {}
+					for _, child in pairs(rightLeg:GetChildren()) do
+						if child:IsA("SpecialMesh") then
+							table.insert(_G.PlayerCosmeticsCleanup.rightLegChildren, {
+								ClassName = child.ClassName,
+								Properties = {
+									MeshId = child.MeshId,
+									TextureId = child.TextureId,
+									Scale = child.Scale
+								}
+							})
+						end
+					end
+				end
+			end
+		end
+		
+		local function restoreRightLeg(char)
+			if char then
+				local rightLeg = char:FindFirstChild("RightLeg") or char:FindFirstChild("Right Leg")
+				if rightLeg and _G.PlayerCosmeticsCleanup.rightLegChildren then
+					for _, child in pairs(rightLeg:GetChildren()) do
+						if child:IsA("SpecialMesh") then child:Destroy() end
+					end
+					
+					if _G.PlayerCosmeticsCleanup.hadNoMesh then return end
+					
+					for _, childData in ipairs(_G.PlayerCosmeticsCleanup.rightLegChildren) do
+						if childData.ClassName == "SpecialMesh" then
+							local newMesh = Instance.new("SpecialMesh")
+							newMesh.MeshId = childData.Properties.MeshId
+							newMesh.TextureId = childData.Properties.TextureId
+							newMesh.Scale = childData.Properties.Scale
+							newMesh.Parent = rightLeg
+						end
+					end
+				end
+			end
+		end
+
+		if value then
+			CosmeticsActive = true
+			getgenv().Config = { Headless = true }
+			
+			if lp.Character then
+				local head = lp.Character:FindFirstChild("Head")
+				if head and getgenv().Config.Headless then
+					_G.PlayerCosmeticsCleanup.headTransparency = head.Transparency
+					local decal = head:FindFirstChildOfClass("Decal")
+					if decal then
+						_G.PlayerCosmeticsCleanup.faceDecalId = decal.Texture
+						_G.PlayerCosmeticsCleanup.faceDecalName = decal.Name
+					end
+				end
+				saveRightLegProperties(lp.Character)
+				applyKorblox(lp.Character)
+			end
+			
+			_G.PlayerCosmeticsCleanup.characterAddedConn = lp.CharacterAdded:Connect(function(char)
+				local head = char:FindFirstChild("Head")
+				if head and getgenv().Config.Headless then
+					_G.PlayerCosmeticsCleanup.headTransparency = head.Transparency
+					local decal = head:FindFirstChildOfClass("Decal")
+					if decal then
+						_G.PlayerCosmeticsCleanup.faceDecalId = decal.Texture
+						_G.PlayerCosmeticsCleanup.faceDecalName = decal.Name
+					end
+				end
+				saveRightLegProperties(char)
+				applyKorblox(char)
+			end)
+			
+			if getgenv().Config.Headless then
+				headLoop = task.spawn(function()
+					while CosmeticsActive do
+						local char = lp.Character
+						if char then
+							local head = char:FindFirstChild("Head")
+							if head then
+								head.Transparency = 1
+								local decal = head:FindFirstChildOfClass("Decal")
+								if decal then decal:Destroy() end
+							end
+						end
+						task.wait(0.1)
+					end
+				end)
+			end
+		else
+			CosmeticsActive = false
+			if _G.PlayerCosmeticsCleanup.characterAddedConn then
+				_G.PlayerCosmeticsCleanup.characterAddedConn:Disconnect()
+				_G.PlayerCosmeticsCleanup.characterAddedConn = nil
+			end
+			if headLoop then
+				task.cancel(headLoop)
+				headLoop = nil
+			end
+			local char = lp.Character
+			if char then
+				local head = char:FindFirstChild("Head")
+				if head and _G.PlayerCosmeticsCleanup.headTransparency ~= nil then
+					head.Transparency = _G.PlayerCosmeticsCleanup.headTransparency
+					if _G.PlayerCosmeticsCleanup.faceDecalId then
+						local newDecal = head:FindFirstChildOfClass("Decal") or Instance.new("Decal", head)
+						newDecal.Name = _G.PlayerCosmeticsCleanup.faceDecalName or "face"
+						newDecal.Texture = _G.PlayerCosmeticsCleanup.faceDecalId
+						newDecal.Face = Enum.NormalId.Front
+					end
+				end
+				restoreRightLeg(char)
+			end
+			_G.PlayerCosmeticsCleanup = {}
+		end
+	end
+})
     
 Stellar.emotes.scan()
 Stellar.hitsounds.init()
 Stellar.sound_controller.init()
 
--- UI REGISTRATION: PLAYER TAB (HIT SOUNDS & EMOTES)
 local hitsounds_module = PlayerTab:create_module({
 	title = "Hit Sounds",
-	description = "Custom audio feedback upon successful parry",
+	description = "Custom sound upon successful parry",
 	flag = "HitSoundsModule",
 	section = "left",
 	callback = function(state)
@@ -3463,12 +3230,14 @@ visuals_module:create_button({
 		end)
 	end
 })
+
 visuals_module:create_paragraph({
-        title = "⚠️EVERYONE CAN SEE ANIMATIONS",
-        text = "IF YOU USE SKIN CHANGER BACKSWORD YOU MUST EQUIP AN ACTUAL BACKSWORD"
-    })
+	title = "⚠️EVERYONE CAN SEE ANIMATIONS",
+	text = "IF YOU USE SKIN CHANGER BACKSWORD YOU MUST EQUIP AN ACTUAL BACKSWORD"
+})
+
 local visualPart
-local visualConnection -- Safely stores the RenderStepped connection
+local visualConnection
 
 local Visualiser = VisualsTab:create_module({
     title = 'Visualiser',
@@ -3495,13 +3264,11 @@ local Visualiser = VisualsTab:create_module({
                 local character = Player and Player.Character
                 local HumanoidRootPart = character and character:FindFirstChild("HumanoidRootPart")
                 
-                -- Wrap all updates in a single check to prevent "index nil" errors
                 if visualPart then
                     if HumanoidRootPart then
                         visualPart.CFrame = HumanoidRootPart.CFrame  
                     end
 
-                    -- Color updates are now safely inside the visualPart check
                     if getgenv().VisualiserRainbow then
                         local hue = (tick() % 5) / 5
                         visualPart.Color = Color3.fromHSV(hue, 1, 1)
@@ -3513,7 +3280,6 @@ local Visualiser = VisualsTab:create_module({
                     local speed = 0
                     local maxSpeed = 350 
                     
-                    -- Ensure Stellar exists to prevent further crashes
                     if Stellar and Stellar.ball then
                         local Balls = Stellar.ball.get_all()
                         for _, Ball in pairs(Balls) do
@@ -3530,13 +3296,11 @@ local Visualiser = VisualsTab:create_module({
                 end
             end)
         else
-            -- Safely disconnect the loop when turned off
             if visualConnection then
                 visualConnection:Disconnect()
                 visualConnection = nil
             end
 
-            -- Clean up the part
             if visualPart then
                 visualPart:Destroy()
                 visualPart = nil
@@ -3544,7 +3308,6 @@ local Visualiser = VisualsTab:create_module({
         end
     end
 })
-
 
 Visualiser:create_checkbox({
     title = 'Rainbow',
@@ -3565,114 +3328,267 @@ Visualiser:create_slider({
     end
 })
 
-local CustomSky = VisualsTab:create_module({
-        title = 'Custom Sky',
-        flag = 'Custom_Sky',
-        description = 'Toggles a custom skybox',
-        section = 'left',
-        callback = function(value)
-            local Lighting = game.Lighting
-            local Sky = Lighting:FindFirstChildOfClass("Sky")
-            if value then
-                if not Sky then
-                    Sky = Instance.new("Sky", Lighting)
-                end
+local Alive = workspace:FindFirstChild("Alive") or workspace:WaitForChild("Alive")
+local Runtime = workspace.Runtime
+
+local ballTrailState = {}
+local rainbowHue = 0
+
+local function clear_ball_trail(ball)
+    if not ball then
+        return
+    end
+
+    local existingTrail = ball:FindFirstChild('Trail')
+    if existingTrail then
+        existingTrail:Destroy()
+    end
+
+    local existingEmitter = ball:FindFirstChild('ParticleEmitter')
+    if existingEmitter then
+        existingEmitter:Destroy()
+    end
+
+    local existingGlow = ball:FindFirstChild('BallGlow')
+    if existingGlow then
+        existingGlow:Destroy()
+    end
+
+    local attachment0 = ball:FindFirstChild('Attachment0')
+    if attachment0 then
+        attachment0:Destroy()
+    end
+
+    local attachment1 = ball:FindFirstChild('Attachment1')
+    if attachment1 then
+        attachment1:Destroy()
+    end
+
+    ballTrailState[ball] = nil
+end
+
+local function apply_ball_trail(ball)
+    if not ball then
+        return
+    end
+
+    if not getgenv().BallTrailEnabled then
+        clear_ball_trail(ball)
+        return
+    end
+
+    if ballTrailState[ball] then
+        local trail = ball:FindFirstChild('Trail')
+        if trail then
+            if getgenv().BallTrailRainbowEnabled then
+                local color = Color3.fromHSV(rainbowHue / 360, 1, 1)
+                trail.Color = ColorSequence.new(color)
+                getgenv().BallTrailColor = color
             else
-                if Sky then
-                    local defaultSkyboxIds = {"591058823", "591059876", "591058104", "591057861", "591057625", "591059642"}
-                    local skyFaces = {"SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp"}
-                    
-                    for index, face in ipairs(skyFaces) do
-                        Sky[face] = "rbxassetid://" .. defaultSkyboxIds[index]
-                    end
-                    Lighting.GlobalShadows = true
-                    
-                end
+                trail.Color = ColorSequence.new(getgenv().BallTrailColor or Color3.new(1, 1, 1))
             end
         end
+        return
+    end
+
+    ballTrailState[ball] = true
+
+    local trail = Instance.new('Trail')
+    trail.Name = 'Trail'
+
+    local attachment0 = Instance.new('Attachment')
+    attachment0.Name = 'Attachment0'
+    attachment0.Position = Vector3.new(0, ball.Size.Y / 2, 0)
+    attachment0.Parent = ball
+
+    local attachment1 = Instance.new('Attachment')
+    attachment1.Name = 'Attachment1'
+    attachment1.Position = Vector3.new(0, -ball.Size.Y / 2, 0)
+    attachment1.Parent = ball
+
+    trail.Attachment0 = attachment0
+    trail.Attachment1 = attachment1
+    trail.Lifetime = 0.4
+    trail.WidthScale = NumberSequence.new(0.5)
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    trail.Color = ColorSequence.new(getgenv().BallTrailColor or Color3.new(1, 1, 1))
+    trail.Parent = ball
+
+    if getgenv().BallTrailParticleEnabled then
+        local emitter = Instance.new('ParticleEmitter')
+        emitter.Name = 'ParticleEmitter'
+        emitter.Rate = 100
+        emitter.Lifetime = NumberRange.new(0.5, 1)
+        emitter.Speed = NumberRange.new(0, 1)
+        emitter.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.5),
+            NumberSequenceKeypoint.new(1, 0)
+        })
+        emitter.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(1, 1)
+        })
+        emitter.Parent = ball
+    end
+
+    if getgenv().BallTrailGlowEnabled then
+        local glow = Instance.new('PointLight')
+        glow.Name = 'BallGlow'
+        glow.Range = 15
+        glow.Brightness = 2
+        glow.Parent = ball
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    rainbowHue = (rainbowHue + 1) % 360
+    local ball = Stellar.ball.get()
+    if ball then
+        apply_ball_trail(ball)
+    else
+        for _, existing_ball in ipairs(workspace:FindFirstChild('Balls') and workspace.Balls:GetChildren() or {}) do
+            apply_ball_trail(existing_ball)
+        end
+    end
+end)
+
+local ball_trail_module = VisualsTab:create_module({
+    title = 'Ball Trail',
+    flag = 'Ball_Trail',
+    description = 'Toggles ball trail effects',
+    section = 'right',
+    callback = function(value: boolean)
+        getgenv().BallTrailEnabled = value
+    end
+})
+
+ball_trail_module:create_slider({
+    title = 'Ball Trail Hue',
+    flag = 'Ball_Trail_Hue',
+    minimum_value = 0,
+    maximum_value = 360,
+    value = 0,
+    round_number = true,
+    callback = function(value: number)
+        if not getgenv().BallTrailRainbowEnabled then
+            getgenv().BallTrailColor = Color3.fromHSV(value / 360, 1, 1)
+        end
+        getgenv().BallTrailHue = value
+    end
+})
+
+ball_trail_module:create_checkbox({
+    title = 'Rainbow Trail',
+    flag = 'Ball_Trail_Rainbow',
+    callback = function(value: boolean)
+        getgenv().BallTrailRainbowEnabled = value
+    end
+})
+
+ball_trail_module:create_checkbox({
+    title = 'Particle Emitter',
+    flag = 'Ball_Trail_Particle',
+    callback = function(value: boolean)
+        getgenv().BallTrailParticleEnabled = value
+    end
+})
+
+ball_trail_module:create_checkbox({
+    title = 'Glow Effect',
+    flag = 'Ball_Trail_Glow',
+    callback = function(value: boolean)
+        getgenv().BallTrailGlowEnabled = value
+    end
+})
+
+local CustomSky = VisualsTab:create_module({
+	title = 'Custom Sky',
+	flag = 'Custom_Sky',
+	description = 'Toggles a custom skybox',
+	section = 'left',
+	callback = function(value)
+		local Lighting = game.Lighting
+		local Sky = Lighting:FindFirstChildOfClass("Sky")
+		if value then
+			if not Sky then Sky = Instance.new("Sky", Lighting) end
+		else
+			if Sky then
+				local defaultSkyboxIds = {"591058823", "591059876", "591058104", "591057861", "591057625", "591059642"}
+				local skyFaces = {"SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp"}
+				for index, face in ipairs(skyFaces) do
+					Sky[face] = "rbxassetid://" .. defaultSkyboxIds[index]
+				end
+				Lighting.GlobalShadows = true
+			end
+		end
+	end
 })
     
 CustomSky:create_dropdown({
     title = 'Select Sky',
     flag = 'custom_sky_selector',
     options = {
-            "Default",
-            "Vaporwave",
-            "Redshift",
-            "Desert",
-            "DaBaby",
-            "Minecraft",
-            "SpongeBob",
-            "Skibidi",
-            "Blaze",
-            "Pussy Cat",
-            "Among Us",
-            "Space Wave",
-            "Space Wave2",
-            "Turquoise Wave",
-            "Dark Night",
-            "Bright Pink",
-            "White Galaxy",
-            "Blue Galaxy"
-        },
-        multi_dropdown = false,
-        maximum_options = 18,
-        callback = function(selectedOption)
-            local skyboxData = nil
-            if selectedOption == "Default" then
-                skyboxData = {"591058823", "591059876", "591058104", "591057861", "591057625", "591059642"}
-            elseif selectedOption == "Vaporwave" then
-                skyboxData = {"1417494030", "1417494146", "1417494253", "1417494402", "1417494499", "1417494643"}
-            elseif selectedOption == "Redshift" then
-                skyboxData = {"401664839", "401664862", "401664960", "401664881", "401664901", "401664936"}
-            elseif selectedOption == "Desert" then
-                skyboxData = {"1013852", "1013853", "1013850", "1013851", "1013849", "1013854"}
-            elseif selectedOption == "DaBaby" then
-                skyboxData = {"7245418472", "7245418472", "7245418472", "7245418472", "7245418472", "7245418472"}
-            elseif selectedOption == "Minecraft" then
-                skyboxData = {"1876545003", "1876544331", "1876542941", "1876543392", "1876543764", "1876544642"}
-            elseif selectedOption == "SpongeBob" then
-                skyboxData = {"7633178166", "7633178166", "7633178166", "7633178166", "7633178166", "7633178166"}
-            elseif selectedOption == "Skibidi" then
-                skyboxData = {"14952256113", "14952256113", "14952256113", "14952256113", "14952256113", "14952256113"}
-            elseif selectedOption == "Blaze" then
-                skyboxData = {"150939022", "150939038", "150939047", "150939056", "150939063", "150939082"}
-            elseif selectedOption == "Pussy Cat" then
-                skyboxData = {"11154422902", "11154422902", "11154422902", "11154422902", "11154422902", "11154422902"}
-            elseif selectedOption == "Among Us" then
-                skyboxData = {"5752463190", "5752463190", "5752463190", "5752463190", "5752463190", "5752463190"}
-            elseif selectedOption == "Space Wave" then
-                skyboxData = {"16262356578", "16262358026", "16262360469", "16262362003", "16262363873", "16262366016"}
-            elseif selectedOption == "Space Wave2" then
-                skyboxData = {"1233158420", "1233158838", "1233157105", "1233157640", "1233157995", "1233159158"}
-            elseif selectedOption == "Turquoise Wave" then
-                skyboxData = {"47974894", "47974690", "47974821", "47974776", "47974859", "47974909"}
-            elseif selectedOption == "Dark Night" then
-                skyboxData = {"6285719338", "6285721078", "6285722964", "6285724682", "6285726335", "6285730635"}
-            elseif selectedOption == "Bright Pink" then
-                skyboxData = {"271042516", "271077243", "271042556", "271042310", "271042467", "271077958"}
-            elseif selectedOption == "White Galaxy" then
-                skyboxData = {"5540798456", "5540799894", "5540801779", "5540801192", "5540799108", "5540800635"}
-            elseif selectedOption == "Blue Galaxy" then
-                skyboxData = {"14961495673", "14961494492", "14961492844", "14961491298", "14961490439", "14961489508"}
-            end
-    
-            if not skyboxData then
-                warn("Sky option not found: " .. tostring(selectedOption))
-                return
-            end
-    
-            local Lighting = game.Lighting
-            local Sky = Lighting:FindFirstChildOfClass("Sky") or Instance.new("Sky", Lighting)
-    
-            local skyFaces = {"SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp"}
-            for index, face in ipairs(skyFaces) do
-                Sky[face] = "rbxassetid://" .. skyboxData[index]
-            end
+		"Default", "Vaporwave", "Redshift", "Desert", "DaBaby", "Minecraft",
+		"SpongeBob", "Skibidi", "Blaze", "Pussy Cat", "Among Us", "Space Wave",
+		"Space Wave2", "Turquoise Wave", "Dark Night", "Bright Pink", "White Galaxy", "Blue Galaxy"
+	},
+	multi_dropdown = false,
+	maximum_options = 18,
+	callback = function(selectedOption)
+		local skyboxData = nil
+		if selectedOption == "Default" then
+			skyboxData = {"591058823", "591059876", "591058104", "591057861", "591057625", "591059642"}
+		elseif selectedOption == "Vaporwave" then
+			skyboxData = {"1417494030", "1417494146", "1417494253", "1417494402", "1417494499", "1417494643"}
+		elseif selectedOption == "Redshift" then
+			skyboxData = {"401664839", "401664862", "401664960", "401664881", "401664901", "401664936"}
+		elseif selectedOption == "Desert" then
+			skyboxData = {"1013852", "1013853", "1013850", "1013851", "1013849", "1013854"}
+		elseif selectedOption == "DaBaby" then
+			skyboxData = {"7245418472", "7245418472", "7245418472", "7245418472", "7245418472", "7245418472"}
+		elseif selectedOption == "Minecraft" then
+			skyboxData = {"1876545003", "1876544331", "1876542941", "1876543392", "1876543764", "1876544642"}
+		elseif selectedOption == "SpongeBob" then
+			skyboxData = {"7633178166", "7633178166", "7633178166", "7633178166", "7633178166", "7633178166"}
+		elseif selectedOption == "Skibidi" then
+			skyboxData = {"14952256113", "14952256113", "14952256113", "14952256113", "14952256113", "14952256113"}
+		elseif selectedOption == "Blaze" then
+			skyboxData = {"150939022", "150939038", "150939047", "150939056", "150939063", "150939082"}
+		elseif selectedOption == "Pussy Cat" then
+			skyboxData = {"11154422902", "11154422902", "11154422902", "11154422902", "11154422902", "11154422902"}
+		elseif selectedOption == "Among Us" then
+			skyboxData = {"5752463190", "5752463190", "5752463190", "5752463190", "5752463190", "5752463190"}
+		elseif selectedOption == "Space Wave" then
+			skyboxData = {"16262356578", "16262358026", "16262360469", "16262362003", "16262363873", "16262366016"}
+		elseif selectedOption == "Space Wave2" then
+			skyboxData = {"1233158420", "1233158838", "1233157105", "1233157640", "1233157995", "1233159158"}
+		elseif selectedOption == "Turquoise Wave" then
+			skyboxData = {"47974894", "47974690", "47974821", "47974776", "47974859", "47974909"}
+		elseif selectedOption == "Dark Night" then
+			skyboxData = {"6285719338", "6285721078", "6285722964", "6285724682", "6285726335", "6285730635"}
+		elseif selectedOption == "Bright Pink" then
+			skyboxData = {"271042516", "271077243", "271042556", "271042310", "271042467", "271077958"}
+		elseif selectedOption == "White Galaxy" then
+			skyboxData = {"5540798456", "5540799894", "5540801779", "5540801192", "5540799108", "5540800635"}
+		elseif selectedOption == "Blue Galaxy" then
+			skyboxData = {"14961495673", "14961494492", "14961492844", "14961491298", "14961490439", "14961489508"}
+		end
 
-            Lighting.GlobalShadows = false
-        end
-    })
+		if not skyboxData then return end
+
+		local Lighting = game.Lighting
+		local Sky = Lighting:FindFirstChildOfClass("Sky") or Instance.new("Sky", Lighting)
+		local skyFaces = {"SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp"}
+		for index, face in ipairs(skyFaces) do
+			Sky[face] = "rbxassetid://" .. skyboxData[index]
+		end
+		Lighting.GlobalShadows = false
+	end
+})
+
 local reduce_lag_module = VisualsTab:create_module({
 	title = "Reduce Lag",
 	description = "Reduce Lag while maintaining visuals",
@@ -3740,9 +3656,7 @@ local reduce_lag_module = VisualsTab:create_module({
 
 			if not timeConnection then
 				timeConnection = Lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
-					if Lighting.ClockTime ~= 0 then
-						Lighting.ClockTime = 0
-					end
+					if Lighting.ClockTime ~= 0 then Lighting.ClockTime = 0 end
 				end)
 			end
 			
@@ -3757,34 +3671,23 @@ local reduce_lag_module = VisualsTab:create_module({
 				end)
 			end
 
-			Library.SendNotification({ title = "Stellar Engine", text = "Potato Mode and Night theme initialize", duration = 2 })
+			Library.SendNotification({ title = "Stellar Engine", text = "Potato Mode initialized", duration = 2 })
 		else
 			if not initialized then return end
 			
-			if timeConnection then
-				timeConnection:Disconnect()
-				timeConnection = nil
-			end
-			
-			if descendantConnection then
-				descendantConnection:Disconnect()
-				descendantConnection = nil
-			end
+			if timeConnection then timeConnection:Disconnect(); timeConnection = nil end
+			if descendantConnection then descendantConnection:Disconnect(); descendantConnection = nil end
 			
 			Lighting.ClockTime = originalClockTime
 			Lighting.GlobalShadows = originalGlobalShadows
 			
 			for _, atmos in pairs(disabledAtmispheres) do
-				if atmos then
-					atmos.Parent = Lighting
-				end
+				if atmos then atmos.Parent = Lighting end
 			end
 			table.clear(disabledAtmispheres)
 			
 			for effect, wasEnabled in pairs(originalEffectStates) do
-				if effect and effect.Parent then
-					effect.Enabled = wasEnabled
-				end
+				if effect and effect.Parent then effect.Enabled = wasEnabled end
 			end
 			
 			if createdBloom then
@@ -3801,12 +3704,10 @@ local reduce_lag_module = VisualsTab:create_module({
 			end
 			
 			for obj, hadShadow in pairs(originalPartShadows) do
-				if obj and obj.Parent then
-					obj.CastShadow = hadShadow
-				end
+				if obj and obj.Parent then obj.CastShadow = hadShadow end
 			end
 
-			Library.SendNotification({ title = "Stellar Engine", text = "Potato Mode and Night theme unloaded", duration = 2 })
+			Library.SendNotification({ title = "Stellar Engine", text = "Potato Mode unloaded", duration = 2 })
 		end
 	end
 })
@@ -3867,70 +3768,69 @@ local thunder_dash_module = MiscTab:create_module({
 	flag = "ThunderDash",
 	section = "right",
 	callback = function(state)
-
-Stellar.__config.__detections.__thunder_dash_nocooldown = state
-    if state then
-
-Stellar.ability_exploits.apply_thunder_dash()
-
-Stellar.ability_exploits.start_thunder_dash_loop()
-else
-Stellar.ability_exploits.stop_thunder_dash_loop()
-        end
-    end
+		Stellar.__config.__detections.__thunder_dash_nocooldown = state
+		if state then
+			Stellar.ability_exploits.apply_thunder_dash()
+		end
+	end
 })
-
-local Event = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("WinnerText")
-local ConnectionHooked = false
 
 local CustomAnnouncer = MiscTab:create_module({
     title = 'Custom Announcer',
     flag = 'Custom_Announcer',
-    description = 'Customize the game announcements',
-    section = 'right',
-    callback = function(value)
-        -- We only need to hook the event once when it's first toggled on
-        if value and not ConnectionHooked then
-            ConnectionHooked = true
-            
-            -- Get the game's original event connections
-            local originalConnections = getconnections(Event.OnClientEvent)
-            
-            -- Disable them so the game doesn't process the default message automatically
-            for _, conn in ipairs(originalConnections) do
-                conn:Disable()
+    description = 'Customize the Game Announcements',
+    section = 'left',
+    callback = function(value: boolean)
+        getgenv().CustomAnnouncer = value
+
+        if value then
+            local announcerGui = Player:FindFirstChild('PlayerGui') and Player.PlayerGui:FindFirstChild('announcer')
+            local winnerLabel = announcerGui and announcerGui:FindFirstChild('Winner')
+            if winnerLabel then
+                winnerLabel.Text = getgenv().AnnouncerText or 'On Third Stellar'
             end
-            
-            -- Create our own interceptor that listens for the server's announcement
-            Event.OnClientEvent:Connect(function(originalText, ...)
-                local textToDisplay = originalText
-                
-                -- Check if our toggle is enabled, and replace the text if it is
-                if Library._config._flags["Custom_Announcer"] then
-                    textToDisplay = Library._config._flags["announcer_text"] or "discord.gg/Allusive"
-                end
-                
-                -- Pass the (potentially modified) text back to the game's original GUI functions
-                for _, conn in ipairs(originalConnections) do
-                    if conn.Function then
-                        conn.Function(textToDisplay, ...)
+
+            if not Connections_Manager['CustomAnnouncer'] then
+                Connections_Manager['CustomAnnouncer'] = announcerGui and announcerGui.ChildAdded:Connect(function(child)
+                    if child.Name == 'Winner' then
+                        child.Changed:Connect(function(property)
+                            if property == 'Text' and getgenv().CustomAnnouncer then
+                                child.Text = getgenv().AnnouncerText or 'On Third Stellar'
+                            end
+                        end)
+
+                        if getgenv().CustomAnnouncer then
+                            child.Text = getgenv().AnnouncerText or 'On Third Stellar'
+                        end
                     end
-                end
-            end)
+                end)
+            end
+        else
+            if Connections_Manager['CustomAnnouncer'] then
+                Connections_Manager['CustomAnnouncer']:Disconnect()
+                Connections_Manager['CustomAnnouncer'] = nil
+            end
         end
     end
 })
 
 CustomAnnouncer:create_textbox({
-    title = "Custom Announcement Text",
-    placeholder = "Enter custom announcer text... ",
-    flag = "announcer_text",
+    title = 'Custom Announcement Text',
+    placeholder = 'Enter Custom Announcement... ',
+    flag = 'announcer_text',
     callback = function(text)
-        -- We no longer need to fire the signal here. 
-        -- We just save the text, and the interceptor above will use it on the next real announcement.
-        Library._config._flags["announcer_text"] = text
+        getgenv().AnnouncerText = text
+
+        if getgenv().CustomAnnouncer then
+            local announcerGui = Player:FindFirstChild('PlayerGui') and Player.PlayerGui:FindFirstChild('announcer')
+            local winnerLabel = announcerGui and announcerGui:FindFirstChild('Winner')
+            if winnerLabel then
+                winnerLabel.Text = text
+            end
+        end
     end
 })
+
 local bgm_module = MiscTab:create_module({
 	title = "Sound Controller",
 	description = "Background music player and ambient controller",
@@ -3998,33 +3898,32 @@ misc_module:create_button({
 	callback = function()
 		Stellar.autoparry.stop()
 		Stellar.triggerbot.enable(false)
-      Stellar.staff_detection.stop()
+		Stellar.staff_detection.stop()
 		Stellar.__properties.__modify_player = false
 		Stellar.__properties.__ability_esp_enabled = false
 		Stellar.__properties.__immortality_enabled = false
-      -- STELLAR ENGINE UNLOAD EXTENSION FOR ADDED SUBSYSTEMS
-Stellar.emotes.stop()
-Stellar.sound_controller.stop()
+		Stellar.emotes.stop()
+		Stellar.sound_controller.stop()
 
-if Stellar.hitsounds.__sound_instance then
-	Stellar.hitsounds.__sound_instance:Destroy()
-	Stellar.hitsounds.__sound_instance = nil
-end
+		if Stellar.hitsounds.__sound_instance then
+			Stellar.hitsounds.__sound_instance:Destroy()
+			Stellar.hitsounds.__sound_instance = nil
+		end
 
-if Stellar.sound_controller.__sound_instance then
-	Stellar.sound_controller.__sound_instance:Destroy()
-	Stellar.sound_controller.__sound_instance = nil
-end
+		if Stellar.sound_controller.__sound_instance then
+			Stellar.sound_controller.__sound_instance:Destroy()
+			Stellar.sound_controller.__sound_instance = nil
+		end
 
-if Stellar.__properties.__connections.__hitsound_event then
-	Stellar.__properties.__connections.__hitsound_event:Disconnect()
-	Stellar.__properties.__connections.__hitsound_event = nil
-end
+		if Stellar.__properties.__connections.__hitsound_event then
+			Stellar.__properties.__connections.__hitsound_event:Disconnect()
+			Stellar.__properties.__connections.__hitsound_event = nil
+		end
 
-if Stellar.__properties.__connections.__emotes_loop then
-	Stellar.__properties.__connections.__emotes_loop:Disconnect()
-	Stellar.__properties.__connections.__emotes_loop = nil
-end
+		if Stellar.__properties.__connections.__emotes_loop then
+			Stellar.__properties.__connections.__emotes_loop:Disconnect()
+			Stellar.__properties.__connections.__emotes_loop = nil
+		end
 
 		if Stellar.__properties.__FOVLoop then
 			Stellar.__properties.__FOVLoop:Disconnect()
@@ -4046,17 +3945,17 @@ end
 	end
 })
 
-
-
 misc_module:create_button({
 	title = "Print Debug Configuration",
 	callback = function()
 		print("--- [ Stellar Unified Debug Configuration ] ---")
 		print("Auto Parry Enabled:", Stellar.__properties.__autoparry_enabled)
+		print("Parry Range Scale :", Stellar.__properties.__parry_range)
+		print("Anti-Curve Engine :", Stellar.__properties.__predictive_anti_curve_enabled)
+		print("Curve Sensitivity :", Stellar.__properties.__curve_sensitivity)
+		print("Prediction Accuracy:", Stellar.__properties.__prediction_accuracy)
 		print("Auto Spam Enabled :", Stellar.__properties.__auto_spam_enabled)
 		print("Spam Batch Mode   :", Stellar.__properties.__spam_batch_amount)
-		print("Spam Distance     :", Stellar.__properties.__spam_threshold)
-		print("Parry Mode        :", getgenv().AutoParryMode or "Remote")
 		print("Immortality       :", Stellar.__properties.__immortality_enabled)
 		print("GC Token Status   :", _token ~= nil and "Active" or "Unbound")
 		print("Captured Remote   :", _captured and _captured.remote:GetFullName() or "None")
@@ -4067,11 +3966,11 @@ misc_module:create_button({
 misc_module:create_button({
 	title = "Discord Server",
 	callback = function()
-local discord = "https://discord.gg/x6bZR5sP4"
-setclipboard(discord)
-end
+		local discord = "https://discord.gg/x6bZR5sP4"
+		setclipboard(discord)
+	end
 })
 
--- Script Initialization Launch
+-- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.45 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.04 Initialized.", duration = 3 })
