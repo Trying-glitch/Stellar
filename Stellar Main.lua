@@ -4075,4 +4075,3 @@ end
 -- Script Initialization Launch
 library:load()
 Library.SendNotification({ title = "Stellar Engine", text = "Stellar V5.45 Initialized.", duration = 3 })
-Library.SendNotification({ title = "Stellar Engine", text = "[IMPORTANT] Please Parry Manually Until Captured", duration = 5 })
