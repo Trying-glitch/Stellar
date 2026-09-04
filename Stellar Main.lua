@@ -65,6 +65,16 @@ local PlayerTab = library:create_tab("Player Mod", "rbxassetid://126017907477623
 local VisualsTab = library:create_tab("Visuals", "rbxassetid://126017907477623")
 local MiscTab = library:create_tab("Misc Spec", "rbxassetid://126017907477623")
 
+-- Sword Slash Color Configuration
+-- FIX: Only uses solid color mode now, no rainbow/random effects
+local SwordSlashConfig = {
+	__enabled = false,
+	__color = Color3.fromRGB(255, 0, 0),  -- Default red (change this to your desired color)
+	__transparency = 0.3,
+	__glow_intensity = 1,
+	__custom_mode = "Solid" -- FIXED: Only Solid mode supported for sword blade
+}
+
 -- Global State Machine Initialization
 local Stellar = {
 	__properties = {
@@ -170,6 +180,164 @@ local Stellar = {
 getgenv()._ZX_VelHistory = getgenv()._ZX_VelHistory or setmetatable({}, { __mode = "k" })
 local _ZX_VelHistory = getgenv()._ZX_VelHistory
 _ZX_VelHistory.MAX_SAMPLES = 10
+
+-- Sword Slash Color System (targets known ParryFX effect structure)
+local CollectionService = game:GetService("CollectionService")
+
+local KNOWN_EFFECT_PATHS = {
+	"Impact/Glow2Sided",
+	"Impact/flare2",
+	"Impact/circles",
+	"Impact/fast-burst",
+	"Impact/impact",
+	"Star",
+	"Slash/Effect",
+	"Slash/Effect3",
+}
+
+local sword_slash_system = {
+	__active = false,
+	__connections = {},
+	__rainbow_loop = nil,
+
+	get_current_color = function(self)
+		local color = SwordSlashConfig.__color
+		if SwordSlashConfig.__custom_mode == "Rainbow" then
+			color = Color3.fromHSV((tick() % 3) / 3, 1, 1)
+		elseif SwordSlashConfig.__custom_mode == "Random" then
+			color = Color3.fromRGB(math.random(0, 255), math.random(0, 255), math.random(0, 255))
+		end
+		return color
+	end,
+
+	apply_color = function(self, inst, color)
+		pcall(function()
+			if inst:IsA("BasePart") then
+				inst.Color = color
+			elseif inst:IsA("Highlight") then
+				inst.FillColor = color
+				inst.OutlineColor = color
+			elseif inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then
+				inst.Color = ColorSequence.new(color)
+			end
+		end)
+	end,
+
+	is_local_player_sword = function(self, parryFxPart)
+		-- Check if this sword belongs to LOCAL PLAYER only
+		if not parryFxPart or not parryFxPart:IsDescendantOf(workspace) then return false end
+		
+		-- Get local player and their character
+		local localPlayer = Players.LocalPlayer
+		if not localPlayer or not localPlayer.Character then return false end
+		
+		-- Simple check: is this part a descendant of the local player's character?
+		return parryFxPart:IsDescendantOf(localPlayer.Character)
+	end,
+
+	color_parry_fx_object = function(self, parryFxPart)
+		if not SwordSlashConfig.__enabled then return end
+		
+		-- CRITICAL: Only color if it belongs to LOCAL PLAYER
+		if not self:is_local_player_sword(parryFxPart) then return end
+		
+		local color = self:get_current_color()
+
+		-- Color the part itself
+		self:apply_color(parryFxPart, color)
+
+		-- Color each known child effect by path
+		for _, path in ipairs(KNOWN_EFFECT_PATHS) do
+			local current = parryFxPart
+			for segment in path:gmatch("[^/]+") do
+				current = current and current:FindFirstChild(segment)
+			end
+			if current then
+				self:apply_color(current, color)
+			end
+		end
+
+		-- Also brute-force color any remaining descendants, just in case
+		for _, d in ipairs(parryFxPart:GetDescendants()) do
+			self:apply_color(d, color)
+		end
+
+		-- Reassert for a short window in case of tweens
+		local start_time = tick()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			if not parryFxPart.Parent or (tick() - start_time) > 1.2 then
+				if conn then conn:Disconnect() end
+				return
+			end
+			local c = self:get_current_color()
+			self:apply_color(parryFxPart, c)
+			for _, d in ipairs(parryFxPart:GetDescendants()) do
+				self:apply_color(d, c)
+			end
+		end)
+		table.insert(self.__connections, conn)
+	end,
+
+	start_rainbow_loop = function(self)
+		-- Stop existing loop
+		if self.__rainbow_loop then
+			self.__rainbow_loop:Disconnect()
+		end
+		
+		-- Only start if rainbow or random mode is active
+		if SwordSlashConfig.__custom_mode ~= "Rainbow" and SwordSlashConfig.__custom_mode ~= "Random" then
+			return
+		end
+		
+		-- Start continuous color update loop
+		self.__rainbow_loop = RunService.RenderStepped:Connect(function()
+			if not SwordSlashConfig.__enabled then return end
+			self:reapply_all()
+		end)
+	end,
+
+	stop_rainbow_loop = function(self)
+		if self.__rainbow_loop then
+			self.__rainbow_loop:Disconnect()
+			self.__rainbow_loop = nil
+		end
+	end,
+
+	start = function(self)
+		self.__active = true
+		self:stop_connections()
+
+		-- Color any that already exist
+		for _, inst in ipairs(CollectionService:GetTagged("ParryFX")) do
+			self:color_parry_fx_object(inst)
+		end
+
+		-- Color new ones as they appear
+		table.insert(self.__connections, CollectionService:GetInstanceAddedSignal("ParryFX"):Connect(function(inst)
+			self:color_parry_fx_object(inst)
+		end))
+	end,
+
+	stop_connections = function(self)
+		for _, conn in ipairs(self.__connections) do
+			conn:Disconnect()
+		end
+		table.clear(self.__connections)
+	end,
+
+	stop = function(self)
+		self.__active = false
+		self:stop_connections()
+	end,
+
+	reapply_all = function(self)
+		if not SwordSlashConfig.__enabled then return end
+		for _, inst in ipairs(CollectionService:GetTagged("ParryFX")) do
+			self:color_parry_fx_object(inst)
+		end
+	end
+}
 
 -- Environment Validation
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -285,7 +453,7 @@ end)
 
 Stellar.ZX_Parry = { Hooked = true }
 
--- Floating Toggle Switch Subsystem
+-- Floating Toggle Switch Subsystem (SYNCED Manual Spam + Triggerbot)
 local FloatingSwitchSystem = {
 	ScreenGui = nil,
 	Root = nil,
@@ -297,6 +465,22 @@ local FloatingSwitchSystem = {
 		StartPosition = UDim2.new(1, -190, 1, -168),
 		ColorOff = Color3.fromRGB(40, 40, 46),
 		ColorOn = Color3.fromRGB(48, 224, 158),
+		KnobColor = Color3.fromRGB(248, 248, 252)
+	}
+}
+
+-- Triggerbot Floating Switch (Synced with Manual Spam)
+local TriggerbotFloatingSwitch = {
+	ScreenGui = nil,
+	Root = nil,
+	IsOn = false,
+	Connections = {},
+	Config = {
+		Title = "TRIGGERBOT",
+		Keybind = Enum.KeyCode.R,
+		StartPosition = UDim2.new(1, -190, 1, -298),
+		ColorOff = Color3.fromRGB(40, 40, 46),
+		ColorOn = Color3.fromRGB(255, 100, 100),
 		KnobColor = Color3.fromRGB(248, 248, 252)
 	}
 }
@@ -593,6 +777,299 @@ local function buildFloatingToggleSwitch()
 end
 
 buildFloatingToggleSwitch()
+
+-- Build Triggerbot Floating Switch (Synced with Manual Spam)
+local function buildTriggerbotSwitch()
+	if CoreGui:FindFirstChild("StellarTriggerbotToggle") then
+		CoreGui.StellarTriggerbotToggle:Destroy()
+	end
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "StellarTriggerbotToggle"
+	screenGui.ResetOnSpawn = false
+	screenGui.IgnoreGuiInset = true
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.Enabled = false
+	screenGui.Parent = CoreGui
+	TriggerbotFloatingSwitch.ScreenGui = screenGui
+
+	local root = Instance.new("CanvasGroup")
+	root.Name = "Root"
+	root.Size = UDim2.fromOffset(168, 114)
+	root.Position = TriggerbotFloatingSwitch.Config.StartPosition
+	root.BackgroundTransparency = 1
+	root.GroupTransparency = 1
+	root.Parent = screenGui
+	TriggerbotFloatingSwitch.Root = root
+
+	local rootScale = Instance.new("UIScale")
+	rootScale.Scale = 0.75
+	rootScale.Parent = root
+
+	local shadow = Instance.new("Frame")
+	shadow.Name = "Shadow"
+	shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+	shadow.Position = UDim2.new(0.5, 0, 0.5, 4)
+	shadow.Size = UDim2.fromOffset(154, 100)
+	shadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	shadow.BackgroundTransparency = 0.5
+	shadow.BorderSizePixel = 0
+	shadow.ZIndex = 0
+	shadow.Parent = root
+	local sc = Instance.new("UICorner") sc.CornerRadius = UDim.new(0, 18) sc.Parent = shadow
+
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.Position = UDim2.new(0.5, 0, 0.5, 0)
+	card.Size = UDim2.fromOffset(150, 96)
+	card.BackgroundColor3 = Color3.fromRGB(24, 24, 29)
+	card.BackgroundTransparency = 0.05
+	card.BorderSizePixel = 0
+	card.ZIndex = 1
+	card.Parent = root
+
+	local cc = Instance.new("UICorner") cc.CornerRadius = UDim.new(0, 16) cc.Parent = card
+	local cardStroke = Instance.new("UIStroke")
+	cardStroke.Color = Color3.fromRGB(255, 255, 255)
+	cardStroke.Transparency = 0.91
+	cardStroke.Thickness = 1
+	cardStroke.Parent = card
+
+	local cardGradient = Instance.new("UIGradient")
+	cardGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(34, 34, 40)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 16, 20))
+	})
+	cardGradient.Rotation = 60
+	cardGradient.Parent = card
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1, -16, 0, 16)
+	title.Position = UDim2.new(0, 8, 0, 8)
+	title.Font = Enum.Font.GothamBold
+	title.Text = TriggerbotFloatingSwitch.Config.Title
+	title.TextSize = 12
+	title.TextColor3 = Color3.fromRGB(195, 195, 205)
+	title.TextTransparency = 0.1
+	title.TextXAlignment = Enum.TextXAlignment.Center
+	title.TextScaled = true
+	title.ZIndex = 2
+	title.Parent = card
+
+	local titleConstraint = Instance.new("UITextSizeConstraint")
+	titleConstraint.MaxTextSize = 12 titleConstraint.MinTextSize = 8
+	titleConstraint.Parent = title
+
+	local glowOuter = Instance.new("Frame")
+	glowOuter.Name = "GlowOuter"
+	glowOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+	glowOuter.Position = UDim2.new(0.5, 0, 0, 46)
+	glowOuter.Size = UDim2.fromOffset(104, 64)
+	glowOuter.BackgroundColor3 = TriggerbotFloatingSwitch.Config.ColorOn
+	glowOuter.BackgroundTransparency = 1
+	glowOuter.BorderSizePixel = 0
+	glowOuter.ZIndex = 1
+	glowOuter.Parent = card
+	local goc = Instance.new("UICorner") goc.CornerRadius = UDim.new(1, 0) goc.Parent = glowOuter
+
+	local glowInner = Instance.new("Frame")
+	glowInner.Name = "GlowInner"
+	glowInner.AnchorPoint = Vector2.new(0.5, 0.5)
+	glowInner.Position = UDim2.new(0.5, 0, 0, 46)
+	glowInner.Size = UDim2.fromOffset(84, 48)
+	glowInner.BackgroundColor3 = TriggerbotFloatingSwitch.Config.ColorOn
+	glowInner.BackgroundTransparency = 1
+	glowInner.BorderSizePixel = 0
+	glowInner.ZIndex = 1
+	glowInner.Parent = card
+	local gic = Instance.new("UICorner") gic.CornerRadius = UDim.new(1, 0) gic.Parent = glowInner
+
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.Active = true
+	track.AnchorPoint = Vector2.new(0.5, 0.5)
+	track.Position = UDim2.new(0.5, 0, 0, 46)
+	track.Size = UDim2.fromOffset(72, 34)
+	track.BackgroundColor3 = TriggerbotFloatingSwitch.Config.ColorOff
+	track.BorderSizePixel = 0
+	track.ZIndex = 2
+	track.Parent = card
+	local tc = Instance.new("UICorner") tc.CornerRadius = UDim.new(1, 0) tc.Parent = track
+
+	local trackStroke = Instance.new("UIStroke")
+	trackStroke.Color = Color3.fromRGB(64, 64, 72)
+	trackStroke.Thickness = 1.5
+	trackStroke.Transparency = 0.2
+	trackStroke.Parent = track
+
+	local trackGradient = Instance.new("UIGradient")
+	trackGradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+	trackGradient.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.8),
+		NumberSequenceKeypoint.new(0.5, 0.94),
+		NumberSequenceKeypoint.new(1, 1)
+	})
+	trackGradient.Rotation = 90
+	trackGradient.Parent = track
+
+	local knob = Instance.new("Frame")
+	knob.Name = "Knob"
+	knob.AnchorPoint = Vector2.new(0, 0.5)
+	knob.Position = UDim2.new(0, 3, 0.5, 0)
+	knob.Size = UDim2.fromOffset(28, 28)
+	knob.BackgroundColor3 = TriggerbotFloatingSwitch.Config.KnobColor
+	knob.BorderSizePixel = 0
+	knob.ZIndex = 3
+	knob.Parent = track
+	local kc = Instance.new("UICorner") kc.CornerRadius = UDim.new(1, 0) kc.Parent = knob
+
+	local knobStroke = Instance.new("UIStroke")
+	knobStroke.Color = Color3.fromRGB(224, 224, 230)
+	knobStroke.Thickness = 1
+	knobStroke.Transparency = 0.5
+	knobStroke.Parent = knob
+
+	local statusRow = Instance.new("Frame")
+	statusRow.Name = "StatusRow"
+	statusRow.AnchorPoint = Vector2.new(0.5, 0)
+	statusRow.Position = UDim2.new(0.5, 0, 0, 70)
+	statusRow.Size = UDim2.new(1, -16, 0, 20)
+	statusRow.BackgroundTransparency = 1
+	statusRow.ZIndex = 2
+	statusRow.Parent = card
+
+	local statusLayout = Instance.new("UIListLayout")
+	statusLayout.FillDirection = Enum.FillDirection.Horizontal
+	statusLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	statusLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	statusLayout.Padding = UDim.new(0, 6)
+	statusLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	statusLayout.Parent = statusRow
+
+	local dot = Instance.new("Frame")
+	dot.Name = "Dot"
+	dot.Size = UDim2.fromOffset(8, 8)
+	dot.BackgroundColor3 = TriggerbotFloatingSwitch.Config.ColorOff
+	dot.BorderSizePixel = 0
+	dot.LayoutOrder = 1
+	dot.ZIndex = 2
+	dot.Parent = statusRow
+	local dc = Instance.new("UICorner") dc.CornerRadius = UDim.new(1, 0) dc.Parent = dot
+
+	local statusText = Instance.new("TextLabel")
+	statusText.Name = "StatusText"
+	statusText.BackgroundTransparency = 1
+	statusText.Size = UDim2.fromOffset(28, 16)
+	statusText.Font = Enum.Font.GothamBold
+	statusText.Text = "OFF"
+	statusText.TextSize = 12
+	statusText.TextColor3 = Color3.fromRGB(150, 150, 160)
+	statusText.TextXAlignment = Enum.TextXAlignment.Left
+	statusText.LayoutOrder = 2
+	statusText.ZIndex = 2
+	statusText.Parent = statusRow
+
+	local keyTag = Instance.new("TextLabel")
+	keyTag.Name = "KeyTag"
+	keyTag.AutomaticSize = Enum.AutomaticSize.X
+	keyTag.Size = UDim2.fromOffset(0, 18)
+	keyTag.BackgroundColor3 = Color3.fromRGB(32, 32, 38)
+	keyTag.Font = Enum.Font.GothamBold
+	keyTag.Text = TriggerbotFloatingSwitch.Config.Keybind.Name
+	keyTag.TextSize = 11
+	keyTag.TextColor3 = Color3.fromRGB(205, 205, 215)
+	keyTag.LayoutOrder = 3
+	keyTag.ZIndex = 2
+	keyTag.Parent = statusRow
+	local ktc = Instance.new("UICorner") ktc.CornerRadius = UDim.new(0, 5) ktc.Parent = keyTag
+	local ktStroke = Instance.new("UIStroke") ktStroke.Color = Color3.fromRGB(68, 68, 76) ktStroke.Thickness = 1 ktStroke.Parent = keyTag
+	local ktPad = Instance.new("UIPadding") ktPad.PaddingLeft = UDim.new(0, 7) ktPad.PaddingRight = UDim.new(0, 7) ktPad.Parent = keyTag
+
+	local function applyVisualState(on, animated)
+		local quick = TweenInfo.new(animated and 0.2 or 0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local knobTween = TweenInfo.new(animated and 0.28 or 0, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		local knobPos = on and UDim2.new(1, -31, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+
+		TweenService:Create(track, quick, { BackgroundColor3 = on and TriggerbotFloatingSwitch.Config.ColorOn or TriggerbotFloatingSwitch.Config.ColorOff }):Play()
+		TweenService:Create(trackStroke, quick, { Color = on and TriggerbotFloatingSwitch.Config.ColorOn or Color3.fromRGB(64, 64, 72) }):Play()
+		TweenService:Create(knob, knobTween, { Position = knobPos }):Play()
+		TweenService:Create(dot, quick, { BackgroundColor3 = on and TriggerbotFloatingSwitch.Config.ColorOn or Color3.fromRGB(90, 90, 98) }):Play()
+		TweenService:Create(statusText, quick, { TextColor3 = on and TriggerbotFloatingSwitch.Config.ColorOn or Color3.fromRGB(150, 150, 160) }):Play()
+		TweenService:Create(glowOuter, quick, { BackgroundTransparency = on and 0.82 or 1 }):Play()
+		TweenService:Create(glowInner, quick, { BackgroundTransparency = on and 0.7 or 1 }):Play()
+		statusText.Text = on and "ON" or "OFF"
+	end
+
+	local function toggleState()
+		TriggerbotFloatingSwitch.IsOn = not TriggerbotFloatingSwitch.IsOn
+		applyVisualState(TriggerbotFloatingSwitch.IsOn, true)
+		Stellar.__properties.__triggerbot_enabled = TriggerbotFloatingSwitch.IsOn
+		if TriggerbotFloatingSwitch.IsOn then
+			if Stellar.triggerbot and typeof(Stellar.triggerbot.enable) == "function" then Stellar.triggerbot.enable(true) end
+		else
+			if Stellar.triggerbot and typeof(Stellar.triggerbot.enable) == "function" then Stellar.triggerbot.enable(false) end
+		end
+	end
+
+	applyVisualState(TriggerbotFloatingSwitch.IsOn, false)
+
+	local dragging, moved = false, false
+	local dragStart, startPos = Vector2.zero, Vector2.zero
+	local DRAG_TOLERANCE = 4
+
+	table.insert(TriggerbotFloatingSwitch.Connections, track.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true moved = false
+			dragStart = Vector2.new(input.Position.X, input.Position.Y)
+			startPos = root.AbsolutePosition
+			TweenService:Create(track, TweenInfo.new(0.12), { Size = UDim2.fromOffset(76, 36) }):Play()
+		end
+	end))
+
+	table.insert(TriggerbotFloatingSwitch.Connections, UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local point = Vector2.new(input.Position.X, input.Position.Y)
+			local delta = point - dragStart
+			if delta.Magnitude > DRAG_TOLERANCE then moved = true end
+			local camera = workspace.CurrentCamera
+			local viewport = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+			local size = root.AbsoluteSize
+			local x = math.clamp(startPos.X + delta.X, 0, math.max(viewport.X - size.X, 0))
+			local y = math.clamp(startPos.Y + delta.Y, 0, math.max(viewport.Y - size.Y, 0))
+			root.Position = UDim2.fromOffset(x, y)
+		end
+	end))
+
+	table.insert(TriggerbotFloatingSwitch.Connections, UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if dragging then
+				dragging = false
+				TweenService:Create(track, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(72, 34) }):Play()
+				if not moved then toggleState() end
+			end
+		end
+	end))
+
+	table.insert(TriggerbotFloatingSwitch.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == TriggerbotFloatingSwitch.Config.Keybind then
+			toggleState()
+			local resting = keyTag.BackgroundColor3
+			TweenService:Create(keyTag, TweenInfo.new(0.06), { BackgroundColor3 = TriggerbotFloatingSwitch.Config.ColorOn }):Play()
+			task.delay(0.15, function()
+				TweenService:Create(keyTag, TweenInfo.new(0.25), { BackgroundColor3 = resting }):Play()
+			end)
+		end
+	end))
+
+	TweenService:Create(root, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+	TweenService:Create(rootScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
+
+buildTriggerbotSwitch()
 
 -- Performance Monitor Subsystem
 local PerfMonitorSystem = {
@@ -2251,6 +2728,32 @@ function Stellar.triggerbot.enable(enabled)
 	end
 end
 
+local SPAM_CONFIG = {
+    min_burst = 2,        -- Start burst count
+    max_burst = 28,       -- Max burst count when extremely close
+    close_range = 8,      -- Distance for max burst (studs)
+    far_range = 45        -- Distance for min burst (studs)
+}
+
+-- Calculate burst based ONLY on distance - pure scaling
+local function calculate_dynamic_burst(distance)
+    -- Clamp distance to config range
+    local clamped_distance = math.clamp(distance, SPAM_CONFIG.close_range, SPAM_CONFIG.far_range)
+    
+    -- Calculate how close we are (1.0 = close, 0.0 = far)
+    local proximity_ratio = 1.0 - ((clamped_distance - SPAM_CONFIG.close_range) / 
+        (SPAM_CONFIG.far_range - SPAM_CONFIG.close_range))
+    
+    -- Apply quadratic scaling (closer = MORE aggressive)
+    proximity_ratio = proximity_ratio ^ 1.5
+    
+    -- Scale between min and max
+    local burst_range = SPAM_CONFIG.max_burst - SPAM_CONFIG.min_burst
+    local burst_count = SPAM_CONFIG.min_burst + (burst_range * proximity_ratio)
+    
+    return math.ceil(burst_count)
+end
+
 Stellar.autospam = {}
 function Stellar.autospam.start()
     if Stellar.__properties.__connections.__autospam then
@@ -2270,12 +2773,14 @@ function Stellar.autospam.start()
         local playerPos = LocalPlayer.Character.PrimaryPart.Position
         local balls = Stellar.ball.get_all()
         local shouldSpam = false
+        local closestDistance = math.huge
 
         local spamThresh = props.__spam_threshold * props.__auto_spam_distance_multiplier
         local currentParryCount = props.__parries or 0
         local maxClashDistance = props.__spam_threshold
         local dribbleActive = props.__dribble_active
 
+        -- Find closest ball within range
         for _, ball in pairs(balls) do
             if not ball:FindFirstChild('zoomies') then continue end
 
@@ -2285,6 +2790,9 @@ function Stellar.autospam.start()
             local currentTarget = ball:GetAttribute('target')
             if (currentTarget == localName or distance < maxClashDistance) and not dribbleActive and currentParryCount > 1 then
                 shouldSpam = true
+                if distance < closestDistance then
+                    closestDistance = distance
+                end
                 break
             end
         end
@@ -2293,11 +2801,8 @@ function Stellar.autospam.start()
             parryFlag = false
             autoSpamActive = true
             
-            local batchAmount = props.__spam_batch_amount
-            local burstCount = (batchAmount == "FPS Priority" and 4) 
-                or (batchAmount == "Bruteforce" and 15) 
-                or (batchAmount == "Extremely Fast" and 20) 
-                or 8
+            -- === PURE DISTANCE-BASED BURST ===
+            local burstCount = calculate_dynamic_burst(closestDistance)
                 
             local cachedCF = Stellar.curve.get_cframe()
             for _ = 1, burstCount do 
@@ -2317,6 +2822,13 @@ function Stellar.autospam.start()
             autoSpamActive = false
         end
     end)
+end
+
+function Stellar.autospam.stop()
+    if Stellar.__properties.__connections.__autospam then
+        Stellar.__properties.__connections.__autospam:Disconnect()
+        Stellar.__properties.__connections.__autospam = nil
+    end
 end
 
 -- Manual High-Frequency Spam Subsystem
@@ -2345,6 +2857,8 @@ function Stellar.manual_spam.stop()
 	manualSpamActive = false
 	if manualConnection then manualConnection:Disconnect(); manualConnection = nil end
 end
+
+
 
 Stellar.hitsounds = {
 	__sound_instance = nil,
@@ -2655,13 +3169,33 @@ autoparry_module:create_checkbox({
 })
 
 autoparry_module:create_checkbox({
-	title = "Instant Triggerbot",
-	flag = "TriggerbotModule",
+	title = "Triggerbot (UI + Keybind)",
+	flag = "TriggerbotFloatingSwitch",
 	callback = function(state)
 		Stellar.__properties.__triggerbot_enabled = state
-		Stellar.triggerbot.enable(state)
+		if TriggerbotFloatingSwitch.ScreenGui then TriggerbotFloatingSwitch.ScreenGui.Enabled = state end
+		if not state then
+			TriggerbotFloatingSwitch.IsOn = false
+			if Stellar.triggerbot and typeof(Stellar.triggerbot.enable) == "function" then Stellar.triggerbot.enable(false) end
+		end
 	end
 })
+autoparry_module:create_divider({})
+
+-- Triggerbot Settings
+autoparry_module:create_slider({
+	title = "Parry Delay",
+	flag = "TBParryDelay",
+	minimum_value = 0.05,
+	maximum_value = 0.5,
+	value = 0.15,
+	round_number = false,
+	callback = function(value)
+		Stellar.__triggerbot.__parry_delay = value
+	end
+})
+
+
 
 local spam_module = SpamTab:create_module({
 	title = "Auto Spam",
@@ -2684,15 +3218,6 @@ spam_module:create_slider({
 	callback = function(value) Stellar.__properties.__spam_threshold = value end
 })
 
-spam_module:create_dropdown({
-	title = "Spam Mode",
-	flag = "SpamBatchAmount",
-	options = { "FPS Priority", "Balanced", "Bruteforce", "Extremely Fast" },
-	multi_dropdown = false,
-	maximum_options = 4,
-	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
-})
-
 local manual_spam_module = SpamTab:create_module({
 	title = "Manual Spam", 
 	description = "Floating switch interface controller", 
@@ -2709,6 +3234,14 @@ local manual_spam_module = SpamTab:create_module({
 	end
 })
 
+manual_spam_module:create_dropdown({
+	title = "Spam Mode",
+	flag = "SpamBatchAmount",
+	options = { "FPS Priority", "Balanced", "Bruteforce", "Extremely Fast" },
+	multi_dropdown = false,
+	maximum_options = 4,
+	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
+})
 local detection_module = DetectionTab:create_module({
 	title = "Ability Detections",
 	description = "Adjust auto-parry parameters per enemy skills",
@@ -3712,6 +4245,90 @@ local reduce_lag_module = VisualsTab:create_module({
 	end
 })
 
+-- Sword Slash Color Module
+local slash_color_module = VisualsTab:create_module({
+	title = "Colorable Sword Slash",
+	description = "Customize the color of your sword slashes",
+	flag = "SlashColorModule",
+	section = "right",
+	callback = function(state)
+		SwordSlashConfig.__enabled = state
+		if state then
+			sword_slash_system:start()
+			-- Start rainbow loop if rainbow/random mode is selected
+			if SwordSlashConfig.__custom_mode == "Rainbow" or SwordSlashConfig.__custom_mode == "Random" then
+				sword_slash_system:start_rainbow_loop()
+			end
+		else
+			sword_slash_system:stop()
+			sword_slash_system:stop_rainbow_loop()
+		end
+	end
+})
+
+slash_color_module:create_dropdown({
+	title = "Color Mode",
+	flag = "SlashColorMode",
+	options = {"Solid", "Rainbow", "Random"},
+	multi_dropdown = false,
+	maximum_options = 3,
+	callback = function(value)
+		SwordSlashConfig.__custom_mode = value
+		-- Start rainbow loop if rainbow/random mode selected
+		if value == "Rainbow" or value == "Random" then
+			sword_slash_system:start_rainbow_loop()
+		else
+			sword_slash_system:stop_rainbow_loop()
+		end
+	end
+})
+
+local r_val = 255
+local g_val = 0
+local b_val = 0
+
+slash_color_module:create_slider({
+	title = "Red",
+	flag = "SlashColorRed",
+	minimum_value = 0,
+	maximum_value = 255,
+	value = 255,
+	round_number = true,
+	callback = function(value)
+		r_val = value
+		SwordSlashConfig.__color = Color3.fromRGB(r_val, g_val, b_val)
+		sword_slash_system:reapply_all()
+	end
+})
+
+slash_color_module:create_slider({
+	title = "Green",
+	flag = "SlashColorGreen",
+	minimum_value = 0,
+	maximum_value = 255,
+	value = 0,
+	round_number = true,
+	callback = function(value)
+		g_val = value
+		SwordSlashConfig.__color = Color3.fromRGB(r_val, g_val, b_val)
+		sword_slash_system:reapply_all()
+	end
+})
+
+slash_color_module:create_slider({
+	title = "Blue",
+	flag = "SlashColorBlue",
+	minimum_value = 0,
+	maximum_value = 255,
+	value = 0,
+	round_number = true,
+	callback = function(value)
+		b_val = value
+		SwordSlashConfig.__color = Color3.fromRGB(r_val, g_val, b_val)
+		sword_slash_system:reapply_all()
+	end
+})
+
 local misc_module = MiscTab:create_module({
 	title = "Miscellaneous",
 	description = "Extra utility settings",
@@ -3779,12 +4396,12 @@ local CustomAnnouncer = MiscTab:create_module({
     title = 'Custom Announcer',
     flag = 'Custom_Announcer',
     description = 'Customize the Game Announcements',
-    section = 'left',
+    section = 'right',
     callback = function(value: boolean)
         getgenv().CustomAnnouncer = value
 
         if value then
-            local announcerGui = Player:FindFirstChild('PlayerGui') and Player.PlayerGui:FindFirstChild('announcer')
+            local announcerGui = LocalPlayer and LocalPlayer:FindFirstChild('PlayerGui') and LocalPlayer.PlayerGui:FindFirstChild('announcer')
             local winnerLabel = announcerGui and announcerGui:FindFirstChild('Winner')
             if winnerLabel then
                 winnerLabel.Text = getgenv().AnnouncerText or 'On Third Stellar'
@@ -3822,7 +4439,7 @@ CustomAnnouncer:create_textbox({
         getgenv().AnnouncerText = text
 
         if getgenv().CustomAnnouncer then
-            local announcerGui = Player:FindFirstChild('PlayerGui') and Player.PlayerGui:FindFirstChild('announcer')
+            local announcerGui = LocalPlayer and LocalPlayer:FindFirstChild('PlayerGui') and LocalPlayer.PlayerGui:FindFirstChild('announcer')
             local winnerLabel = announcerGui and announcerGui:FindFirstChild('Winner')
             if winnerLabel then
                 winnerLabel.Text = text
