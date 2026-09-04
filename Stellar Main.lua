@@ -113,6 +113,7 @@ local Stellar = {
 		__slashesoffury_max_count = 36,
 		__infinity_active = false,
 		__deathslash_active = false,
+		__freeze_active = false,
 		__auto_spam_distance_multiplier = 1.0,
 		__walkspeed = 16,
 		__jumppower = 50,
@@ -2572,6 +2573,11 @@ function Stellar.autoparry.start()
 
             local isApproaching = approachSpeed > 0.1
             local triggerConditionMet = isApproaching and (tti <= baseReactionWindow or distance <= effectiveReachDistance)
+            
+            -- Fallback: trigger even if ball is frozen (velocity = 0) but already close AND targeted
+            if not triggerConditionMet and isTargeted and distance <= effectiveReachDistance * 0.8 then
+                triggerConditionMet = true
+            end
 
             if isTargeted and triggerConditionMet then
                 if Stellar.__config.__detections.__cooldown_protection then
@@ -4590,4 +4596,4 @@ misc_module:create_button({
 
 -- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.2 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.04 Initialized.", duration = 3 })
