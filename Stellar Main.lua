@@ -4590,4 +4590,4 @@ misc_module:create_button({
 
 -- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.04 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.2 Initialized.", duration = 3 })
