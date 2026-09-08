@@ -2491,7 +2491,7 @@ function Stellar.detection.is_curved(ball)
     end
 
     local sensitivity = math.clamp(Stellar.__properties.__curve_sensitivity / 100, 0.1, 1.0)
-    local maxAllowedDivergence = 0.45 * (1.1 - sensitivity)
+    local maxAllowedDivergence = 0.35 * (1.1 - sensitivity)
 
     if not threatening and (minPredictedDistance > distance * 0.9) and (currentDot < maxAllowedDivergence) then
         return true
@@ -2729,10 +2729,10 @@ end
             local speedFactor = 1.0 + speedBonus
 
             local rangeMultiplier = (0.20 + (rangeScale * 0.08)) * speedFactor
-            local baseReactionWindow = math.max(rangeMultiplier + (pingS * 0.8), 0.05)
+            local baseReactionWindow = math.max(rangeMultiplier + (pingS * 0.7), 0.05)
 
             local accuracyModifier = (Stellar.__properties.__accuracy / 100) * Stellar.__properties.__divisor_multiplier
-            local effectiveReachDistance = (baseReactionWindow * math.max(ballSpeed, 20) * accuracyModifier) + (rangeScale * 1.4 * speedFactor)
+            local effectiveReachDistance = (baseReactionWindow * math.max(ballSpeed, 20) * accuracyModifier) + (rangeScale * 1.3 * speedFactor)
 
             local isApproaching = approachSpeed > 0.1
             local triggerConditionMet = isApproaching
