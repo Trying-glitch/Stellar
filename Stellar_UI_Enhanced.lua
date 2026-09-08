@@ -1722,8 +1722,25 @@ end
                 end
             end)
 
+
+            local Header = Instance.new('TextButton')
+            Header.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+            Header.TextColor3 = Color3.fromRGB(0, 0, 0)
+            Header.BorderColor3 = Color3.fromRGB(0, 0, 0)
+            Header.Text = ''
+            Header.AutoButtonColor = false
+            Header.BackgroundTransparency = 1
+            Header.Name = 'Header'
+            Header.Size = UDim2.new(0, 241, 0, 93)
+            Header.BorderSizePixel = 0
+            Header.TextSize = 14
+            Header.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            Header.Parent = Module
+
             -- ✅ "Used" glow bar: hidden until this module is toggled on for the first time.
             -- Once used, it stays visible (dim) as a history marker, and glows/pulses while the module is currently active.
+            -- Parented to Header (not Module) — Module has a UIListLayout that auto-stacks its
+            -- direct children, which would otherwise steamroll this bar's manual position/size.
             local UsedIndicator = Instance.new('Frame')
             UsedIndicator.Name = 'UsedIndicator'
             UsedIndicator.AnchorPoint = Vector2.new(0, 0)
@@ -1733,7 +1750,7 @@ end
             UsedIndicator.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
             UsedIndicator.BackgroundTransparency = 1 -- fully invisible until first use
             UsedIndicator.ZIndex = 5
-            UsedIndicator.Parent = Module
+            UsedIndicator.Parent = Header
 
             local UsedIndicatorCorner = Instance.new('UICorner')
             UsedIndicatorCorner.CornerRadius = UDim.new(0, 2)
@@ -1760,20 +1777,6 @@ end
                     end
                 end)
             end
-
-            local Header = Instance.new('TextButton')
-            Header.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-            Header.TextColor3 = Color3.fromRGB(0, 0, 0)
-            Header.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Header.Text = ''
-            Header.AutoButtonColor = false
-            Header.BackgroundTransparency = 1
-            Header.Name = 'Header'
-            Header.Size = UDim2.new(0, 241, 0, 93)
-            Header.BorderSizePixel = 0
-            Header.TextSize = 14
-            Header.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            Header.Parent = Module
             
             local Icon = Instance.new('ImageLabel')
             Icon.ImageColor3 = Color3.fromRGB(255, 250, 250)
