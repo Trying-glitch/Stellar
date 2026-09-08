@@ -482,7 +482,10 @@ end
 function Library:get_screen_scale()
     local viewport_size_x = workspace.CurrentCamera.ViewportSize.X
 
-    self._ui_scale = viewport_size_x / 1400
+    -- Base viewport ratio, nudged up a bit for a slightly bigger window,
+    -- clamped so odd viewport sizes (or a misdetected device) can never
+    -- blow the UI up to fill the screen.
+    self._ui_scale = math.clamp((viewport_size_x / 1400) * 1.15, 0.85, 1.35)
 end
 
 
@@ -979,15 +982,6 @@ function Library:create_ui()
     Container.BorderSizePixel = 0
     Container.Parent = Stellar
 
-    -- Scales the entire window (and every descendant) uniformly.
-    -- Bump UI_SCALE up/down to resize the whole menu without touching
-    -- individual Size values everywhere else in the file.
-    local UI_SCALE = 1.18
-    local WindowScale = Instance.new('UIScale')
-    WindowScale.Name = 'WindowScale'
-    WindowScale.Scale = UI_SCALE
-    WindowScale.Parent = Container
-
     -- (font injection removed; original FontFace assignments preserved)
 
     -- Gradient fill for Container (inverted colors)
@@ -1296,15 +1290,13 @@ AnimateGif(Icon, 60, 40, 2, 3, 5, "rbxassetid://74080484918102", 10)
         ContentProvider:PreloadAsync(content)
         self:get_device()
 
-        if self._device == 'Mobile' or self._device == 'Unknown' then
+        self:get_screen_scale()
+        UIScale.Scale = self._ui_scale
+
+        Connections['ui_scale'] = workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(function()
             self:get_screen_scale()
             UIScale.Scale = self._ui_scale
-    
-            Connections['ui_scale'] = workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(function()
-                self:get_screen_scale()
-                UIScale.Scale = self._ui_scale
-            end)
-        end
+        end)
     
         TweenService:Create(Container, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
             Size = UDim2.fromOffset(698, 479)
@@ -1730,15 +1722,19 @@ end
                 end
             end)
 
-            -- Glowing "in use" indicator: a soft bar on the left edge of the
+            -- Glowing "in use" indicator: a bright bar on the left edge of the
             -- module that lights up while this module is toggled on.
+            -- Uses a cool white/blue tone (matching the toggle's "on" color)
+            -- instead of the warm amber already used for the constant border
+            -- glow, so it reads as a distinct on/off state rather than
+            -- blending into the module's normal idle animation.
             local GlowBar = Instance.new('Frame')
             GlowBar.Name = 'ActiveGlowBar'
             GlowBar.AnchorPoint = Vector2.new(0, 0)
             GlowBar.Position = UDim2.new(0, 0, 0, 0)
-            GlowBar.Size = UDim2.new(0, 3, 1, 0)
+            GlowBar.Size = UDim2.new(0, 4, 1, 0)
             GlowBar.BorderSizePixel = 0
-            GlowBar.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
+            GlowBar.BackgroundColor3 = Color3.fromRGB(160, 200, 255)
             GlowBar.BackgroundTransparency = 1
             GlowBar.ZIndex = 6
             GlowBar.Parent = Module
@@ -1753,16 +1749,16 @@ end
             GlowHalo.Name = 'ActiveGlowHalo'
             GlowHalo.AnchorPoint = Vector2.new(0, 0)
             GlowHalo.Position = UDim2.new(0, 0, 0, 0)
-            GlowHalo.Size = UDim2.new(0, 10, 1, 0)
+            GlowHalo.Size = UDim2.new(0, 26, 1, 0)
             GlowHalo.BorderSizePixel = 0
-            GlowHalo.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
+            GlowHalo.BackgroundColor3 = Color3.fromRGB(160, 200, 255)
             GlowHalo.BackgroundTransparency = 1
             GlowHalo.ZIndex = 5
             GlowHalo.Parent = Module
 
             local GlowHaloGradient = Instance.new('UIGradient')
             GlowHaloGradient.Transparency = NumberSequence.new{
-                NumberSequenceKeypoint.new(0, 0.35),
+                NumberSequenceKeypoint.new(0, 0.45),
                 NumberSequenceKeypoint.new(1, 1)
             }
             GlowHaloGradient.Rotation = 0
@@ -1774,15 +1770,22 @@ end
                 if self._running then return end
                 self._running = true
 
+                -- Snap straight to fully lit so it's unmistakable the moment
+                -- the module turns on, then settle into a gentle breathing
+                -- pulse (a much smaller range than the ambient border glow).
+                TweenService:Create(GlowBar, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
+                TweenService:Create(GlowHalo, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
+
                 task.spawn(function()
+                    task.wait(0.2)
                     while self._running and GlowBar and GlowBar.Parent do
-                        TweenService:Create(GlowBar, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.35}):Play()
-                        TweenService:Create(GlowHalo, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.55}):Play()
-                        task.wait(1)
+                        TweenService:Create(GlowBar, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.2}):Play()
+                        TweenService:Create(GlowHalo, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.15}):Play()
+                        task.wait(1.1)
                         if not (self._running and GlowBar and GlowBar.Parent) then break end
-                        TweenService:Create(GlowBar, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
-                        TweenService:Create(GlowHalo, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.3}):Play()
-                        task.wait(1)
+                        TweenService:Create(GlowBar, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+                        TweenService:Create(GlowHalo, TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+                        task.wait(1.1)
                     end
                 end)
             end
