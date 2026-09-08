@@ -3037,43 +3037,47 @@ function Stellar.manual_spam.stop()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- AZURE-STYLE PRECLICK SYSTEM
+-- PRECLICK SYSTEM (Sapphire-style, with configurable sliders)
 -- Tracks ball speeds when NOT targeted at you, then auto-parries when that
--- player gets eliminated while a fast ball was heading toward you
+-- player gets eliminated while a fast ball was heading toward you.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 local PreclickConfig = {
     enabled = false,
     max_kill_distance = 100,
-    speed_threshold = 800,  -- Azure uses 800+ studs/s as the trigger
-    min_samples = 1,        -- how many high-speed samples required
-    random_delay_min = 120, -- ms (Azure uses 120-140ms)
-    random_delay_max = 140,
+    speed_threshold = 800,
+    random_delay_min = 120,   -- ms
+    random_delay_max = 140,   -- ms
+    cooldown = 0.4,
 }
 
 local PreclickState = {
-    sender = nil,         -- current tracked sender
-    speeds = {},          -- speeds[sender] = { speed1, speed2, ... }
-    parried = {},         -- parried[sender] = true while on cooldown
-    connection = nil,     -- PreSimulation connection
-    max_samples = 15,     -- Azure keeps last 15 samples
+    sender = nil,
+    speeds = {},
+    last_parry = 0,
+    connection = nil,
+    max_samples = 15,
+    sender_position = nil,   -- last known position of sender
 }
 
 local function preclick_reset()
     PreclickState.sender = nil
     PreclickState.speeds = {}
+    PreclickState.sender_position = nil
 end
 
 local function startPreclickTracking()
     if PreclickState.connection then return end
 
-    PreclickState.connection = RunService.PreSimulation:Connect(function()
+    PreclickState.connection = RunService.Heartbeat:Connect(function()
         if not PreclickConfig.enabled then return end
         if not Stellar.__properties.__autoparry_enabled then return end
 
+        local now = tick()
+        if now - PreclickState.last_parry < PreclickConfig.cooldown then return end
+
         local sender = PreclickState.sender
         if not sender or sender == "" then return end
-        if PreclickState.parried[sender] then return end
 
         local alive = workspace:FindFirstChild("Alive")
         if not alive then
@@ -3081,75 +3085,66 @@ local function startPreclickTracking()
             return
         end
 
-        -- The sender was eliminated if their ball (model) is gone from Alive.
-        -- In this game, the player model in Alive IS used as the ball reference,
-        -- so if it no longer exists, they died.
-        local ballStillExists = alive:FindFirstChild(sender)
-        if ballStillExists then return end
+        -- Track sender's last known position while alive
+        local senderModel = alive:FindFirstChild(sender)
+        if senderModel then
+            local hrp = senderModel:FindFirstChild("HumanoidRootPart")
+            if hrp and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+                PreclickState.sender_position = hrp.Position
+            end
+            return  -- still alive, don't fire
+        end
 
+        -- Sender was eliminated — check if they had a fast ball
         local speeds = PreclickState.speeds[sender]
         if not speeds or #speeds == 0 then
             preclick_reset()
             return
         end
 
-        -- Check if the sender had at least one fast sample (Azure logic)
+        -- Check if ANY sample was >= speed threshold
         local fastEnough = false
-        local fastCount = 0
         for _, s in ipairs(speeds) do
             if s >= PreclickConfig.speed_threshold then
-                fastCount = fastCount + 1
-                if fastCount >= PreclickConfig.min_samples then
-                    fastEnough = true
-                    break
-                end
+                fastEnough = true
+                break
             end
         end
 
-        if fastEnough then
-            PreclickState.parried[sender] = true
+        if not fastEnough then
+            preclick_reset()
+            return
+        end
 
-            -- Optional distance check using last known position
-            if LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
-                local myPos = LocalPlayer.Character.PrimaryPart.Position
-                local targetChar = workspace.Alive:FindFirstChild(sender)
-                    or workspace.Dead and workspace.Dead:FindFirstChild(sender)
-                if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
-                    local dist = (myPos - targetChar.HumanoidRootPart.Position).Magnitude
-                    if dist > PreclickConfig.max_kill_distance then
-                        PreclickState.parried[sender] = nil
-                        preclick_reset()
-                        return
+        -- Distance check: were they close enough when they died?
+        if PreclickState.sender_position and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+            local myPos = LocalPlayer.Character.PrimaryPart.Position
+            local dist = (myPos - PreclickState.sender_position).Magnitude
+            if dist > PreclickConfig.max_kill_distance then
+                preclick_reset()
+                return
+            end
+        end
+
+        -- All checks passed — fire parry
+        PreclickState.last_parry = now
+
+        local delay = math.random(
+            PreclickConfig.random_delay_min,
+            PreclickConfig.random_delay_max
+        ) / 1000
+
+        task.delay(delay, function()
+            pcall(function()
+                if Stellar and Stellar.parry then
+                    if getgenv().AutoParryMode == "Keypress" then
+                        Stellar.parry.keypress()
+                    else
+                        Stellar.parry.execute_action()
                     end
                 end
-            end
-
-            local delay = math.random(
-                PreclickConfig.random_delay_min,
-                PreclickConfig.random_delay_max
-            ) / 1000
-
-            task.delay(delay, function()
-                pcall(function()
-                    if Stellar and Stellar.parry then
-                        if getgenv().AutoParryMode == "Keypress" then
-                            if Stellar.parry.keypress then
-                                Stellar.parry.keypress()
-                            end
-                        else
-                            if Stellar.parry.execute_action then
-                                Stellar.parry.execute_action()
-                            elseif Stellar.parry.execute then
-                                Stellar.parry.execute()
-                            elseif Stellar.parry.execute_bruteforce then
-                                Stellar.parry.execute_bruteforce()
-                            end
-                        end
-                    end
-                end)
-                PreclickState.parried[sender] = nil
             end)
-        end
+        end)
 
         preclick_reset()
     end)
@@ -3161,7 +3156,7 @@ local function stopPreclickTracking()
         PreclickState.connection = nil
     end
     preclick_reset()
-    PreclickState.parried = {}
+    PreclickState.last_parry = 0
 end
 
 -- Called by autoparry each frame for every ball, regardless of target
@@ -3190,7 +3185,6 @@ Stellar.preclick = {
         Stellar.preclick.enabled = true
         PreclickConfig.enabled = true
         startPreclickTracking()
-        print("[Preclick] Azure-style system started")
     end,
 
     stop = function()
@@ -3198,7 +3192,6 @@ Stellar.preclick = {
         Stellar.preclick.enabled = false
         PreclickConfig.enabled = false
         stopPreclickTracking()
-        print("[Preclick] System stopped")
     end,
 
     set_max_distance = function(distance)
@@ -3209,7 +3202,12 @@ Stellar.preclick = {
         PreclickConfig.speed_threshold = math.max(100, threshold)
     end,
 
-    track_speed = preclick_trackSpeed,  -- exposed for autoparry
+    set_delay = function(min_ms, max_ms)
+        PreclickConfig.random_delay_min = math.max(10, min_ms)
+        PreclickConfig.random_delay_max = math.max(PreclickConfig.random_delay_min, max_ms)
+    end,
+
+    track_speed = preclick_trackSpeed,
 }
 
 Stellar.hitsounds = {
@@ -3436,6 +3434,19 @@ autoparry_module:create_slider({
 	end
 })
 
+autoparry_module:create_checkbox({
+	title = "Randomize Accuracy",
+	flag = "RandomizeAccuracy",
+	callback = function(value)
+		if Stellar then
+			Stellar.__properties.__randomized_accuracy_enabled = value
+			if value and update_randomized_accuracy then
+				pcall(update_randomized_accuracy)
+			end
+		end
+	end
+})
+
 autoparry_module:create_dropdown({
 	title = "Parry Mode",
 	flag = "ParryMode",
@@ -3443,6 +3454,8 @@ autoparry_module:create_dropdown({
 	maximum_options = 1,
 	callback = function(value) getgenv().AutoParryMode = value end
 })
+
+autoparry_module:create_divider({showtopic = true, title = "Curve"})
 
 autoparry_module:create_dropdown({
 	title = "Mode curve",
@@ -3457,7 +3470,7 @@ autoparry_module:create_dropdown({
 	end
 })
 
-autoparry_module:create_divider({})
+autoparry_module:create_divider({showtopic = true, title = "Anti-Curve"})
 
 autoparry_module:create_checkbox({
 	title = "Predictive Anti-Curve",
@@ -3491,20 +3504,7 @@ autoparry_module:create_slider({
 	end
 })
 
-autoparry_module:create_divider({})
-
-autoparry_module:create_checkbox({
-	title = "Randomize Accuracy",
-	flag = "RandomizeAccuracy",
-	callback = function(value)
-		if Stellar then
-			Stellar.__properties.__randomized_accuracy_enabled = value
-			if value and update_randomized_accuracy then
-				pcall(update_randomized_accuracy)
-			end
-		end
-	end
-})
+autoparry_module:create_divider({showtopic = true, title = "Utilities"})
 
 autoparry_module:create_checkbox({
 	title = "Auto Abilities",
@@ -3548,12 +3548,23 @@ triggerbot_module:create_slider({
 	end
 })
 
-triggerbot_module:create_textbox({
-	title = "Triggerbot Keybind",
-	placeholder = "Enter key (A-Z, F1-F12, SPACE, TAB, SHIFT, CTRL, ALT, RETURN)",
+triggerbot_module:create_feature({
+	title = "TB Keybind",
 	flag = "triggerbot_keybind",
-	callback = function(text)
-		local keyCode = stringToKeyCode(text)
+	default = "Unknown",
+	disablecheck = false,
+	callback = function(checked)
+		Stellar.__properties.__triggerbot_enabled = checked
+		TriggerbotFloatingSwitch.IsOn = checked
+		if checked then
+			if Stellar.triggerbot and typeof(Stellar.triggerbot.enable) == "function" then Stellar.triggerbot.enable(true) end
+			if TriggerbotFloatingSwitch.ScreenGui then TriggerbotFloatingSwitch.ScreenGui.Enabled = true end
+		else
+			if Stellar.triggerbot and typeof(Stellar.triggerbot.enable) == "function" then Stellar.triggerbot.enable(false) end
+		end
+	end,
+	keybind_callback = function(keyName)
+		local keyCode = stringToKeyCode(keyName)
 		TriggerbotFloatingSwitch:updateKeybind(keyCode)
 	end
 })
@@ -3574,14 +3585,39 @@ local preclick_module = AutoparryTab:create_module({
 })
 
 preclick_module:create_slider({
+    title = "Speed Threshold",
+    flag = "PreclickSpeedThreshold",
+    minimum_value = 500,
+    maximum_value = 800,
+    value = 600,
+    round_number = true,
+    callback = function(value)
+        Stellar.preclick.set_speed_threshold(value)
+    end
+})
+
+preclick_module:create_slider({
     title = "Max Kill Distance",
     flag = "PreclickMaxDistance",
     minimum_value = 10,
-    maximum_value = 150,
+    maximum_value = 200,
     value = 100,
     round_number = true,
     callback = function(value)
         Stellar.preclick.set_max_distance(value)
+    end
+})
+
+preclick_module:create_slider({
+    title = "Delay (ms)",
+    flag = "PreclickDelay",
+    minimum_value = 50,
+    maximum_value = 300,
+    value = 140,
+    round_number = true,
+    callback = function(value)
+        -- Both min and max set to the slider value ±10ms
+        Stellar.preclick.set_delay(math.max(50, value - 10), value)
     end
 })
 
@@ -3650,7 +3686,7 @@ local detection_module = DetectionTab:create_module({
 	callback = function(state) end
 })
 
-detection_module:create_divider({})
+detection_module:create_divider({ disableline = true, showtopic = true, title = "Abilities" })
 
 detection_module:create_checkbox({
 	title = "Phantom",
@@ -4986,4 +5022,4 @@ misc_module:create_button({
 
 -- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.4 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.4.7 Initialized.", duration = 3 })
