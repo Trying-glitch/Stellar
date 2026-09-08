@@ -3293,6 +3293,14 @@ end
                 end;
 
                 local UseF_Var = nil;
+
+                if not settings.disablecheck then
+                   task.defer(function()
+                      if settings.callback then
+                         settings.callback(checked)
+                       end
+                    end)
+                end
             
                 if not settings.disablecheck then
                     local Checkbox = Instance.new("TextButton")
@@ -3334,27 +3342,35 @@ end
                 end;
             
                 KeybindButton.MouseButton1Click:Connect(function()
-                    KeybindBox.Text = "..."
-                    local inputConnection
-                    inputConnection = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
-                        if gameProcessed then return end
-                        if input.UserInputType == Enum.UserInputType.Keyboard then
-                            local newKey = input.KeyCode.Name
-                            Library._config._flags[settings.flag].BIND = newKey
-                            if newKey ~= "Unknown" then
-                                KeybindBox.Text = newKey;
-                            end;
-                            Config:save(game.GameId, Library._config) -- Save new keybind
-                            inputConnection:Disconnect()
-                        elseif input.UserInputType == Enum.UserInputType.MouseButton3 then
-                            Library._config._flags[settings.flag].BIND = "Unknown"
-                            KeybindBox.Text = "..."
-                            Config:save(game.GameId, Library._config)
-                            inputConnection:Disconnect()
-                        end
-                    end)
-                    Connections["keybind_input_" .. settings.flag] = inputConnection
-                end)
+        KeybindBox.Text = "..."
+        local inputConnection
+        inputConnection = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType == Enum.UserInputType.Keyboard then
+                local newKey = input.KeyCode.Name
+                Library._config._flags[settings.flag].BIND = newKey
+                if newKey ~= "Unknown" then
+                    KeybindBox.Text = newKey;
+                end;
+                Config:save(game.GameId, Library._config)
+                inputConnection:Disconnect()
+                -- 🔧 FIX: Notify main script of new keybind
+                if settings.keybind_callback then
+                    settings.keybind_callback(newKey)
+                end
+            elseif input.UserInputType == Enum.UserInputType.MouseButton3 then
+                Library._config._flags[settings.flag].BIND = "Unknown"
+                KeybindBox.Text = "..."
+                Config:save(game.GameId, Library._config)
+                inputConnection:Disconnect()
+                -- 🔧 FIX: Notify main script keybind was cleared
+                if settings.keybind_callback then
+                    settings.keybind_callback("Unknown")
+                end
+            end
+        end)
+        Connections["keybind_input_" .. settings.flag] = inputConnection
+    end)
             
                 local keyPressConnection
                 keyPressConnection = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
