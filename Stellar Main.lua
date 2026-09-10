@@ -27,9 +27,41 @@ local Debris = cloneref(game:GetService('Debris'))
 local ReplicatedStorage = cloneref(game:GetService('ReplicatedStorage'))
 local Stats = cloneref(game:GetService('Stats'))
 
+-- ═══════════════════════════════════════════════════════════════
+-- REAL DEVICE SNAPSHOT (UI-Scale Protection vs Device Spoofer)
+-- ═══════════════════════════════════════════════════════════════
+if not getgenv()._ZX_REAL_DEVICE_STATE then
+	getgenv()._ZX_REAL_DEVICE_STATE = {
+		Touch    = UserInputService.TouchEnabled,
+		Mouse    = UserInputService.MouseEnabled,
+		Keyboard = UserInputService.KeyboardEnabled,
+		Gamepad  = UserInputService.GamepadEnabled,
+	}
+end
+
 -- Stellar UI Library Initialization
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Trying-glitch/Stellar/refs/heads/main/Stellar%20UI.lua"))()
 local library = Library.new()
+-- Force Stellar UI to detect device from the REAL snapshot, not the spoof
+do
+	local _orig_get_device = Library.get_device
+	local real = getgenv()._ZX_REAL_DEVICE_STATE
+	function Library:get_device()
+		if real then
+			if real.Touch then
+				self._device = 'Mobile'
+			elseif real.Keyboard and real.Mouse then
+				self._device = 'PC'
+			elseif real.Gamepad then
+				self._device = 'Console'
+			else
+				self._device = 'Unknown'
+			end
+			return
+		end
+		return _orig_get_device(self)
+	end
+end
 library:set_background({
     image = 77301388832536,
     transparency = 0.2,
@@ -3613,6 +3645,395 @@ function Stellar.emotes.start_loop()
 		end
 	end)
 end
+Stellar.device_spoofer = {
+	__enabled = false,
+	__device  = "PC",
+	__hooked  = false,
+	__armed   = false,
+}
+
+local DEVICE_PROPS = {
+	["PC"]      = { MouseEnabled = true,  KeyboardEnabled = true,  TouchEnabled = false, GamepadEnabled = false },
+	["Phone"]   = { MouseEnabled = false, KeyboardEnabled = false, TouchEnabled = true,  GamepadEnabled = false },
+	["Tablet"]  = { MouseEnabled = false, KeyboardEnabled = false, TouchEnabled = true,  GamepadEnabled = false },
+	["Console"] = { MouseEnabled = false, KeyboardEnabled = false, TouchEnabled = false, GamepadEnabled = true  },
+}
+
+local SPOOFER_FILE      = "StellarDeviceSpoofer.cfg"
+local SPOOFER_STUB_FILE = "StellarDeviceSpoofer.stub.lua"
+
+local UI_PROTECTED_KEYS = { MouseEnabled = true, KeyboardEnabled = true, TouchEnabled = true, GamepadEnabled = true }
+local _checkcaller = checkcaller or function() return false end
+
+-- Stub injected via queue_on_teleport (self re-arming, UI-scale safe)
+local SPOOFER_STUB = [==[
+task.spawn(function()
+	local cloneref        = cloneref or function(o) return o end
+	local newcclosure     = newcclosure or function(f) return f end
+	local getrawmetatable = getrawmetatable or function() return {} end
+	local setreadonly     = setreadonly or function() end
+	local is_caller_ours  = checkcaller or function() return false end
+	local HttpService     = cloneref(game:GetService("HttpService"))
+	local UISvc           = cloneref(game:GetService("UserInputService"))
+
+	-- ★ Snapshot REAL device BEFORE hooking (UI scale protection)
+	if not getgenv()._ZX_REAL_DEVICE_STATE then
+		pcall(function()
+			getgenv()._ZX_REAL_DEVICE_STATE = {
+				Touch = UISvc.TouchEnabled, Mouse = UISvc.MouseEnabled,
+				Keyboard = UISvc.KeyboardEnabled, Gamepad = UISvc.GamepadEnabled,
+			}
+		end)
+	end
+
+	local function rearm()
+		pcall(function()
+			if queue_on_teleport and isfile and isfile("StellarDeviceSpoofer.stub.lua") then
+				queue_on_teleport(readfile("StellarDeviceSpoofer.stub.lua"))
+			end
+		end)
+	end
+
+	-- Main script already hooked this session → skip, but stay armed
+	if getgenv()._ZX_SPOOF_HOOK_ACTIVE then rearm() return end
+
+	local cfg = nil
+	pcall(function()
+		if isfile and isfile("StellarDeviceSpoofer.cfg") and readfile then
+			cfg = HttpService:JSONDecode(readfile("StellarDeviceSpoofer.cfg"))
+		end
+	end)
+	if not cfg or not cfg.enabled or not cfg.device then
+		pcall(function()
+			if delfile and isfile and isfile("StellarDeviceSpoofer.stub.lua") then delfile("StellarDeviceSpoofer.stub.lua") end
+		end)
+		return
+	end
+
+	local DEVICE_PROPS = {
+		["PC"]      = { MouseEnabled = true,  KeyboardEnabled = true,  TouchEnabled = false, GamepadEnabled = false },
+		["Phone"]   = { MouseEnabled = false, KeyboardEnabled = false, TouchEnabled = true,  GamepadEnabled = false },
+		["Tablet"]  = { MouseEnabled = false, KeyboardEnabled = false, TouchEnabled = true,  GamepadEnabled = false },
+		["Console"] = { MouseEnabled = false, KeyboardEnabled = false, TouchEnabled = false, GamepadEnabled = true  },
+	}
+	local device = cfg.device
+	local props = DEVICE_PROPS[device]
+	if not props then return end
+	local UI_KEYS = { MouseEnabled = true, KeyboardEnabled = true, TouchEnabled = true, GamepadEnabled = true }
+
+	local RS = cloneref(game:GetService("ReplicatedStorage"))
+	local Players = cloneref(game:GetService("Players"))
+	local LP = Players.LocalPlayer
+	while not LP do task.wait() LP = Players.LocalPlayer end
+	if not LP.Character then LP.CharacterAdded:Wait() end
+
+	local function wfc(parent, name, timeout)
+		local t = tick()
+		while tick() - t < (timeout or 20) do
+			local c = parent:FindFirstChild(name)
+			if c then return c end task.wait(0.2)
+		end
+	end
+
+	wfc(RS, "UserInputService", 20); wfc(RS, "ClientGameModules", 20)
+	local dlF = RS:FindFirstChild("ClientGameModules")
+	if dlF then wfc(dlF, "DeviceListener", 20) end
+	local ps = wfc(LP, "PlayerScripts", 20)
+	if ps then local cl = wfc(ps, "Client", 20) if cl then wfc(cl, "DeviceChecker", 20) end end
+	local pkgs = wfc(RS, "Packages", 20)
+	if pkgs then
+		local idx = wfc(pkgs, "_Index", 20)
+		if idx then
+			local sl = wfc(idx, "sleitnick_net@0.1.0", 20)
+			if sl then local n = wfc(sl, "net", 20) if n then wfc(n, "RF/GetDeviceTypeForPlayer", 20) end end
+		end
+	end
+	task.wait(1)
+
+	pcall(function()
+		local mod = require(RS:WaitForChild("UserInputService"))
+		local mt = getrawmetatable(mod)
+		local old = mt.__index
+		setreadonly(mt, false)
+		mt.__index = newcclosure(function(self, key)
+			if is_caller_ours() and UI_KEYS[key] then return old(self, key) end  -- ★ UI sees REAL device
+			if props[key] ~= nil then return props[key] end
+			return old(self, key)
+		end)
+		setreadonly(mt, true)
+	end)
+
+	pcall(function()
+		local dl = require(RS.ClientGameModules.DeviceListener)
+		if type(dl) == "table" then
+			rawset(dl, "Device", device)
+			rawset(dl, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+			if dl.State and dl.State.Set then dl.State:Set(device) end
+		end
+	end)
+
+	pcall(function()
+		local dc = require(LP.PlayerScripts.Client.DeviceChecker)
+		if type(dc) == "table" then
+			rawset(dc, "GetDeviceType", function() return device end)
+			rawset(dc, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+		end
+	end)
+
+	pcall(function()
+		local rf = RS.Packages._Index["sleitnick_net@0.1.0"].net:WaitForChild("RF/GetDeviceTypeForPlayer", 5)
+		if rf then rf.OnClientInvoke = function() return device end end
+	end)
+
+	getgenv()._ZX_SPOOF_HOOK_ACTIVE = true
+
+	task.spawn(function()
+		while LP and LP.Parent do
+			task.wait(1)
+			pcall(function()
+				local dl = require(RS.ClientGameModules.DeviceListener)
+				if type(dl) == "table" and dl.Device ~= device then
+					rawset(dl, "Device", device)
+					rawset(dl, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+				end
+			end)
+		end
+	end)
+
+	rearm()  -- ★ armed again for the NEXT teleport
+	print("[Stellar Spoofer] Applied: " .. device)
+end)
+]==]
+
+local function saveSpoofConfig(device, enabled)
+	pcall(writefile, SPOOFER_FILE, HttpService:JSONEncode({ device = device, enabled = enabled }))
+end
+
+local function loadSpoofConfig()
+	local loaded = false
+	pcall(function()
+		if isfile(SPOOFER_FILE) then
+			local cfg = HttpService:JSONDecode(readfile(SPOOFER_FILE))
+			if cfg and cfg.device and DEVICE_PROPS[cfg.device] then
+				Stellar.device_spoofer.__device = cfg.device
+				Stellar.device_spoofer.__enabled = (cfg.enabled == true)
+				loaded = true
+			end
+		end
+	end)
+	return loaded
+end
+
+local function queueSpoof()
+	pcall(function()
+		if not (queue_on_teleport and writefile) then return end
+		writefile(SPOOFER_STUB_FILE, SPOOFER_STUB)          -- stub re-arm source
+		queue_on_teleport(SPOOFER_STUB)
+		Stellar.device_spoofer.__armed = true
+	end)
+end
+
+local function disarmSpoof()
+	Stellar.device_spoofer.__armed = false
+	pcall(function()
+		if delfile and isfile and isfile(SPOOFER_STUB_FILE) then delfile(SPOOFER_STUB_FILE) end
+	end)
+end
+
+function Stellar.device_spoofer.apply(device)
+	local props = DEVICE_PROPS[device]
+	if not props then return end
+
+	Stellar.device_spoofer.__device = device
+	Stellar.device_spoofer.__enabled = true
+
+	-- ① Hook custom UserInputService module
+	pcall(function()
+		local mod = require(ReplicatedStorage:WaitForChild("UserInputService"))
+		if not Stellar.device_spoofer.__hooked and not getgenv()._ZX_SPOOF_HOOK_ACTIVE then
+			local mt = getrawmetatable(mod)
+			local old = mt.__index
+			setreadonly(mt, false)
+			mt.__index = newcclosure(function(self, key)
+				if _checkcaller() and UI_PROTECTED_KEYS[key] then  -- ★ our env = REAL values
+					return old(self, key)
+				end
+				local cfg = DEVICE_PROPS[Stellar.device_spoofer.__device]
+				if cfg and cfg[key] ~= nil then return cfg[key] end
+				return old(self, key)
+			end)
+			setreadonly(mt, true)
+			getgenv()._ZX_SPOOF_HOOK_ACTIVE = true
+		end
+		Stellar.device_spoofer.__hooked = true
+	end)
+
+	-- ② Patch DeviceListener
+	pcall(function()
+		local dl = require(ReplicatedStorage.ClientGameModules.DeviceListener)
+		if type(dl) == "table" then
+			rawset(dl, "Device", device)
+			rawset(dl, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+			if dl.State and dl.State.Set then dl.State:Set(device) end
+		end
+	end)
+
+	-- ③ Patch DeviceChecker
+	pcall(function()
+		local dc = require(LocalPlayer.PlayerScripts.Client.DeviceChecker)
+		if type(dc) == "table" then
+			rawset(dc, "GetDeviceType", function() return device end)
+			rawset(dc, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+		end
+	end)
+
+	-- ④ Set RF callback
+	pcall(function()
+		local rf = ReplicatedStorage.Packages._Index["sleitnick_net@0.1.0"].net
+			:WaitForChild("RF/GetDeviceTypeForPlayer", 5)
+		if rf then rf.OnClientInvoke = function() return device end end
+	end)
+
+	-- ⑤ Update Stellar mobile detection
+	Stellar.__properties.__is_mobile = props.TouchEnabled and not props.MouseEnabled
+
+	saveSpoofConfig(device, true)
+	queueSpoof()
+end
+
+-- ★ NEW: no rejoin — just waits, applies when you teleport
+function Stellar.device_spoofer.arm_for_teleport()
+	local device = Stellar.device_spoofer.__device
+	if not DEVICE_PROPS[device] then return end
+	Stellar.device_spoofer.__enabled = true
+	saveSpoofConfig(device, true)
+	queueSpoof()
+	Library.SendNotification({
+		title = "Device Spoofer",
+		text = "Armed ✔ Spoof as " .. device .. " will apply the moment you teleport — no rejoin needed.",
+		duration = 4
+	})
+end
+
+function Stellar.device_spoofer.disable()
+	Stellar.device_spoofer.__enabled = false
+	pcall(function()
+		local dl = require(ReplicatedStorage.ClientGameModules.DeviceListener)
+		if type(dl) == "table" then
+			rawset(dl, "Device", "Phone")
+			rawset(dl, "IsMobile", function() return true end)
+			if dl.State and dl.State.Set then dl.State:Set("Phone") end
+		end
+	end)
+	pcall(function()
+		local dc = require(LocalPlayer.PlayerScripts.Client.DeviceChecker)
+		if type(dc) == "table" then
+			rawset(dc, "GetDeviceType", function() return "Mobile" end)
+			rawset(dc, "IsMobile", function() return true end)
+		end
+	end)
+	Stellar.__properties.__is_mobile = true
+	saveSpoofConfig(Stellar.device_spoofer.__device, false)
+	disarmSpoof()
+end
+
+-- ★ Instant rejoin + spoof
+function Stellar.device_spoofer.rejoin()
+	local device = Stellar.device_spoofer.__device
+	Stellar.device_spoofer.__enabled = true
+	saveSpoofConfig(device, true)
+	queueSpoof()
+	Library.SendNotification({ title = "Device Spoofer", text = "Rejoining instantly — spoof as " .. device, duration = 2 })
+	task.delay(0.2, function()
+		pcall(function()
+			game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
+		end)
+	end)
+end
+
+loadSpoofConfig()
+
+-- ★ FIXED: auto-apply on startup (old version never ran — loadSpoofConfig returned nil)
+task.spawn(function()
+	if not loadSpoofConfig() then return end
+	if not Stellar.device_spoofer.__enabled then return end
+
+	local device = Stellar.device_spoofer.__device
+
+	local function waitForModule(path, timeout)
+		local obj = ReplicatedStorage
+		for _, name in ipairs(path) do
+			obj = obj:WaitForChild(name, timeout or 15)
+			if not obj then return nil end
+		end
+		return obj
+	end
+
+	waitForModule({"UserInputService"}, 15)
+	waitForModule({"ClientGameModules", "DeviceListener"}, 15)
+
+	local client = LocalPlayer:WaitForChild("PlayerScripts", 15)
+	if client then client:WaitForChild("Client", 15) end
+	if client and client:FindFirstChild("Client") then
+		client.Client:WaitForChild("DeviceChecker", 15)
+	end
+
+	waitForModule({"Packages", "_Index", "sleitnick_net@0.1.0", "net", "RF/GetDeviceTypeForPlayer"}, 15)
+	task.wait(2)
+
+	Stellar.device_spoofer.apply(device)
+	Library.SendNotification({ title = "Device Spoofer", text = "Auto-applied after teleport: " .. device, duration = 3 })
+	print("[Stellar] Device Spoofer auto-applied: " .. device)
+end)
+-- ═══════════════════════════════════════════════════════════════
+-- AUTO-APPLY ON STARTUP — waits for all modules to exist
+-- ═══════════════════════════════════════════════════════════════
+task.spawn(function()
+	local wasLoaded = loadSpoofConfig()
+	if not wasLoaded then return end
+
+	local device = Stellar.device_spoofer.__device
+
+	-- Wait for ALL required modules to be available
+	local function waitForModule(path, timeout)
+		local obj = ReplicatedStorage
+		for _, name in ipairs(path) do
+			obj = obj:WaitForChild(name, timeout or 15)
+			if not obj then return nil end
+		end
+		return obj
+	end
+
+	-- 1. Wait for UserInputService module
+	waitForModule({"UserInputService"}, 15)
+
+	-- 2. Wait for DeviceListener
+	waitForModule({"ClientGameModules", "DeviceListener"}, 15)
+
+	-- 3. Wait for DeviceChecker
+	local client = LocalPlayer:WaitForChild("PlayerScripts", 15)
+	if client then client:WaitForChild("Client", 15) end
+	if client and client:FindFirstChild("Client") then
+		client.Client:WaitForChild("DeviceChecker", 15)
+	end
+
+	-- 4. Wait for RF remote
+	waitForModule({"Packages", "_Index", "sleitnick_net@0.1.0", "net", "RF/GetDeviceTypeForPlayer"}, 15)
+
+	-- Extra safety wait
+	task.wait(2)
+
+	-- NOW apply
+	Stellar.device_spoofer.apply(device)
+
+	Library.SendNotification({
+		title = "Device Spoofer",
+		text = "Auto-applied after rejoin: " .. device,
+		duration = 3
+	})
+
+	print("[Stellar] Device Spoofer auto-applied: " .. device)
+end)
 
 -- UI MODULE BINDINGS & EXPANDED CONFIGURATION SLIDERS
 local autoparry_module = AutoparryTab:create_module({
@@ -5046,6 +5467,66 @@ local thunder_dash_module = MiscTab:create_module({
 	end
 })
 
+local device_spoofer_module = MiscTab:create_module({
+	title = "Device Spoofer",
+	description = "Spoof device type (survives rejoin)",
+	flag = "DeviceSpooferModule",
+	section = "left",
+	callback = function(state)
+		if state then
+			Stellar.device_spoofer.apply(Stellar.device_spoofer.__device)
+			Library.SendNotification({
+				title = "Device Spoofer",
+				text = "Spoofing as: " .. Stellar.device_spoofer.__device,
+				duration = 2
+			})
+		else
+			Stellar.device_spoofer.disable()
+			Library.SendNotification({
+				title = "Device Spoofer",
+				text = "Spoof removed",
+				duration = 2
+			})
+		end
+	end
+})
+
+device_spoofer_module:create_dropdown({
+	title = "Spoof As",
+	flag = "DeviceSpoofType",
+	options = { "PC", "Phone", "Tablet", "Console" },
+	multi_dropdown = false,
+	maximum_options = 4,
+	callback = function(value)
+		Stellar.device_spoofer.__device = value
+		Stellar.device_spoofer.apply(value)
+		Library.SendNotification({
+			title = "Device Spoofer",
+			text = "Spoofing as: " .. value,
+			duration = 2
+		})
+	end
+})
+
+device_spoofer_module:create_button({
+	title = "Arm Spoof",
+	callback = function()
+		Stellar.device_spoofer.arm_for_teleport()
+	end
+})
+
+device_spoofer_module:create_button({
+	title = "Rejoin",
+	callback = function()
+		Stellar.device_spoofer.rejoin()
+	end
+})
+
+device_spoofer_module:create_paragraph({
+	title = "Infos",
+	text = "Arm Spoof mean wait till you teleport then apply the spoof. Spoof required to rejoin for it to work."
+})
+
 local Event = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("WinnerText")
 local ConnectionHooked = false
 
@@ -5165,6 +5646,7 @@ misc_module:create_button({
 	callback = function()
 		Stellar.autoparry.stop()
 		Stellar.__triggerbot.__enabled = false
+      pcall(Stellar.device_spoofer.disable)
 		Stellar.staff_detection.stop()
 		Stellar.__properties.__modify_player = false
 		Stellar.__properties.__ability_esp_enabled = false
@@ -5240,4 +5722,4 @@ misc_module:create_button({
 
 -- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.4.9 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.7 Initialized.", duration = 3 })
