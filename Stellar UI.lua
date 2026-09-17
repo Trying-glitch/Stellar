@@ -1721,19 +1721,6 @@ end
                 end
             end)
             
-            local SideIndicator = Instance.new('Frame')
-            SideIndicator.Name = 'SideIndicator'
-            SideIndicator.BackgroundColor3 = Color3.fromRGB(68, 68, 102)  -- Inactive (muted)
-            SideIndicator.BorderSizePixel = 0
-            SideIndicator.Size = UDim2.new(0, 3, 0, 30)  -- 3px width, 30px height
-            SideIndicator.Position = UDim2.new(0, 8, 0, 32)  -- 8px left, 32px top (centered)
-            SideIndicator.ClipsDescendants = false
-            SideIndicator.Parent = Module
-
-            local IndicatorCorner = Instance.new('UICorner')
-            IndicatorCorner.CornerRadius = UDim.new(0, 2)
-            IndicatorCorner.Parent = SideIndicator
-            
             local Header = Instance.new('TextButton')
             Header.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
             Header.TextColor3 = Color3.fromRGB(0, 0, 0)
@@ -1906,16 +1893,6 @@ end
                 self._state = state
 
                 if self._state then
-                    -- SIDE INDICATOR - ACTIVE (YELLOW)
-                    SideIndicator.BackgroundColor3 = Color3.fromRGB(255, 235, 59)
-                    if not SideIndicator:FindFirstChild('UIStroke') then
-                        local glow = Instance.new('UIStroke')
-                        glow.Color = Color3.fromRGB(255, 235, 59)
-                        glow.Thickness = 2
-                        glow.Transparency = 0.3
-                        glow.Parent = SideIndicator
-                    end
-                    
                     TweenService:Create(Module, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
                         Size = UDim2.fromOffset(241, 93 + self._size + self._multiplier)
                     }):Play()
@@ -1929,11 +1906,6 @@ end
                         Position = UDim2.fromScale(0.53, 0.5)
                     }):Play()
                 else
-                    -- SIDE INDICATOR - INACTIVE (MUTED GRAY)
-                    SideIndicator.BackgroundColor3 = Color3.fromRGB(68, 68, 102)
-                    local glow = SideIndicator:FindFirstChild('UIStroke')
-                    if glow then glow:Destroy() end
-                    
                     TweenService:Create(Module, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
                         Size = UDim2.fromOffset(241, 93)
                     }):Play()
