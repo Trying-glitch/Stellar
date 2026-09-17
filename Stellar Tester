@@ -1,4 +1,3 @@
-setfpscap(9999)
 local cloneref = cloneref or function(obj) return obj end
 local getconnections = getconnections or function() return {} end
 local getupvalues = debug.getupvalues or getupvalues or function() return {} end
@@ -26,6 +25,24 @@ local CoreGui = cloneref(game:GetService('CoreGui'))
 local Debris = cloneref(game:GetService('Debris'))
 local ReplicatedStorage = cloneref(game:GetService('ReplicatedStorage'))
 local Stats = cloneref(game:GetService('Stats'))
+
+-- Re-execution guard: tear the previous run down before starting
+if getgenv()._StellarTeardown then pcall(getgenv()._StellarTeardown) end
+local _TEARDOWN = {}
+local function track(conn)
+	table.insert(_TEARDOWN, function()
+		if conn and conn.Connected then conn:Disconnect() end
+	end)
+	return conn
+end
+local function track_thread(th)
+	table.insert(_TEARDOWN, function() pcall(task.cancel, th) end)
+	return th
+end
+getgenv()._StellarTeardown = function()
+	for i = #_TEARDOWN, 1, -1 do pcall(_TEARDOWN[i]) end
+	table.clear(_TEARDOWN)
+end
 
 -- ═══════════════════════════════════════════════════════════════
 -- REAL DEVICE SNAPSHOT (UI-Scale Protection vs Device Spoofer)
@@ -69,11 +86,11 @@ library:set_background({
 
 -- UI Tab Allocation
 local AutoparryTab = library:create_tab("Autoparry", "rbxassetid://76499042599127")
-local SpamTab = library:create_tab("Spam Core", "rbxassetid://126017907477623")
-local DetectionTab = library:create_tab("Detection", "rbxassetid://126017907477623")
+local SpamTab = library:create_tab("Spam Core", "rbxassetid://7733955740")
+local DetectionTab = library:create_tab("Detection", "rbxassetid://7734056608")
 local PlayerTab = library:create_tab("Player Mod", "rbxassetid://126017907477623")
-local VisualsTab = library:create_tab("Visuals", "rbxassetid://126017907477623")
-local MiscTab = library:create_tab("Misc Spec", "rbxassetid://126017907477623")
+local VisualsTab = library:create_tab("Visuals", "rbxassetid://7733774602")
+local MiscTab = library:create_tab("Misc Spec", "rbxassetid://7733917120")
 
 -- Sword Slash Color Configuration
 -- FIX: Only uses solid color mode now, no rainbow/random effects
@@ -137,6 +154,7 @@ local Stellar = {
 		__modify_player = false,
 		__CameraEnabled = false,
 		__CameraFOV = 70,
+		__skin_changer = nil,
 		__immortality_enabled = false,
 		__immortality_speed_bypass = true,
 		__immortality_angle = 72,
@@ -159,7 +177,10 @@ local Stellar = {
 		__bgm_loop = false,
 		__active_emote_track = nil,
 		__selected_emote = "",
-		__emotes_enabled = false    
+		__emotes_enabled = false,
+		__winstreak_enabled = false,
+		__winstreak_value = 0,
+		__winstreak_display = nil
 	},
 	__config = {
 		__curve_names = {
@@ -218,6 +239,7 @@ local sword_slash_system = {
 	__active = false,
 	__connections = {},
 	__rainbow_loop = nil,
+	__reassert = setmetatable({}, { __mode = "k" }),   -- ← add
 
 	get_current_color = function(self)
 		local color = SwordSlashConfig.__color
@@ -282,11 +304,20 @@ local sword_slash_system = {
 		end
 
 		-- Reassert for a short window in case of tweens
+		if self.__reassert[parryFxPart] then return end
+		self.__reassert[parryFxPart] = true
+
 		local start_time = tick()
 		local conn
 		conn = RunService.RenderStepped:Connect(function()
 			if not parryFxPart.Parent or (tick() - start_time) > 1.2 then
-				if conn then conn:Disconnect() end
+				self.__reassert[parryFxPart] = nil
+				conn:Disconnect()
+				for i = #self.__connections, 1, -1 do
+					if self.__connections[i] == conn then
+						table.remove(self.__connections, i); break
+					end
+				end
 				return
 			end
 			local c = self:get_current_color()
@@ -343,6 +374,7 @@ local sword_slash_system = {
 			conn:Disconnect()
 		end
 		table.clear(self.__connections)
+		table.clear(self.__reassert)
 	end,
 
 	stop = function(self)
@@ -355,6 +387,163 @@ local sword_slash_system = {
 		for _, inst in ipairs(CollectionService:GetTagged("ParryFX")) do
 			self:color_parry_fx_object(inst)
 		end
+	end
+}
+
+--winstreak
+Stellar.winstreak_changer = {
+	__enabled = false,
+	__fake_value = 0,
+	__fire_icon_orange = "rbxassetid://89658127170771",
+	__fire_icon_blue = "rbxassetid://75598166115655",
+
+	get_icon = function(self, n)
+		return n >= 10 and self.__fire_icon_blue or self.__fire_icon_orange
+	end,
+
+	make_overhead_text = function(self, n)
+		return string.format('<b><stroke color="rgb(0, 0, 0)" thickness="2"><font color="#ffffff">%d</font></stroke></b>', n)
+	end,
+
+	update_overhead = function(self)
+		local player = Players.LocalPlayer
+		local char = player and player.Character
+		if not char then return end
+
+		local display = char:FindFirstChild("WinStreakDisplay")
+		if not display then
+			local head = char:FindFirstChild("Head")
+			if not head then return end
+			display = Instance.new("BillboardGui")
+			display.Name = "WinStreakDisplay"
+			display.Adornee = head
+			display.Size = UDim2.new(0, 200, 0, 50)
+			display.StudsOffset = Vector3.new(0, 3.5, 0)
+			display.MaxDistance = 200
+			display.AlwaysOnTop = true
+			display.Parent = char
+		end
+
+		display.Enabled = true
+		display.AlwaysOnTop = true
+
+		local main = display:FindFirstChild("Main")
+		if not main then
+			main = Instance.new("Frame")
+			main.Name = "Main"
+			main.Size = UDim2.new(1, 0, 1, 0)
+			main.BackgroundTransparency = 1
+			main.Parent = display
+		end
+
+		if self.__fake_value <= 0 then
+			display.Enabled = false
+			return
+		end
+
+		local icon = main:FindFirstChild("Icon")
+		if not icon then
+			icon = Instance.new("ImageLabel")
+			icon.Name = "Icon"
+			icon.Size = UDim2.new(1.25, 0, 1.25, 0)
+			icon.Position = UDim2.new(0.5, 0, 0.899999976, 0)
+			icon.BackgroundTransparency = 1
+			icon.Parent = main
+			local aspect = Instance.new("UIAspectRatioConstraint")
+			aspect.Parent = icon
+		end
+
+		icon.Image = self:get_icon(self.__fake_value)
+		icon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+		icon.Visible = true
+
+		local value = main:FindFirstChild("Value")
+		if not value then
+			value = Instance.new("TextLabel")
+			value.Name = "Value"
+			value.Size = UDim2.new(1, 0, 1, 0)
+			value.BackgroundTransparency = 1
+			value.TextScaled = true
+			value.Font = Enum.Font.SourceSansBold
+			value.TextColor3 = Color3.fromRGB(255, 255, 255)
+			value.TextStrokeColor3 = Color3.new(0, 0, 0)
+			value.TextStrokeTransparency = 0
+			value.RichText = true
+			value.Parent = main
+		end
+
+		value.Text = self:make_overhead_text(self.__fake_value)
+		value.Visible = true
+	end,
+
+	start = function(self)
+		if self.__enabled then return end
+		self.__enabled = true
+		Stellar.__properties.__winstreak_enabled = true
+		
+		local player = Players.LocalPlayer
+		if player.Character then
+			self:update_overhead()
+		end
+
+		-- Watch for character respawns
+		local conn = player.CharacterAdded:Connect(function(char)
+			char:WaitForChild("HumanoidRootPart", 5)
+			task.wait(0.5)
+			self:update_overhead()
+		end)
+		table.insert(Stellar.__properties.__connections, conn)
+
+		-- Regular update loop
+		local loop = RunService.Heartbeat:Connect(function()
+			pcall(function() self:update_overhead() end)
+		end)
+		table.insert(Stellar.__properties.__connections, loop)
+
+		Library.SendNotification({
+			title = "Winstreak Changer",
+			text = "Enabled | Value: " .. self.__fake_value,
+			duration = 2
+		})
+	end,
+
+	stop = function(self)
+		if not self.__enabled then return end
+		self.__enabled = false
+		Stellar.__properties.__winstreak_enabled = false
+		
+		local player = Players.LocalPlayer
+		if player and player.Character then
+			local display = player.Character:FindFirstChild("WinStreakDisplay")
+			if display then
+				display:Destroy()
+			end
+		end
+
+		Library.SendNotification({
+			title = "Winstreak Changer",
+			text = "Disabled",
+			duration = 2
+		})
+	end,
+
+	set_value = function(self, value)
+		if type(value) ~= "number" or value < 0 then
+			Library.SendNotification({
+				title = "Winstreak Changer",
+				text = "Invalid value! Must be >= 0",
+				duration = 2
+			})
+			return
+		end
+		self.__fake_value = value
+		Stellar.__properties.__winstreak_value = value
+		self:update_overhead()
+		Library.SendNotification({
+			title = "Winstreak Changer",
+			text = "Value set to: " .. value,
+			duration = 2
+		})
 	end
 }
 
@@ -523,6 +712,8 @@ local function buildFloatingToggleSwitch()
 	if CoreGui:FindFirstChild("StellarFloatingToggle") then
 		CoreGui.StellarFloatingToggle:Destroy()
 	end
+   for _, c in ipairs(FloatingSwitchSystem.Connections) do pcall(function() c:Disconnect() end) end
+	table.clear(FloatingSwitchSystem.Connections)
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "StellarFloatingToggle"
@@ -817,6 +1008,8 @@ local function buildTriggerbotSwitch()
 	if CoreGui:FindFirstChild("StellarTriggerbotToggle") then
 		CoreGui.StellarTriggerbotToggle:Destroy()
 	end
+   for _, c in ipairs(TriggerbotFloatingSwitch.Connections) do pcall(function() c:Disconnect() end) end
+	table.clear(TriggerbotFloatingSwitch.Connections)
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "StellarTriggerbotToggle"
@@ -1167,6 +1360,8 @@ local function buildPerformanceMonitor()
 	if CoreGui:FindFirstChild("StellarPerformanceMonitor") then
 		CoreGui.StellarPerformanceMonitor:Destroy()
 	end
+	for _, c in ipairs(PerfMonitorSystem.Connections) do pcall(function() c:Disconnect() end) end
+	table.clear(PerfMonitorSystem.Connections)
 
 	local function createInst(className, props, children)
 		local inst = Instance.new(className)
@@ -1505,15 +1700,18 @@ local function createBillboardGui(p)
 		end)
 	end)
 end
+track(Players.PlayerAdded:Connect(function(p)
+	p.CharacterAdded:Connect(function() createBillboardGui(p) end)
+end))
+track(Players.PlayerRemoving:Connect(function(p)
+	billboardLabels[p] = nil
+end))
 for _, p in pairs(Players:GetPlayers()) do
 	if p ~= LocalPlayer then
 		p.CharacterAdded:Connect(function() createBillboardGui(p) end)
 		if p.Character then createBillboardGui(p) end
 	end
 end
-Players.PlayerAdded:Connect(function(p)
-	p.CharacterAdded:Connect(function() createBillboardGui(p) end)
-end)
 
 -- Immortality Orbital Desync Module
 local function getSafeCharacterComponents()
@@ -1616,13 +1814,13 @@ local function update_randomized_accuracy()
 	update_divisor()
 end
 
-task.spawn(function()
+track_thread(task.spawn(function()
 	while task.wait(1) do
 		if Stellar.__properties.__randomized_accuracy_enabled then
 			pcall(update_randomized_accuracy)
 		end
 	end
-end)
+end))
 
 -- Player Movement Modifiers
 Stellar.playermod = {}
@@ -1635,7 +1833,7 @@ function Stellar.playermod.update()
 		hum.JumpPower = Stellar.__properties.__jumppower
 	end
 end
-Stellar.__properties.__connections.__playermod = RunService.Heartbeat:Connect(Stellar.playermod.update)
+Stellar.__properties.__connections.__playermod = track(RunService.Heartbeat:Connect(Stellar.playermod.update))
 
 Stellar.dribble_detection = {}
 
@@ -2202,18 +2400,6 @@ local function fireParry(precalc_cframe)
 	end
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- ULTRA-FAST PARRY EXECUTION WITH SUB-TICK RE-ARM PROTECTION
--- Fires on PreSimulation for minimal latency (handled in autoparry start),
--- uses a "re-arm token" that is ONLY reset by:
---   1. target attribute change (server actually swapped targets), OR
---   2. a hard safety timeout (configurable, default 40ms) — whichever comes first.
--- This prevents double-parry while enabling 1-50ms reaction times.
--- ═══════════════════════════════════════════════════════════════════════════════
-
--- New properties needed (add to Stellar.__properties init at top of file):
---   __fast_parry_cooldown = 0.04    -- 40ms minimum re-arm delay
---   __fast_parry_last_fire = 0
 
 Stellar.parry = {}
 
@@ -2453,7 +2639,7 @@ do
 	-- every lazy caller (is_curved invoked outside the parry loop included)
 	local FrameTick = 0
 	Stellar.__properties.__connections.__anticurve_frame =
-		RunService.Heartbeat:Connect(function() FrameTick += 1 end)
+		track(RunService.Heartbeat:Connect(function() FrameTick += 1 end))
 
 	-- ── per-ball kinematic state (weak keys — dead balls collected) ──────
 	local State = setmetatable({}, { __mode = "k" })
@@ -2467,7 +2653,9 @@ do
 			tp = table.create(n, 0),
 			w = 0,
 			accel = Vector3.zero, bow = 0,
-			warp = -math.huge, frame = -1, res = nil,
+			warp = -math.huge, frame = -1,
+			res = { score = 0, curved = false, backward = false, tighten = 1,
+				closest = math.huge, tImpact = math.huge, reaches = false },
 		}
 	end
 
@@ -2605,17 +2793,11 @@ do
 		if st.frame == F.id then return st.res end
 		st.frame = F.id
 
-		local res = {
-			score   = 0,
-			curved  = false,
-			backward = false,
-			tighten = 1,
-			closest = math.huge,   -- predicted min distance over horizon
-			tImpact = math.huge,   -- time (s) until that closest approach
-			reaches = false,       -- closest <= THREAT
-		}
-	
-		st.res = res
+		local res = st.res
+		res.score = 0; res.curved = false; res.backward = false
+		res.tighten = 1; res.closest = math.huge
+		res.tImpact = math.huge; res.reaches = false
+ 
 
 		if not F.enabled or not F.part then return res end
 
@@ -2886,22 +3068,25 @@ Stellar.autoparry = {}
 	end)
 
 	-- Per-ball lock (prevents double-fire while waiting on the target swap)
+	local ballLockConns = setmetatable({}, { __mode = "k" })
+
 	local function lockBall(ball)
-		if not ball then return end
+		if not ball or ballLockConns[ball] then return end
 		firedOnBall[ball] = true
-		local conn
-		conn = ball:GetAttributeChangedSignal("target"):Connect(function()
+
+		local rec = {}
+		rec.target = ball:GetAttributeChangedSignal("target"):Connect(function()
 			if ball:GetAttribute("target") ~= LocalPlayer.Name then
 				firedOnBall[ball] = nil
-				if conn then conn:Disconnect() end
 			end
 		end)
-		local dc
-		dc = ball.Destroying:Connect(function()
+		rec.destroy = ball.Destroying:Connect(function()
 			firedOnBall[ball] = nil
-			if conn then conn:Disconnect() end
-			if dc then dc:Disconnect() end
+			if rec.target then rec.target:Disconnect() end
+			if rec.destroy then rec.destroy:Disconnect() end
+			ballLockConns[ball] = nil
 		end)
+		ballLockConns[ball] = rec
 	end
 
 	function Stellar.autoparry.start()
@@ -3187,6 +3372,7 @@ Stellar.autoparry = {}
 		for b in pairs(firedOnBall) do firedOnBall[b] = nil end
 		table.clear(parryLockUntil)
 		table.clear(ballStopSince)
+		table.clear(ballLockConns)
 	end
 
 
@@ -3254,7 +3440,7 @@ end
 	local AS_escalation = 0           -- silence-driven burst bump
 	local AS_firesThisSecond = 0      -- packet budget
 	local AS_secondMark = 0
-	local AS_BUDGET = 300             -- max remote fires / sec
+	local AS_BUDGET = 500             -- max remote fires / sec
 	local AS_reactions = {}           -- per-ball target-change conns
 	local E_inContact = false
 	local E_lastContact = 0
@@ -3703,6 +3889,225 @@ Stellar.preclick = {
 
     track_speed = preclick_trackSpeed,
 }
+-- Zeta's block reads _G.config at file scope; without this it nil-indexes and
+-- kills the main chunk.
+_G.config = _G.config or {}
+_G.config.skin_changer = _G.config.skin_changer or false
+_G.config.names = _G.config.names or ""
+
+getgenv().skinChanger = _G.config.skin_changer or false
+getgenv().swordModel = _G.config.names or ""
+getgenv().swordAnimations = _G.config.names or ""
+getgenv().swordFX = _G.config.names or ""
+
+task.spawn(function()
+	local rs = ReplicatedStorage
+	local swordInstancesInstance = rs:WaitForChild("Shared", 9e9):WaitForChild("ReplicatedInstances", 9e9):WaitForChild("Swords", 9e9)
+	local swordInstances = require(swordInstancesInstance)
+
+	local swordsController
+	task.spawn(function()
+		while task.wait(0.25) and not swordsController do
+			local ok, conns = pcall(getconnections, rs.Remotes.FireSwordInfo.OnClientEvent)
+			if ok and conns then
+				for _, v in ipairs(conns) do
+					if v.Function and islclosure and islclosure(v.Function) then
+						local ok2, up = pcall(getupvalues, v.Function)
+						if ok2 and #up == 1 and type(up[1]) == "table" then
+							swordsController = up[1]
+							break
+						end
+					end
+				end
+			end
+		end
+	end)
+
+	local function getSlashName(swordName)
+		local ok, sln = pcall(function() return swordInstances:GetSword(swordName) end)
+		return (ok and sln and sln.SlashName) or "SlashEffect"
+	end
+
+	local function refreshSlashName()
+		local fxName = getgenv().swordFX ~= "" and getgenv().swordFX or getgenv().swordModel
+		if fxName ~= "" then
+			getgenv().slashName = getSlashName(fxName)
+		else
+			getgenv().slashName = "SlashEffect"
+		end
+	end
+	refreshSlashName()
+
+	local function setSword()
+		if not getgenv().skinChanger then return end
+		if not LocalPlayer.Character then return end
+		pcall(function()
+			local f = rawget(swordInstances, "EquipSwordTo")
+			if type(f) == "function" then
+				local ups = getupvalues(f)
+				for i = 1, #ups do
+					if type(ups[i]) == "boolean" then
+						setupvalue(f, i, false)
+						break
+					end
+				end
+			end
+		end)
+		pcall(function()
+			swordInstances:EquipSwordTo(LocalPlayer.Character, getgenv().swordModel)
+		end)
+		task.spawn(function()
+			local attempts = 0
+			while not swordsController and attempts < 20 do
+				task.wait(0.5); attempts = attempts + 1
+			end
+			if not swordsController then return end
+			pcall(function()
+				if swordsController.SetSword then
+					swordsController:SetSword(getgenv().swordAnimations ~= "" and getgenv().swordAnimations or getgenv().swordModel)
+				end
+			end)
+			pcall(function()
+				local targetSword = getgenv().swordFX ~= "" and getgenv().swordFX or getgenv().swordModel
+				if rs.Remotes:FindFirstChild("FireSwordInfo") then
+					rs.Remotes.FireSwordInfo:FireServer(targetSword)
+				end
+				if swordsController.currentSword ~= nil then
+					pcall(function() swordsController.currentSword = targetSword end)
+				end
+				if swordsController.SwordFX ~= nil then
+					pcall(function() swordsController.SwordFX = targetSword end)
+				end
+			end)
+		end)
+	end
+
+	local hookedFuncs = {}
+	local installed = {}
+	track_thread(task.spawn(function()
+		local remotesToHook = {"ParrySuccessAll", "ParryAttempt", "ParrySuccess", "PlaySound", "PlayVisuals"}
+		while task.wait(1) do
+			for _, remoteName in ipairs(remotesToHook) do
+				local remote = rs.Remotes:FindFirstChild(remoteName)
+				if remote and remote:IsA("RemoteEvent") then
+					local rec = installed[remoteName]
+					if rec then
+						for i = #rec, 1, -1 do
+							if not rec[i].orig.Connected then
+								pcall(function() rec[i].wrap:Disconnect() end)
+								hookedFuncs[rec[i].origFn] = nil
+								hookedFuncs[rec[i].wrapFn] = nil
+								table.remove(rec, i)
+							end
+						end
+					end
+					local ok, conns = pcall(getconnections, remote.OnClientEvent)
+					if ok and type(conns) == "table" then
+						for _, v in ipairs(conns) do
+							local func = v.Function
+							if func and not hookedFuncs[func] then
+								hookedFuncs[func] = true
+								v:Disable()
+								local targetFunc = func
+								local ourFunc
+								ourFunc = function(...)
+									local args = { ... }
+
+									local isLocal = false
+									for _, arg in ipairs(args) do
+										if tostring(arg) == LocalPlayer.Name or (typeof(arg) == "Instance" and (arg == LocalPlayer.Character or arg == LocalPlayer)) then
+											isLocal = true
+											break
+										end
+									end
+
+									if isLocal and getgenv().skinChanger then
+										local fxSword = getgenv().swordFX ~= "" and getgenv().swordFX or getgenv().swordModel
+										refreshSlashName()
+
+										local swordFound = false
+										local slashFound = false
+
+										for i, arg in ipairs(args) do
+											if type(arg) == "string" then
+												if fxSword ~= "" and not slashFound and (arg:match("Slash") or arg == "Default" or arg:match("Effect")) then
+													args[i] = getgenv().slashName
+													slashFound = true
+												elseif fxSword ~= "" and not swordFound then
+													local isSword = false
+													pcall(function()
+														if rs.Shared.ReplicatedInstances.Swords:FindFirstChild(arg) then
+															isSword = true
+														end
+													end)
+													if isSword or arg == LocalPlayer:GetAttribute("CurrentlyEquippedSword") then
+														args[i] = fxSword
+														swordFound = true
+													end
+												end
+											end
+										end
+
+										if fxSword ~= "" and not slashFound and type(args[1]) == "string" then
+											args[1] = getgenv().slashName
+										end
+										if fxSword ~= "" and not swordFound and type(args[3]) == "string" then
+											args[3] = fxSword
+										end
+									end
+									if setthreadidentity then pcall(setthreadidentity, 2) end
+									pcall(targetFunc, unpack(args))
+								end
+								hookedFuncs[ourFunc] = true
+								local entry = { orig = v, origFn = func, wrapFn = ourFunc }
+								entry.wrap = remote.OnClientEvent:Connect(ourFunc)
+								installed[remoteName] = installed[remoteName] or {}
+								table.insert(installed[remoteName], entry)
+							end
+						end
+					end
+				end
+			end
+		end
+	end))
+
+	getgenv().updateSword = function()
+		refreshSlashName()
+		setSword()
+	end
+
+	track_thread(task.spawn(function()
+		while task.wait(1) do
+			if getgenv().skinChanger and getgenv().swordModel ~= "" then
+				local char = LocalPlayer.Character
+				if char then
+					if LocalPlayer:GetAttribute("CurrentlyEquippedSword") ~= getgenv().swordModel then
+						setSword()
+					end
+					if not char:FindFirstChild(getgenv().swordModel) then
+						setSword()
+					end
+					for _, v in pairs(char:GetChildren()) do
+						if v:IsA("Model") and v.Name ~= getgenv().swordModel then
+							v:Destroy()
+						end
+						task.wait()
+					end
+				end
+			end
+		end
+	end))
+
+	track(LocalPlayer.CharacterAdded:Connect(function()
+		if getgenv().skinChanger then
+			getgenv().skinChanger = false
+			task.wait(2)
+			getgenv().skinChanger = true
+			task.wait(0.5)
+			pcall(function() getgenv().updateSword() end)
+		end
+	end))
+end)
 
 Stellar.hitsounds = {
 	__sound_instance = nil,
@@ -3738,11 +4143,11 @@ function Stellar.hitsounds.init()
 		local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
 		local parrySuccess = remotes and remotes:FindFirstChild("ParrySuccess")
 		if parrySuccess then
-			Stellar.__properties.__connections.__hitsound_event = parrySuccess.OnClientEvent:Connect(function()
+			Stellar.__properties.__connections.__hitsound_event = track(parrySuccess.OnClientEvent:Connect(function()
 				if Stellar.__properties.__hitsound_enabled and Stellar.hitsounds.__sound_instance then
 					Stellar.hitsounds.__sound_instance:Play()
 				end
-			end)
+			end))
 		end
 	end)
 end
@@ -5115,6 +5520,41 @@ visuals_module:create_button({
 	end
 })
 
+visuals_module:create_divider({showtopic = true, title = "Skin Changer"})
+
+visuals_module:create_checkbox({
+	title = "Skin Changer",
+	flag = "skin_changer",
+	callback = function(enabled)
+		_G.config.skin_changer = enabled
+		getgenv().skinChanger = enabled
+		if enabled then
+			task.wait(0.5)
+			pcall(function() getgenv().updateSword() end)
+		end
+	end
+})
+
+visuals_module:create_textbox({
+	title = "￬ Skin Name (Case Sensitive) ￬",
+	placeholder = "Enter Sword Skin Name...",
+	flag = "names",
+	callback = function(swordName)
+		task.spawn(function()
+			local swordStr = tostring(swordName)
+			if swordStr == "" then return end
+
+			getgenv().swordModel = swordStr
+			getgenv().swordAnimations = swordStr
+			getgenv().swordFX = swordStr
+			_G.config.names = swordStr
+
+			if getgenv().skinChanger then
+				pcall(function() getgenv().updateSword() end)
+			end
+		end)
+	end
+})
 visuals_module:create_paragraph({
 	title = "⚠️EVERYONE CAN SEE ANIMATIONS",
 	text = "IF YOU USE SKIN CHANGER BACKSWORD YOU MUST EQUIP AN ACTUAL BACKSWORD"
@@ -5215,7 +5655,7 @@ Visualiser:create_slider({
 local Alive = workspace:FindFirstChild("Alive") or workspace:WaitForChild("Alive")
 local Runtime = workspace.Runtime
 
-local ballTrailState = {}
+local ballTrailState = setmetatable({}, { __mode = "k" })
 local rainbowHue = 0
 
 local function clear_ball_trail(ball)
@@ -5327,7 +5767,8 @@ local function apply_ball_trail(ball)
     end
 end
 
-RunService.Heartbeat:Connect(function()
+track(RunService.Heartbeat:Connect(function()
+    if not getgenv().BallTrailEnabled then return end
     rainbowHue = (rainbowHue + 1) % 360
     local ball = Stellar.ball.get()
     if ball then
@@ -5337,7 +5778,7 @@ RunService.Heartbeat:Connect(function()
             apply_ball_trail(existing_ball)
         end
     end
-end)
+end))
 
 local ball_trail_module = VisualsTab:create_module({
     title = 'Ball Trail',
@@ -5596,6 +6037,39 @@ local reduce_lag_module = VisualsTab:create_module({
 	end
 })
 
+local winstreak_module = VisualsTab:create_module({
+	title = 'Winstreak Changer',
+	flag = 'WinstreakChanger',
+	description = 'Spoof your displayed winstreak',
+	section = 'right',
+	callback = function(value)
+		Stellar.__properties.__winstreak_enabled = value
+		if value then
+			Stellar.winstreak_changer:start()
+		else
+			Stellar.winstreak_changer:stop()
+		end
+	end
+})
+
+winstreak_module:create_slider({
+	title = "Winstreak Value",
+	flag = "WinstreakValue",
+	minimum_value = 0,
+	maximum_value = 999,
+	value = 0,
+	round_number = true,
+	callback = function(value)
+		Stellar.winstreak_changer:set_value(value)
+	end
+})
+
+winstreak_module:create_divider({})
+
+winstreak_module:create_paragraph({
+	title = "Info",
+	text = "Display a fake winstreak above your head. Orange icon for <10, Blue icon for ≥10. Credits to Horizon for the original winstreak changer concept."
+})
 -- Sword Slash Color Module
 local slash_color_module = VisualsTab:create_module({
 	title = "Colorable Sword Slash",
@@ -5923,6 +6397,7 @@ misc_module:create_button({
 		Stellar.autoparry.stop()
 		Stellar.__triggerbot.__enabled = false
       pcall(Stellar.device_spoofer.disable)
+		pcall(Stellar.skin_changer.stop)
 		Stellar.staff_detection.stop()
 		Stellar.__properties.__modify_player = false
 		Stellar.__properties.__ability_esp_enabled = false
@@ -5991,11 +6466,11 @@ misc_module:create_button({
 misc_module:create_button({
 	title = "Discord Server",
 	callback = function()
-		local discord = "https://discord.gg/VAYtA3gRN"
+		local discord = "https://dsc.gg/getstellar"
 		setclipboard(discord)
 	end
 })
 
 -- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.7 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.7.8 Initialized.", duration = 3 })
