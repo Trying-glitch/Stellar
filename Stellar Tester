@@ -366,6 +366,12 @@ local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local Alive = workspace:FindFirstChild("Alive") or workspace:WaitForChild("Alive", 10) or workspace
 local Runtime = workspace:FindFirstChild("Runtime") or workspace:WaitForChild("Runtime", 10)
 
+pcall(function()
+    if isfile and isfile("StellarDeviceSpoofer.cfg") then delfile("StellarDeviceSpoofer.cfg") end
+    if isfile and isfile("StellarDeviceSpoofer.stub.lua") then delfile("StellarDeviceSpoofer.stub.lua") end
+end)
+print("cleared")
+
 local originalClockTime
 local originalGlobalShadows
 local originalEffectStates = {}
@@ -1325,27 +1331,8 @@ local function buildPerformanceMonitor()
 	PerfMonitorSystem.ScreenGui = screenGui
 	PerfMonitorSystem.Card = card
 
-	-- ═══════════════════════════════════════════════════════════════
-	-- CAPTURE GATE: everything passive until _captured fires,
-	-- then flip interactive on. Drag/toggle connections below stay
-	-- wired the whole time — they simply don't fire while Active=false.
-	-- ═══════════════════════════════════════════════════════════════
-	local function setInteractive(enabled)
-		pcall(function()
-			dragHandle.Active = enabled
-			toggleButton.Active = enabled
-		end)
-	end
-
-	setInteractive(false)  -- start fully passive
-
-	task.spawn(function()
-		-- wait for the remote hook to capture a valid parry remote
-		while not (_captured and _captured.remote) do
-			task.wait(0.5)
-		end
-		setInteractive(true)  -- remotes captured → dragging/toggle safe now
-	end)
+	dragHandle.Active = true
+	toggleButton.Active = true
 
 	-- Collapse/expand (only works post-capture because of Active gate)
 	local expanded = true
@@ -3974,7 +3961,8 @@ task.spawn(function()
 		["Console"] = { MouseEnabled = false, KeyboardEnabled = false, TouchEnabled = false, GamepadEnabled = true  },
 	}
 	local device = cfg.device
-	local props = DEVICE_PROPS[device]
+	getgenv()._ZX_SPOOF_DEVICE = getgenv()._ZX_SPOOF_DEVICE or device
+	local props = DEVICE_PROPS[getgenv()._ZX_SPOOF_DEVICE]
 	if not props then return end
 	local UI_KEYS = { MouseEnabled = true, KeyboardEnabled = true, TouchEnabled = true, GamepadEnabled = true }
 
@@ -4007,39 +3995,29 @@ task.spawn(function()
 	end
 	task.wait(1)
 
-	pcall(function()
-		local mod = require(RS:WaitForChild("UserInputService"))
-		local mt = getrawmetatable(mod)
-		local old = mt.__index
-		setreadonly(mt, false)
-		mt.__index = newcclosure(function(self, key)
-			if is_caller_ours() and UI_KEYS[key] then return old(self, key) end  -- ★ UI sees REAL device
-			if props[key] ~= nil then return props[key] end
-			return old(self, key)
-		end)
-		setreadonly(mt, true)
-	end)
+	
 
 	pcall(function()
+		local dev = getgenv()._ZX_SPOOF_DEVICE or device
 		local dl = require(RS.ClientGameModules.DeviceListener)
 		if type(dl) == "table" then
-			rawset(dl, "Device", device)
-			rawset(dl, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
-			if dl.State and dl.State.Set then dl.State:Set(device) end
+			rawset(dl, "Device", dev)
+			rawset(dl, "IsMobile", function() return dev == "Phone" or dev == "Tablet" end)
+			if dl.State and dl.State.Set then dl.State:Set(dev) end
 		end
 	end)
 
 	pcall(function()
 		local dc = require(LP.PlayerScripts.Client.DeviceChecker)
 		if type(dc) == "table" then
-			rawset(dc, "GetDeviceType", function() return device end)
-			rawset(dc, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+			rawset(dc, "GetDeviceType", function() return getgenv()._ZX_SPOOF_DEVICE or device end)
+			rawset(dc, "IsMobile", function() local d = getgenv()._ZX_SPOOF_DEVICE or device return d == "Phone" or d == "Tablet" end)
 		end
 	end)
 
 	pcall(function()
 		local rf = RS.Packages._Index["sleitnick_net@0.1.0"].net:WaitForChild("RF/GetDeviceTypeForPlayer", 5)
-		if rf then rf.OnClientInvoke = function() return device end end
+		if rf then rf.OnClientInvoke = function() return getgenv()._ZX_SPOOF_DEVICE or device end end
 	end)
 
 	getgenv()._ZX_SPOOF_HOOK_ACTIVE = true
@@ -4048,11 +4026,24 @@ task.spawn(function()
 		while LP and LP.Parent do
 			task.wait(1)
 			pcall(function()
+				local dev = getgenv()._ZX_SPOOF_DEVICE
+				if not dev or not DEVICE_PROPS[dev] then return end
+				local isMobile = (dev == "Phone" or dev == "Tablet")
 				local dl = require(RS.ClientGameModules.DeviceListener)
-				if type(dl) == "table" and dl.Device ~= device then
-					rawset(dl, "Device", device)
-					rawset(dl, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+				if type(dl) == "table" then
+					if dl.Device ~= dev then
+						rawset(dl, "Device", dev)
+						if dl.State and dl.State.Set then dl.State:Set(dev) end
+					end
+					rawset(dl, "IsMobile", function() return isMobile end)
 				end
+				local dc = require(LP.PlayerScripts.Client.DeviceChecker)
+				if type(dc) == "table" then
+					rawset(dc, "GetDeviceType", function() return dev end)
+					rawset(dc, "IsMobile", function() return isMobile end)
+				end
+				local rf = RS.Packages._Index["sleitnick_net@0.1.0"].net:FindFirstChild("RF/GetDeviceTypeForPlayer")
+				if rf then rf.OnClientInvoke = function() return dev end end
 			end)
 		end
 	end)
@@ -4078,6 +4069,10 @@ local function loadSpoofConfig()
 			end
 		end
 	end)
+	-- ★ single live source of truth — every hook closure reads this at call time
+	if not getgenv()._ZX_SPOOF_DEVICE then
+		getgenv()._ZX_SPOOF_DEVICE = (loaded and Stellar.device_spoofer.__device) or "Phone"
+	end
 	return loaded
 end
 
@@ -4097,59 +4092,61 @@ local function disarmSpoof()
 	end)
 end
 
-function Stellar.device_spoofer.apply(device)
-	local props = DEVICE_PROPS[device]
-	if not props then return end
+-- ★ Installs the UserInputService hook ONCE. The closure reads
+--   getgenv()._ZX_SPOOF_DEVICE at call time, so changing the dropdown
+--   takes effect instantly with no reinstall and no rejoin.
+local function installUISHook()
+	if getgenv()._ZX_SPOOF_HOOK_ACTIVE then return end
+	-- ★ UIS module hook removed on purpose: the game's control code reads it
+	--   to decide whether to build the thumbstick, so spoofing TouchEnabled
+	--   there kills the joystick. Server identity is handled by
+	--   applyServerIdentity() instead — nothing is lost.
+	getgenv()._ZX_SPOOF_HOOK_ACTIVE = true
+	Stellar.device_spoofer.__hooked = true
+end
 
-	Stellar.device_spoofer.__device = device
-	Stellar.device_spoofer.__enabled = true
+-- ★ Pushes the server-facing identity for ANY device, callable any time
+function Stellar.device_spoofer.applyServerIdentity(device)
+	if not DEVICE_PROPS[device] then return end
+	local isMobile = (device == "Phone" or device == "Tablet")
 
-	-- ① Hook custom UserInputService module
-	pcall(function()
-		local mod = require(ReplicatedStorage:WaitForChild("UserInputService"))
-		if not Stellar.device_spoofer.__hooked and not getgenv()._ZX_SPOOF_HOOK_ACTIVE then
-			local mt = getrawmetatable(mod)
-			local old = mt.__index
-			setreadonly(mt, false)
-			mt.__index = newcclosure(function(self, key)
-				if _checkcaller() and UI_PROTECTED_KEYS[key] then  -- ★ our env = REAL values
-					return old(self, key)
-				end
-				local cfg = DEVICE_PROPS[Stellar.device_spoofer.__device]
-				if cfg and cfg[key] ~= nil then return cfg[key] end
-				return old(self, key)
-			end)
-			setreadonly(mt, true)
-			getgenv()._ZX_SPOOF_HOOK_ACTIVE = true
-		end
-		Stellar.device_spoofer.__hooked = true
-	end)
-
-	-- ② Patch DeviceListener
 	pcall(function()
 		local dl = require(ReplicatedStorage.ClientGameModules.DeviceListener)
 		if type(dl) == "table" then
 			rawset(dl, "Device", device)
-			rawset(dl, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+			rawset(dl, "IsMobile", function() return isMobile end)
 			if dl.State and dl.State.Set then dl.State:Set(device) end
 		end
 	end)
 
-	-- ③ Patch DeviceChecker
 	pcall(function()
 		local dc = require(LocalPlayer.PlayerScripts.Client.DeviceChecker)
 		if type(dc) == "table" then
 			rawset(dc, "GetDeviceType", function() return device end)
-			rawset(dc, "IsMobile", function() return device == "Phone" or device == "Tablet" end)
+			rawset(dc, "IsMobile", function() return isMobile end)
 		end
 	end)
 
-	-- ④ Set RF callback
 	pcall(function()
 		local rf = ReplicatedStorage.Packages._Index["sleitnick_net@0.1.0"].net
 			:WaitForChild("RF/GetDeviceTypeForPlayer", 5)
 		if rf then rf.OnClientInvoke = function() return device end end
 	end)
+end
+
+function Stellar.device_spoofer.apply(device)
+	local props = DEVICE_PROPS[device]
+	if not props then return end
+
+	Stellar.device_spoofer.__device  = device
+	Stellar.device_spoofer.__enabled = true
+	getgenv()._ZX_SPOOF_DEVICE = device      -- ★ updates EVERY closure live
+
+	-- ① UIS module hook (installed once, reads live value)
+	pcall(installUISHook)
+
+	-- ②③④ Server-facing identity
+	pcall(function() Stellar.device_spoofer.applyServerIdentity(device) end)
 
 	-- ⑤ Update Stellar mobile detection
 	Stellar.__properties.__is_mobile = props.TouchEnabled and not props.MouseEnabled
@@ -4174,6 +4171,24 @@ end
 
 function Stellar.device_spoofer.disable()
 	Stellar.device_spoofer.__enabled = false
+
+	-- ★ kill switch: every hook closure reads this and falls through to the real values
+	getgenv()._ZX_SPOOF_DEVICE = nil
+
+	-- ★ restore the metatable (if WE installed it) so nothing stays hooked
+	if Stellar.device_spoofer.__mt and Stellar.device_spoofer.__old_index then
+		pcall(function()
+			setreadonly(Stellar.device_spoofer.__mt, false)
+			if getgenv()._ZX_SPOOF_HOOK_ACTIVE then
+				Stellar.device_spoofer.__mt.__index = Stellar.device_spoofer.__old_index
+			end
+			setreadonly(Stellar.device_spoofer.__mt, true)
+		end)
+	end
+	getgenv()._ZX_SPOOF_HOOK_ACTIVE = nil
+	Stellar.device_spoofer.__hooked = false
+
+	-- push real values back into the game modules
 	pcall(function()
 		local dl = require(ReplicatedStorage.ClientGameModules.DeviceListener)
 		if type(dl) == "table" then
@@ -4190,7 +4205,11 @@ function Stellar.device_spoofer.disable()
 		end
 	end)
 	Stellar.__properties.__is_mobile = true
-	saveSpoofConfig(Stellar.device_spoofer.__device, false)
+
+	pcall(function()
+		if delfile and isfile(SPOOFER_FILE) then delfile(SPOOFER_FILE) end
+		if delfile and isfile(SPOOFER_STUB_FILE) then delfile(SPOOFER_STUB_FILE) end
+	end)
 	disarmSpoof()
 end
 
@@ -5979,4 +5998,4 @@ misc_module:create_button({
 
 -- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar Tester Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.7 Initialized.", duration = 3 })
