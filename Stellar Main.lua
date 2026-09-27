@@ -56,9 +56,52 @@ if not getgenv()._ZX_REAL_DEVICE_STATE then
 	}
 end
 
--- Stellar UI Library Initialization
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Trying-glitch/Stellar/refs/heads/main/Stellar%20UI.lua"))()
+-- ═══════════════════════════════════════════════════════════════
+--  Stellar UI — "Ethereal" redesign
+--  The redesigned library is drop-in compatible with the original
+--  public API, so every create_tab / create_module / create_* call
+--  below is unchanged. Only initialization changes.
+--
+--  Library source order:
+--    1. a local `Stellar UI.lua` next to the executor (if present)
+--    2. LIBRARY_URL (host the redesigned file here)
+--  Upload the redesigned `Stellar UI.lua` to LIBRARY_URL, or drop it
+--  beside the executor to run fully offline.
+-- ═══════════════════════════════════════════════════════════════
+-- [STELLAR-UI-INIT-BEGIN]
+local LIBRARY_URL = "https://raw.githubusercontent.com/Trying-glitch/RlxProject/refs/heads/main/Stellar%20UI.lua"
+local LOCAL_LIBRARY = "false" -- set to false to skip the local copy
+
+local function load_stellar_library()
+	local function valid(result)
+		return type(result) == "table" and type(result.new) == "function"
+	end
+
+	-- 1) local copy (offline / development)
+	if LOCAL_LIBRARY and type(isfile) == "function" and isfile(LOCAL_LIBRARY) then
+		local ok, result = pcall(function()
+			return loadstring(readfile(LOCAL_LIBRARY))()
+		end)
+		if ok and valid(result) then
+			return result
+		end
+	end
+
+	-- 2) hosted copy of the redesign
+	local ok, result = pcall(function()
+		return loadstring(game:HttpGet(LIBRARY_URL))()
+	end)
+	if ok and valid(result) then
+		return result
+	end
+
+	error("[Stellar V7.1] Could not load the Stellar UI library (local copy and LIBRARY_URL both failed).")
+end
+-- [STELLAR-UI-INIT-END]
+
+local Library = load_stellar_library()
 local library = Library.new()
+
 -- Force Stellar UI to detect device from the REAL snapshot, not the spoof
 do
 	local _orig_get_device = Library.get_device
@@ -79,11 +122,20 @@ do
 		return _orig_get_device(self)
 	end
 end
-library:set_background({
-    image = 77301388832536,
-    transparency = 0.2,
-})
 
+-- Brand the badge for this build (renders "STELLAR V7.1").
+pcall(function() library:set_edition('STELLAR', 'V7.2') end)
+
+Library.Blocked_Executors = { 'xeno', 'solara' }
+Library.Webhook = {
+	url = "https://discord.com/api/webhooks/1553455183961395251/Uk7p01VAWmSJ-yCcMOZJZhma9ncqdO423SLkQQvzS1WMy_yfQbSr7Hn_wglxelwzUYzl",
+	script = "Stellar Bladeball",
+}
+
+local function build_interface()
+--background here
+
+-- [STELLAR-UI-TABS-BEGIN]
 -- UI Tab Allocation
 local AutoparryTab = library:create_tab("Autoparry", "rbxassetid://76499042599127")
 local SpamTab = library:create_tab("Spam Core", "rbxassetid://7733955740")
@@ -92,6 +144,7 @@ local PlayerTab = library:create_tab("Player Mod", "rbxassetid://126017907477623
 local VisualsTab = library:create_tab("Visuals", "rbxassetid://7733774602")
 local MiscTab = library:create_tab("Misc Spec", "rbxassetid://7733917120")
 
+-- [STELLAR-UI-TABS-END]
 -- Sword Slash Color Configuration
 -- FIX: Only uses solid color mode now, no rainbow/random effects
 local SwordSlashConfig = {
@@ -122,19 +175,24 @@ local Stellar = {
 		__preclick_max_distance = 100,
 		__parried = false,
       __fast_parry_enabled = true,
-      __fast_parry_cooldown = 0.02,       -- minimum ms between parries (40ms = 1.5 servo frames)
-      __fast_parry_arm_time = 0.035,      -- unlock ball after 45ms regardless of signals
+      __fast_parry_cooldown = 0.001,       -- minimum ms between parries (40ms = 1.5 servo frames)
+      __fast_parry_arm_time = 0.005,      -- unlock ball after 45ms regardless of signals
       __fast_parry_last_fire = 0,
 		__training_parried = false,
-		__spam_threshold = 25,
-		__burst_multiplier = 1,
+		__spam_threshold = 1,
+__spam_rate = 500,
+__spam_target = nil,
+__spam_target_time = 0,
+__ispam_weak = false,
+		__spam_parry_gate = 1,
+		__spam_require_gate = true,
 		__parries = 0,
 		__parry_key = nil,
 		__grab_animation = nil,
 		__tornado_time = tick(),
 		__connections = {},
 		__spam_accumulator = 0,
-		__spam_batch_amount = "FPS Priority",
+      __manual_spam_rate = 600,
 		__randomized_accuracy_enabled = false,
 		__is_mobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled,
 		__speed_display_enabled = false,
@@ -308,9 +366,10 @@ local sword_slash_system = {
 		self.__reassert[parryFxPart] = true
 
 		local start_time = tick()
+		local reassertAcc = 0
 		local conn
-		conn = RunService.RenderStepped:Connect(function()
-			if not parryFxPart.Parent or (tick() - start_time) > 1.2 then
+		conn = RunService.Heartbeat:Connect(function(dt)
+			if not parryFxPart.Parent or (tick() - start_time) > 0.4 then
 				self.__reassert[parryFxPart] = nil
 				conn:Disconnect()
 				for i = #self.__connections, 1, -1 do
@@ -320,11 +379,11 @@ local sword_slash_system = {
 				end
 				return
 			end
+			reassertAcc += dt
+			if reassertAcc < 0.05 then return end   -- full color already applied once; ~20 Hz is enough
+			reassertAcc = 0
 			local c = self:get_current_color()
 			self:apply_color(parryFxPart, c)
-			for _, d in ipairs(parryFxPart:GetDescendants()) do
-				self:apply_color(d, c)
-			end
 		end)
 		table.insert(self.__connections, conn)
 	end,
@@ -398,14 +457,16 @@ Stellar.winstreak_changer = {
 	__fire_icon_blue = "rbxassetid://75598166115655",
 
 	get_icon = function(self, n)
-		return n >= 10 and self.__fire_icon_blue or self.__fire_icon_orange
+		local num = tonumber(n)
+		return (num and num >= 10) and self.__fire_icon_blue or self.__fire_icon_orange
 	end,
 
 	make_overhead_text = function(self, n)
-		return string.format('<b><stroke color="rgb(0, 0, 0)" thickness="2"><font color="#ffffff">%d</font></stroke></b>', n)
+		return string.format('<b><stroke color="rgb(0, 0, 0)" thickness="2"><font color="#ffffff">%s</font></stroke></b>', tostring(n))
 	end,
 
 	update_overhead = function(self)
+		if not self.__enabled then return end
 		local player = Players.LocalPlayer
 		local char = player and player.Character
 		if not char then return end
@@ -436,7 +497,8 @@ Stellar.winstreak_changer = {
 			main.Parent = display
 		end
 
-		if self.__fake_value <= 0 then
+		local num = tonumber(self.__fake_value)
+		if self.__fake_value == "" or (num and num <= 0) then
 			display.Enabled = false
 			return
 		end
@@ -480,25 +542,29 @@ Stellar.winstreak_changer = {
 		if self.__enabled then return end
 		self.__enabled = true
 		Stellar.__properties.__winstreak_enabled = true
-		
+		self.__conn = {}
+
 		local player = Players.LocalPlayer
 		if player.Character then
 			self:update_overhead()
 		end
 
-		-- Watch for character respawns
-		local conn = player.CharacterAdded:Connect(function(char)
+		-- Watch for character respawns (re-applies the fake streak)
+		self.__conn.respawn = player.CharacterAdded:Connect(function(char)
+			if not self.__enabled then return end
 			char:WaitForChild("HumanoidRootPart", 5)
 			task.wait(0.5)
-			self:update_overhead()
+			if self.__enabled then self:update_overhead() end
 		end)
-		table.insert(Stellar.__properties.__connections, conn)
 
-		-- Regular update loop
-		local loop = RunService.Heartbeat:Connect(function()
+		-- Regular update loop (rose-tinted guard: dies with the module)
+		self.__conn.loop = RunService.Heartbeat:Connect(function()
+			if not self.__enabled then return end
 			pcall(function() self:update_overhead() end)
 		end)
-		table.insert(Stellar.__properties.__connections, loop)
+
+		table.insert(Stellar.__properties.__connections, self.__conn.respawn)
+		table.insert(Stellar.__properties.__connections, self.__conn.loop)
 
 		Library.SendNotification({
 			title = "Winstreak Changer",
@@ -511,7 +577,14 @@ Stellar.winstreak_changer = {
 		if not self.__enabled then return end
 		self.__enabled = false
 		Stellar.__properties.__winstreak_enabled = false
-		
+
+		if self.__conn then
+			for _, c in pairs(self.__conn) do
+				pcall(function() c:Disconnect() end)
+			end
+			self.__conn = nil
+		end
+
 		local player = Players.LocalPlayer
 		if player and player.Character then
 			local display = player.Character:FindFirstChild("WinStreakDisplay")
@@ -528,17 +601,19 @@ Stellar.winstreak_changer = {
 	end,
 
 	set_value = function(self, value)
-		if type(value) ~= "number" or value < 0 then
+		value = tostring(value or "")
+		if value == "" then
 			Library.SendNotification({
 				title = "Winstreak Changer",
-				text = "Invalid value! Must be >= 0",
+				text = "Invalid value! Enter a number or text (max 24 chars).",
 				duration = 2
 			})
 			return
 		end
+		if #value > 24 then value = value:sub(1, 24) end   -- keep the billboard readable
 		self.__fake_value = value
 		Stellar.__properties.__winstreak_value = value
-		self:update_overhead()
+		if self.__enabled then self:update_overhead() end
 		Library.SendNotification({
 			title = "Winstreak Changer",
 			text = "Value set to: " .. value,
@@ -576,16 +651,23 @@ local originalPartShadows = setmetatable({}, {__mode = "k"})
 local _token = nil
 
 task.spawn(function()
-	for _, Function in ipairs(getgc(true)) do
-		if type(Function) == 'function' and debug.info(Function, 's'):find('PRY', 1, true) then
-			for _, value in ipairs(debug.getupvalues(Function)) do
-				if type(value) == 'function' then
-					_token = value
-					break
+	if type(getgc) ~= 'function' then return end
+	local _gc = getgc(true)
+	for i = 1, #_gc do
+		local Function = _gc[i]
+		if type(Function) == 'function' then
+			local src = debug.info(Function, 's')
+			if src and src:find('PRY', 1, true) then
+				for _, value in ipairs(debug.getupvalues(Function)) do
+					if type(value) == 'function' then
+						_token = value
+						break
+					end
 				end
+				if _token then break end
 			end
-			if _token then break end
 		end
+		if i % 5000 == 0 then task.wait() end   -- yield so the ball never stalls
 	end
 end)
 
@@ -641,6 +723,14 @@ local function _hook(remote)
 									remote = self,
 									args = _arguments
 								}
+								-- PERF: capture done → remove the global __index tax
+								if not Stellar.__properties.__immortality_enabled then
+									pcall(function()
+										setreadonly(meta, false)
+										meta.__index = _old
+										setreadonly(meta, true)
+									end)
+								end
 							end
 						end
 						return _old(self, key)(_, unpack(_arguments))
@@ -1685,15 +1775,20 @@ local function createBillboardGui(p)
 		local hum = character:FindFirstChild("Humanoid")
 		if hum then hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end
 		local conn
-		conn = RunService.RenderStepped:Connect(function()
+		local espAcc = 0
+		conn = RunService.Heartbeat:Connect(function(dt)
 			if not (character and character.Parent) then
 				conn:Disconnect()
 				pcall(function() bg:Destroy() end)
 				billboardLabels[p] = nil
 				return
 			end
-			tl.Visible = Stellar.__properties.__ability_esp_enabled
-			if Stellar.__properties.__ability_esp_enabled then
+			espAcc += dt
+			if espAcc < 0.2 then return end
+			espAcc = 0
+			local show = Stellar.__properties.__ability_esp_enabled
+			tl.Visible = show
+			if show then
 				local ab = p:GetAttribute("EquippedAbility")
 				tl.Text = ab and (p.DisplayName .. " [" .. ab .. "]") or p.DisplayName
 			end
@@ -1724,25 +1819,30 @@ local function getSafeCharacterComponents()
 end
 
 local oldIndex
-oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
-    if Stellar.__properties.__immortality_enabled and not checkcaller() then
-        if key == "CFrame" then
-            local char, hrp, head = getSafeCharacterComponents()
-            if char and hrp and head then
-                local cache = Stellar.__properties.__immortality_desync_types
-                if cache and cache[1] then
-                    if self == hrp then
-                        return cache[1]
-                    elseif self == head then
-                        local yOffset = (hrp.Size.Y * 0.5) + 0.5
-                        return cache[1] + Vector3.new(0, yOffset, 0)
-                    end
-                end
-            end
-        end
-    end
-    return oldIndex(self, key)
-end))
+local immortalityHookInstalled = false
+function installImmortalityHook()
+	if immortalityHookInstalled or type(hookmetamethod) ~= "function" then return end
+	immortalityHookInstalled = true
+	oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+		if Stellar.__properties.__immortality_enabled and not checkcaller() then
+			if key == "CFrame" then
+				local char, hrp, head = getSafeCharacterComponents()
+				if char and hrp and head then
+					local cache = Stellar.__properties.__immortality_desync_types
+					if cache and cache[1] then
+						if self == hrp then
+							return cache[1]
+						elseif self == head then
+							local yOffset = (hrp.Size.Y * 0.5) + 0.5
+							return cache[1] + Vector3.new(0, yOffset, 0)
+						end
+					end
+				end
+			end
+		end
+		return oldIndex(self, key)
+	end))
+end
 
 if Stellar.__properties.__connections.__immortality then
     Stellar.__properties.__connections.__immortality:Disconnect()
@@ -2017,7 +2117,10 @@ function Stellar.ability_detections.initialize()
 						local isCurved = Stellar.detection.is_curved(ball)
 
 						if targetDist < 15 and ballDist < 15 and dot > -0.25 and isCurved then
-							Stellar.parry.execute_action()
+							-- 🛡 precision source: one curve parry per ball epoch
+							if Stellar.parry.claim(ball, "curve", "precision") then
+								Stellar.parry.execute_action()
+							end
 						end
 					end)
 				end
@@ -2041,8 +2144,11 @@ function Stellar.ability_detections.initialize()
 							local highlighted = currentBall:GetAttribute("highlighted")
 							if highlighted == true then
 								if tick() - (Stellar.__properties.__last_global_parry or 0) >= 0.1 then
-									Stellar.__properties.__last_global_parry = tick()
-									Stellar.parry.execute_action(cachedCF) 
+									-- 🛡 cross-source claim: never stack on AP / spam
+									if Stellar.parry.claim(currentBall, "phantom", "precision") then
+										Stellar.__properties.__last_global_parry = tick()
+										Stellar.parry.execute_action(cachedCF)
+									end
 								end
 							elseif highlighted == false then
 								if focusConn then focusConn:Disconnect() end
@@ -2184,7 +2290,7 @@ function Stellar.ball.get()
 	if not balls then return nil end
 	for _, ball in pairs(balls:GetChildren()) do
 		if ball:GetAttribute('realBall') then
-			ball.CanCollide = false
+			if ball.CanCollide then ball.CanCollide = false end
 			return ball
 		end
 	end
@@ -2197,7 +2303,7 @@ function Stellar.ball.get_all()
 	if balls then
 		for _, ball in pairs(balls:GetChildren()) do
 			if ball:GetAttribute('realBall') then
-				ball.CanCollide = false
+				if ball.CanCollide then ball.CanCollide = false end
 				table.insert(balls_table, ball)
 			end
 		end
@@ -2494,6 +2600,259 @@ end
 Stellar.parry.canFireOnBall = canFireParryOnBall
 Stellar.parry.lockBall = lockParryOnBall
 
+-- ═══════════════════════════════════════════════════════════════════════════
+--  BALL POSSESSION GATE · the double-parry fix (v15)
+--
+--  A "possession" is one continuous APPROACH of a ball toward me: the ball's
+--  velocity points at me (closing speed above a small dead-zone). The
+--  possession advances when a clash rally genuinely sends the ball back.
+--
+--  Every PRECISION source (AP fast path, AP main loop, triggerbot, reactive
+--  curve, phantom, preclick) may fire AT MOST ONCE per possession. There is NO
+--  time-based re-fire: the old `miss-retry` and `confirm-expired` timers fired
+--  again while the ball was still incoming, which is exactly the post-clash
+--  double in the field log. A hard floor also stops two sources racing.
+--
+--  Re-arm is the ORIGINAL V7 rule, so Auto-Parry reacts exactly as fast as V7:
+--    ① the server moved the ball off me at least once (`leftMe`) and the ball
+--       is incoming/targeting me again → open the new possession at once. No
+--       ParrySuccess wait, no stud-distance wait.
+--    ①b distance-gated fallback for when the off-me frame was never observed.
+--    ③ physical fallback: away→toward closing-speed transition (curved ball
+--       that never changed its `target` attribute).
+--
+--  Auto-Parry's precision ladder runs every frame, spam on or off. Auto-Spam is
+--  NOT possession-throttled, gated or deduped: it is the burst safety net and
+--  fires at the original V7.1 rate on every ball that is (or was just)
+--  targeted. The post-clash double is prevented entirely on the Auto-Parry side
+--  by this latch (one precision fire per approach) plus the 120 ms hard floor,
+--  which now spans possession changes — so no target flicker or fast rally can
+--  put a second precision packet on the same ball inside 120 ms.
+-- ═══════════════════════════════════════════════════════════════════════════
+local ballEpochs = setmetatable({}, { __mode = "k" })
+local ballIds    = setmetatable({}, { __mode = "k" })
+local ballIdN    = 0
+
+-- (v11) `ballFiredThisApproach` is gone. The possession claim (`rec.fired`)
+-- already blocks a second precision fire on the same approach, and the extra
+-- flag only added a way for the fast path to get stuck off after the first shot.
+
+local PARRY_HARD_FLOOR   = 0.12   -- min gap between ANY two precision fires on a ball
+local PARRY_APPROACH_EPS = 5      -- closing-speed dead-zone (studs/s)
+local PARRY_AWAY_MIN     = 0.03   -- away-dwell before a return counts as new (s)
+local PARRY_LEAVE_DIST   = 15     -- studs the ball must clear before a target flip re-arms
+
+local function parryBallId(ball)
+	local id = ballIds[ball]
+	if not id then
+		ballIdN = ballIdN + 1
+		id = ballIdN
+		ballIds[ball] = id
+	end
+	return id
+end
+
+-- Closing speed of the ball toward me (>0 = approaching) AND the distance, in
+-- one child lookup so the hot path never scans the ball twice.
+local function parrySense(ball)
+	local char = LocalPlayer.Character
+	local root = char and char.PrimaryPart
+	if not root then return nil, nil end
+	local z = ball:FindFirstChild("zoomies")
+	local v = z and z.VectorVelocity or ball.AssemblyLinearVelocity
+	local off = root.Position - ball.Position
+	local m = off.Magnitude
+	if not v then return nil, m end
+	if m < 0.05 then return 0, m end
+	return v:Dot(off / m), m
+end
+
+local function parryClosing(ball)
+	return (parrySense(ball))
+end
+
+local parryTrace, parryTraceN = {}, 0
+local function parryLog(source, ball, epoch, closing, allowed, reason)
+	if not getgenv()._ParryDebug then return end
+	parryTraceN = parryTraceN + 1
+	local line = string.format("[%.3f] %-9s ball#%-3s epoch=%-3s close=%-7s %s (%s)",
+		os.clock(), tostring(source), tostring(ball and parryBallId(ball)),
+		tostring(epoch), closing and string.format("%.1f", closing) or "?",
+		allowed and "FIRE" or "block", reason or "")
+	parryTrace[((parryTraceN - 1) % 60) + 1] = line
+	print(line)
+end
+function Stellar.parry.trace() return parryTrace end
+-- field diagnostics: getgenv()._ParryDebug = true  → prints every claim;
+-- getgenv().Stellar_ParryLog() → last 60 claim decisions.
+getgenv().Stellar_ParryLog = function() return parryTrace end
+
+-- Observe a real ball and keep its possession state fresh. The Auto-Parry loop
+-- calls this per ball every frame (and `claim` calls it for precision sources),
+-- so the away→toward transition is never missed and there is no background
+-- sweep while Auto-Parry is off.
+function Stellar.parry.track(ball)
+	if not ball or not ball.Parent then return end
+	local closing, dist = parrySense(ball)
+	local now       = os.clock()
+	local curTarget = ball:GetAttribute("target")
+	local onMe      = (curTarget == LocalPlayer.Name)
+
+	local rec = ballEpochs[ball]
+	if not rec then
+		ballEpochs[ball] = {
+			epoch       = 1,
+			approaching = (closing ~= nil and closing > PARRY_APPROACH_EPS),
+			fired       = false,
+			at          = 0,
+			source      = nil,
+			confirmed   = false,
+			leftMe      = false,
+			awaySince   = nil,
+			target      = curTarget,
+		}
+		return
+	end
+
+	local advanced = false
+	local function advance()
+		if advanced then return end
+		advanced      = true
+		rec.epoch     = rec.epoch + 1
+		rec.fired     = false
+		rec.confirmed = false
+		rec.leftMe    = false
+		rec.source    = nil
+		-- ⚠️ `rec.at` is deliberately NOT cleared here. This is the V7
+		--    `fireFloorAt` semantic: the 120 ms hard floor spans possession
+		--    changes, so a target flicker (or a very fast rally) can never put
+		--    two precision packets on the same ball inside 120 ms. v10-v12
+		--    cleared it here, which is what let the residual double through.
+	end
+
+	local prevTarget = rec.target
+
+	-- ① V7-speed re-arm. This is EXACTLY the original Stellar V7 release rule:
+	--    the instant the server moved the ball off me the possession is spent,
+	--    and the next frame the ball targets me again it is a genuine NEW
+	--    approach — so Auto-Parry may fire at once.
+	--
+	--    v12 waited for `serverConfirmed`, which is only set 70 ms after the
+	--    ParrySuccess remote (`PARRY_UNLOCK_DELAY`), or for the ball to clear
+	--    `PARRY_LEAVE_DIST` (15 studs). Both added latency V7 never had. The
+	--    one-frame `leftMe` requirement is the flicker guard (the server must
+	--    have reported the ball on someone else at least once), and the closing
+	--    check stops a me→enemy→me flicker *during the outgoing leg* from
+	--    re-arming while the ball is still clearly receding.
+	if rec.fired and rec.leftMe and onMe
+		and (closing == nil or closing > -PARRY_APPROACH_EPS) then
+		advance()
+	end
+
+	-- ①b fallback for when `leftMe` was never observed (e.g. track() was not
+	--     called on the off-me frame). Kept as a distance-gated flicker guard.
+	if rec.fired and onMe and dist and dist > PARRY_LEAVE_DIST
+		and (rec.confirmed or prevTarget ~= LocalPlayer.Name) then
+		advance()
+	end
+
+	-- ② confirm / leave tracking
+	if rec.fired and not onMe then
+		rec.leftMe = true
+		if prevTarget == LocalPlayer.Name then
+			rec.confirmed = true
+		end
+	end
+	rec.target = curTarget
+
+	-- ③ physical fallback: away→toward transition (a curved ball that never
+	--    changed its `target` attribute during the clash)
+	if closing ~= nil and closing > PARRY_APPROACH_EPS then
+		if not rec.approaching then
+			-- only a ball that actually spent time moving away can open a new
+			-- possession; a one-frame velocity wobble cannot
+			if rec.awaySince and (now - rec.awaySince) >= PARRY_AWAY_MIN then
+				advance()
+			end
+			rec.approaching = true
+			rec.awaySince   = nil
+		end
+	elseif closing ~= nil and closing < -PARRY_APPROACH_EPS then
+		if rec.approaching then
+			rec.approaching = false
+			rec.awaySince   = now
+		elseif not rec.awaySince then
+			rec.awaySince = now
+		end
+	end
+end
+
+-- kind == "spam" → burst engine; always allowed (the safety net, never throttled)
+-- anything else   → precision (one fire per possession, hard-floored)
+function Stellar.parry.claim(ball, source, kind)
+	if not ball or not ball.Parent then
+		return true
+	end
+	if kind == "spam" then
+		-- ⚡ Auto-Spam is the burst safety net: it is never throttled by a
+		--    precision claim and never throttles itself. It fires every frame the
+		--    ball is in range, so a mistimed/missed precision parry is covered on
+		--    the very next packet.
+		--
+		--    (v11 briefly made spam yield for `PARRY_HARD_FLOOR` (120 ms) after a
+		--    precision fire. In a fast clash rally Auto-Parry re-arms and fires
+		--    well inside that window — `__fast_parry_cooldown` is 1 ms — so each
+		--    new approach refreshed the timestamp and the burst was starved
+		--    indefinitely; on an AP miss the 120 ms hole let the ball through.
+		--    The AP-side possession latch (`rec.fired`, one precision fire per
+		--    approach) is what prevents the post-clash double, not a spam
+		--    throttle, so spam must stay exempt.)
+		return true
+	end
+
+	Stellar.parry.track(ball)
+	local rec = ballEpochs[ball]
+	if not rec then return true end
+
+	local now = os.clock()
+
+	-- hard floor: never two precision packets on the same ball inside the
+	-- floor, even across a possession change
+	if rec.at > 0 and (now - rec.at) < PARRY_HARD_FLOOR then
+		if getgenv()._ParryDebug then
+			parryLog(source, ball, rec.epoch, parryClosing(ball), false, "hard-floor")
+		end
+		return false
+	end
+
+	if rec.fired then
+		if getgenv()._ParryDebug then
+			parryLog(source, ball, rec.epoch, parryClosing(ball), false,
+				rec.confirmed and "confirmed" or ("possession-used:" .. tostring(rec.source)))
+		end
+		return false
+	end
+
+	rec.fired  = true
+	rec.at     = now
+	rec.source = source
+	if getgenv()._ParryDebug then
+		parryLog(source, ball, rec.epoch, parryClosing(ball), true, "fire")
+	end
+	return true
+end
+
+-- Called from the ParrySuccess remote. Once the server confirms the parry the
+-- possession is already sealed by `fired`; this only records the confirmation
+-- for diagnostics and the ①b fallback. (v13: the fast re-arm ① is now driven by
+-- the `target` flip alone — like V7 — so it does NOT wait on this 70 ms-late
+-- signal.)
+function Stellar.parry.markConfirmed(ball)
+	if not ball then return end
+	local rec = ballEpochs[ball]
+	if not rec then return end
+	rec.confirmed = true
+end
 local parryLockUntil = setmetatable({}, { __mode = "k" })  -- 🔒 time-based, immune to target flicker
 
 local last_anim_tick = 0
@@ -2589,31 +2948,13 @@ task.spawn(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════════════════════════
---  SYSTEM 3 · PREDICTIVE ANTI-CURVE ENGINE  (Fallen-style v2)
---  ─────────────────────────────────────────────────────────────────────────────
---  · one analytic pass per ball per frame, cached on the frame id
---  · flat ring-buffer kinematics (no per-sample table churn)
---  · delta comp: half-RTT added to the horizon, warp window scaled by ping
---  · event-driven enemy proximity cache @ 10 Hz (was a full scan every frame)
---  · weak-keyed state → dead balls collected automatically
---
---  Public API (names unchanged):
---    Stellar.detection.get_curve_tighten()
---    Stellar.detection.is_curved(ball)
---    Stellar.detection.is_backwards_upward_curve(ball)
---    Stellar.detection.get_closest_player_distance()
---    Stellar.detection.is_close_range_combat()
---  New, used by the patched autoparry loop:
---    Stellar.detection.begin_frame()  .analyze(ball, zoomies)
---    Stellar.detection.mark_primary(ball)
+--  SYSTEM 3 · PREDICTIVE ANTI-CURVE ENGINE · 10k edition
+--  angular-rate signals (immune to speed ∝ jitter false-latches)
+--  spike-proof median speed estimator for the trigger's tti basis
 -- ═══════════════════════════════════════════════════════════════════════════════
-
 Stellar.detection = Stellar.detection or {}
 
 do
-	-- upvalues in scope: RunService, Players, Stats, LocalPlayer,
-	-- workspace, cloneref, tick, os, math, table, task, pcall
-
 	local CFG = {
 		MIN_SPEED      = 15,     MIN_DISTANCE  = 6,
 		SAMPLES        = 8,      MIN_SPAN      = 0.012, MAX_SPAN = 0.45,
@@ -2621,12 +2962,11 @@ do
 		H_MIN          = 0.05,   H_MAX         = 0.60,
 		ACCEL_ALPHA    = 0.35,   MIN_ACCEL     = 40,
 		BOW_SCALE      = 0.28,   LAT_SCALE     = 320,
-		WARP_WINDOW    = 0.35,   LOOP_MIN      = 0.55,
+		WARP_WINDOW    = 0.35,
 		ENEMY_RATE     = 0.10,   ENEMY_CLOSE   = 25,
 		PING_RATE      = 0.50,   BALLSCAN_RATE = 0.50,
 	}
 
-	-- ── per-frame context ────────────────────────────────────────────────
 	local F = {
 		id = 0, tick = -1, now = 0, enabled = true,
 		horizon = 0.35, comp_H = 0.35, sens = 0.5,
@@ -2635,13 +2975,10 @@ do
 		enemy_Dist = math.huge, enemy_At = -1e9,
 	}
 
-	-- one increment per rendered frame → exact once-per-frame semantics for
-	-- every lazy caller (is_curved invoked outside the parry loop included)
 	local FrameTick = 0
 	Stellar.__properties.__connections.__anticurve_frame =
 		track(RunService.Heartbeat:Connect(function() FrameTick += 1 end))
 
-	-- ── per-ball kinematic state (weak keys — dead balls collected) ──────
 	local State = setmetatable({}, { __mode = "k" })
 	Stellar.detection.__kinematic_properties = State
 
@@ -2660,7 +2997,6 @@ do
 		}
 	end
 
-	-- cached ServerStatsItem["Data Ping"] pointer — fetched once
 	local ping_Item = nil
 	local function Get_Raw_Ping()
 		if not ping_Item then
@@ -2686,7 +3022,6 @@ do
 		local acc = (props.__prediction_accuracy or 75) * 0.01
 		F.horizon = math.clamp(0.35 * (0.55 + acc * 0.90), CFG.H_MIN, CFG.H_MAX)
 
-		-- delta comp: ping refreshed at 2 Hz, half-RTT added to horizon
 		if F.now - F.ping_At > CFG.PING_RATE then
 			F.ping_At  = F.now
 			F.ping     = Get_Raw_Ping()
@@ -2706,7 +3041,7 @@ do
 		if F.tick ~= FrameTick then Begin_Frame() end
 	end
 
-	-- ── enemy proximity cache (event list, 10 Hz refresh) ────────────────
+	-- enemy proximity cache (10 Hz)
 	local E_List, E_Slot, E_Count, E_Folder = {}, {}, 0, nil
 
 	local function E_Add(m)
@@ -2797,8 +3132,7 @@ do
 		local res = st.res
 		res.score = 0; res.curved = false; res.backward = false
 		res.tighten = 1; res.closest = math.huge
-		res.tImpact = math.huge; res.reaches = false
- 
+		res.tImpact = math.huge; res.reaches = false; res.energy = 0
 
 		if not F.enabled or not F.part then return res end
 
@@ -2818,7 +3152,6 @@ do
 		end
 		local dist = math.sqrt(relSq)
 
-		-- ring push
 		local N = CFG.SAMPLES
 		local w = st.w + 1
 		st.w = w
@@ -2828,7 +3161,6 @@ do
 		st.tp[head] = F.now
 		local filled = w < N and w or N
 
-		-- window kinematics (accel EMA + bow angle + warp latch)
 		local accel, bow = st.accel, st.bow
 
 		if filled >= 3 then
@@ -2864,16 +3196,27 @@ do
 		local approach = rel:Dot(vdir) / dist
 		local aMag     = accel.Magnitude
 
-		-- signal 1 · direction change (lateral accel + bow)
+		-- signal 1 · direction change — ANGULAR-RATE scaled (speed-proof)
+		-- replication jitter scales ∝ speed; absolute thresholds false-latch
+		-- real curves at 1500+. Normalize to rad/s² and damp converging balls.
+		local aLat     = (aMag > 1) and accel:Cross(vdir).Magnitude or 0
+		local angRate  = aLat / spd                         -- rad/s²
+		local minAcc   = math.max(CFG.MIN_ACCEL, spd * 0.35)
+		local converge = math.clamp((approach - 0.55) / 0.40, 0, 1)
+
 		local sDir
-		if aMag > CFG.MIN_ACCEL then
-			local perp = (accel / aMag):Cross(vdir).Magnitude
-			local sLat = math.clamp(aMag * perp / CFG.LAT_SCALE, 0, 1)
+		if aMag > minAcc then
+			local sLat = math.clamp(angRate / 1.6, 0, 1)
 			local sBow = math.clamp(bow / CFG.BOW_SCALE, 0, 1)
-			sDir = sLat * 0.60 + sBow * 0.40
+			sDir = (sLat * 0.60 + sBow * 0.40) * (1 - converge * 0.55)   -- was 0.85
 		else
 			sDir = math.clamp(bow / (CFG.BOW_SCALE * 1.6), 0, 1) * 0.70
 		end
+
+      -- curve energy EMA: sustained angular activity, decays after the bend ends
+		st.energy = math.clamp(
+			(st.energy or 0) * 0.90 + math.clamp(angRate / 1.6, 0, 1) * 0.12 + bow * 0.15,
+			0, 1)
 
 		-- signal 2 · analytic closest approach (delta-comped horizon)
 		local H  = F.comp_H
@@ -2884,7 +3227,7 @@ do
 		local tS    = t
 		local p0    = rel - vel * t
 		local bSq   = p0:Dot(p0)
-		local bestT = t                       -- ← when the closest approach lands
+		local bestT = t
 
 		if aMag > 10 then
 			for _ = 1, 2 do
@@ -2899,7 +3242,7 @@ do
 			local sq = x:Dot(x)
 			if sq < bSq then
 				bSq   = sq
-				bestT = tS                     -- ← only adopt if actually closer
+				bestT = tS
 			end
 		end
 
@@ -2907,14 +3250,7 @@ do
 		local reachesLoop = closest <= CFG.THREAT_LOOP
 		local reachesMe   = closest <= CFG.THREAT
 
-		-- signal 3 · backwards / upward looping arc
-		local loop = 0
-		if approach < 0.10 and reachesLoop and dist < 60 then
-			local away = math.clamp((0.10 - approach) / 1.10, 0, 1)
-			local up   = math.clamp((vdir.Y < 0 and -vdir.Y or vdir.Y) / 0.35, 0, 1)
-			loop = (away * 0.70 + up * 0.30) * (1 - math.min(dist / 240, 0.5))
-			if loop > 1 then loop = 1 end
-		end
+
 
 		-- signal 4 · recent direction break (delta-comped warp window)
 		local win   = CFG.WARP_WINDOW * (1 + F.ping_Sec)
@@ -2924,30 +3260,30 @@ do
 			sWarp = (1 - since / win) * (reachesLoop and 1 or 0.5)
 		end
 
-		-- fusion (noisy-OR — one strong signal alone can cross the bar)
-		local score = 1 - (1 - sDir) * (1 - loop * 0.85) * (1 - sWarp * 0.70)
+		local score = 1 - (1 - sDir) * (1 - sWarp * 0.70)
 		if score > 1 then score = 1 end
 
 		local rBias     = (math.clamp(Stellar.__properties.__parry_range or 2, 1, 7) - 1) / 6
 		local threshold = 0.72 - 0.30 * F.sens - 0.12 * rBias
 
 		res.score    = score
-		res.backward = loop >= CFG.LOOP_MIN
+		res.backward = false
 		res.curved   = score >= threshold
 		if res.curved then
-			st.curvedHold = F.now + 0.20          -- latch: stay curved 200ms
+			st.curvedHold = F.now + 0.20
 		elseif F.now < (st.curvedHold or 0) then
 			res.curved = true                     -- hysteresis decay
 		end
 		res.tighten  = math.max(1 - score * 0.45, 0.55)
 		res.closest  = closest
 		res.tImpact  = bestT
+      res.energy   = st.energy or 0
 		res.reaches  = reachesMe
 		return res
 	end
 	Stellar.detection.analyze = Analyze
 
-	-- ── primary-ball pointer (kills the full scan on nil calls) ──────────
+	-- ── primary-ball pointer ─────────────────────────────────────────────
 	local Prim_Ball, Prim_At = nil, -math.huge
 
 	local function Get_Primary()
@@ -2997,6 +3333,21 @@ do
 		return Enemy_Dist() < CFG.ENEMY_CLOSE
 	end
 
+	-- ── spike-proof speed (median of last 3 samples → honest tti) ────────
+	function Stellar.detection.speed_estimate(ball)
+		local st = State[ball]
+		if not st or st.w == 0 then return nil end
+		local n    = CFG.SAMPLES
+		local use  = math.min(st.w, 3)
+		local mags = table.create(use)
+		for k = 0, use - 1 do
+			local idx = ((st.w - 1 - k) % n) + 1
+			mags[k + 1] = st.vx[idx].Magnitude
+		end
+		table.sort(mags)
+		return mags[math.ceil(#mags / 2)]
+	end
+
 	-- release state the moment a real ball dies
 	do
 		local function hook_balls(f)
@@ -3015,395 +3366,615 @@ do
 		end
 	end
 end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+--  STELLAR AUTO PARRY · 10k edition
+--  lead-time invariant: distance triggers grow with speed, the TIME lead
+--  never exceeds ~0.40s − ping/2 → 10k+ behaves like the verified 1500-speed
+--  profile, in time. Survival at ultra speed comes from cadence (55ms re-lock
+--  → ~8 packets through the last 4000 studs), never from firing earlier.
+-- ═══════════════════════════════════════════════════════════════════════════════
 Stellar.autoparry = {}
-	local parryFlag = false
-	local autoSpamActive = false
-	local lastCycle = 0
-	local firedOnBall   = setmetatable({}, { __mode = "k" })
-	local ballStopSince = setmetatable({}, { __mode = "k" })
-	local STOP_SPEED, STOP_MIN = 30, 0.08
+local parryFlag = false
+local fireFloorAt = setmetatable({}, { __mode = "k" })   -- ⏱ same-ball minimum re-fire gap
+local lastCycle = 0
+local firedOnBall   = setmetatable({}, { __mode = "k" })
+local ballStopSince = setmetatable({}, { __mode = "k" })
+local STOP_SPEED, STOP_MIN = 30, 0.08
 
-	local CURVE_T = {
-		[1] = function(root, target, cam) return cam.CFrame end,
-		[2] = function(root, target) -- Random
-			local dir = (target - root.Position).Unit
-			local off, n = Vector3.new(), 0
-			repeat
-				off = Vector3.new(math.random(-4000,4000), math.random(-4000,4000), math.random(-4000,4000))
-				n = n + 1
-			until dir:Dot((target + off - root.Position).Unit) < 0.95 or n > 10
-			return CFrame.new(root.Position, target + off)
-		end,
-		[3] = function(root, target) return CFrame.new(root.Position, target + Vector3.new(0,5,0)) end,
-		[4] = function(root, target, cam) return CFrame.new(cam.CFrame.Position,
-			root.Position + (root.Position - target).Unit * 10000 + Vector3.new(0,1000,0)) end,
-		[5] = function(root, target) return CFrame.new(root.Position, target + Vector3.new(0,-9e18,0)) end,
-		[6] = function(root, target) return CFrame.new(root.Position, target + Vector3.new(0, 9e18,0)) end,
-		[7] = function(root, _, cam) -- RandomTarget
-			local pos = {}
-			for _, m in ipairs(Alive:GetChildren()) do
-				if m ~= LocalPlayer.Character and m.PrimaryPart then
-					pos[#pos+1] = m.PrimaryPart.Position
-				end
+local CURVE_T = {
+	[1] = function(root, target, cam) return cam.CFrame end,
+	[2] = function(root, target)
+		local dir = (target - root.Position).Unit
+		local off, n = Vector3.new(), 0
+		repeat
+			off = Vector3.new(math.random(-4000,4000), math.random(-4000,4000), math.random(-4000,4000))
+			n = n + 1
+		until dir:Dot((target + off - root.Position).Unit) < 0.95 or n > 10
+		return CFrame.new(root.Position, target + off)
+	end,
+	[3] = function(root, target) return CFrame.new(root.Position, target + Vector3.new(0,5,0)) end,
+	[4] = function(root, target, cam) return CFrame.new(cam.CFrame.Position,
+		root.Position + (root.Position - target).Unit * 10000 + Vector3.new(0,1000,0)) end,
+	[5] = function(root, target) return CFrame.new(root.Position, target + Vector3.new(0,-9e18,0)) end,
+	[6] = function(root, target) return CFrame.new(root.Position, target + Vector3.new(0, 9e18,0)) end,
+	[7] = function(root, _, cam)
+		local pos = {}
+		for _, m in ipairs(Alive:GetChildren()) do
+			if m ~= LocalPlayer.Character and m.PrimaryPart then
+				pos[#pos+1] = m.PrimaryPart.Position
 			end
-			if #pos > 0 then return CFrame.new(root.Position, pos[math.random(1,#pos)]) end
-			return cam.CFrame
-		end,
-		[8] = function(root, _, cam) return CFrame.new(root.Position, root.Position - cam.CFrame.RightVector * 10000) end,
-		[9] = function(root, _, cam) return CFrame.new(root.Position, root.Position + cam.CFrame.RightVector * 10000) end,
-	}
-
-	-- Real-ball cache (event-driven, zero per-frame scans)
-	local realBalls = {}
-	do
-		local bf = workspace:FindFirstChild("Balls")
-		if bf then
-			local add = function(b)
-				if b:IsA("BasePart") and b:GetAttribute("realBall") then realBalls[b] = true end
-			end
-			for _, b in ipairs(bf:GetChildren()) do add(b) end
-			bf.ChildAdded:Connect(add)
-			bf.ChildRemoved:Connect(function(b) realBalls[b] = nil end)
 		end
+		if #pos > 0 then return CFrame.new(root.Position, pos[math.random(1,#pos)]) end
+		return cam.CFrame
+	end,
+	[8] = function(root, _, cam) return CFrame.new(root.Position, root.Position - cam.CFrame.RightVector * 10000) end,
+	[9] = function(root, _, cam) return CFrame.new(root.Position, root.Position + cam.CFrame.RightVector * 10000) end,
+}
+
+-- Real-ball cache (event-driven, zero per-frame scans)
+local realBalls = {}
+do
+	local bf = workspace:FindFirstChild("Balls")
+	if bf then
+		local add = function(b)
+			if b:IsA("BasePart") and b:GetAttribute("realBall") then realBalls[b] = true end
+		end
+		for _, b in ipairs(bf:GetChildren()) do add(b) end
+		bf.ChildAdded:Connect(add)
+		bf.ChildRemoved:Connect(function(b) realBalls[b] = nil end)
 	end
+end
 
-	LocalPlayer.CharacterAdded:Connect(function()
-		for b in pairs(firedOnBall) do firedOnBall[b] = nil end
-		table.clear(parryLockUntil)
-		parryFlag = false
-	end)
+-- (v11) No always-on tracker. The Auto-Parry loop now runs its full precision
+-- ladder on every frame — even while Auto-Spam is firing — and calls
+-- Stellar.parry.track per ball there. Possession state therefore stays fresh
+-- exactly while precision parrying is possible, with no background sweep while
+-- Auto-Parry is off.
 
-	-- Per-ball lock (prevents double-fire while waiting on the target swap)
-	local ballLockConns = setmetatable({}, { __mode = "k" })
+LocalPlayer.CharacterAdded:Connect(function()
+	for b in pairs(firedOnBall) do firedOnBall[b] = nil end
+	table.clear(parryLockUntil)
+	parryFlag = false
+end)
 
-	local function lockBall(ball)
-		if not ball or ballLockConns[ball] then return end
-		firedOnBall[ball] = true
+-- Per-ball lock (prevents double-fire while waiting on the target swap)
+local ballLockConns = setmetatable({}, { __mode = "k" })
 
-		local rec = {}
-		rec.target = ball:GetAttributeChangedSignal("target"):Connect(function()
-			if ball:GetAttribute("target") ~= LocalPlayer.Name then
-				firedOnBall[ball] = nil
-			end
-		end)
-		rec.destroy = ball.Destroying:Connect(function()
+local function lockBall(ball)
+	if not ball or ballLockConns[ball] then return end
+	firedOnBall[ball] = true
+
+	local rec = {}
+
+	-- ✅ server redirect = the parry landed → release instantly. The possession
+	--    claim (`rec.fired`) is what prevents a second precision fire on the
+	--    same approach, so the lock no longer waits for the ball to travel a
+	--    fixed distance — that wait was itself delaying the clash-return parry.
+	rec.target = ball:GetAttributeChangedSignal("target"):Connect(function()
+		if ball:GetAttribute("target") ~= LocalPlayer.Name then
 			firedOnBall[ball] = nil
-			if rec.target then rec.target:Disconnect() end
+			parryLockUntil[ball] = nil
+			parryFlag = false
+			if rec.timeout then pcall(task.cancel, rec.timeout) end
+			if rec.target  then rec.target:Disconnect() end
 			if rec.destroy then rec.destroy:Disconnect() end
 			ballLockConns[ball] = nil
+		end
+	end)
+	rec.destroy = ball.Destroying:Connect(function()
+		firedOnBall[ball] = nil
+		if rec.timeout then pcall(task.cancel, rec.timeout) end
+		if rec.destroy then rec.destroy:Disconnect() end
+		ballLockConns[ball] = nil
+	end)
+	-- 🛡 fail-safe: ONLY the failed-parry path ever reaches this
+	rec.timeout = task.delay(0.60, function()
+		firedOnBall[ball] = nil
+		parryLockUntil[ball] = nil
+		if rec.target  then rec.target:Disconnect() end
+		if rec.destroy then rec.destroy:Disconnect() end
+		ballLockConns[ball] = nil
+	end)
+	ballLockConns[ball] = rec
+end
+-- ═══════════════════════════════════════════════════════════════════════
+-- ⚡ PARRY-SUCCESS CONFIRM · task.delay(0.07)
+--    Server hit confirmation only records `confirmed` on the ball's possession
+--    (diagnostics + the ①b fallback). It is deliberately NOT on the fast path:
+--    v13 re-arms on the `target` flip alone, exactly like V7, so Auto-Parry no
+--    longer waits out this 70 ms remote delay before a clash-return parry.
+--    It never creates a timer-based retry: no confirmation → no blind re-fire.
+-- ═══════════════════════════════════════════════════════════════════════
+local PARRY_UNLOCK_DELAY = 0.07
+local lastFiredBall = nil                -- fallback if event carries no ball
+
+local function UnlockParryCooldown(ball)
+	-- 🛡 record the server confirmation on the possession. The possession gate
+	--    itself still blocks any second precision fire until the ball comes back.
+	if ball then Stellar.parry.markConfirmed(ball) end
+end
+
+task.spawn(function()
+	local remotes = ReplicatedStorage:WaitForChild("Remotes", 15)
+	if not remotes then return end
+
+	local function handler(a, ballRoot)
+		-- the remote's argument shape has varied across game builds; accept the
+		-- ball from either slot, then fall back to the last precision fire
+		local cand
+		if typeof(ballRoot) == "Instance" and ballRoot.Parent then cand = ballRoot
+		elseif typeof(a) == "Instance" and a.Parent then cand = a end
+		local b = cand or lastFiredBall
+		task.delay(PARRY_UNLOCK_DELAY, function()
+			UnlockParryCooldown(b)
 		end)
-		ballLockConns[ball] = rec
 	end
 
-	function Stellar.autoparry.start()
-		local props = Stellar.__properties
-		Stellar.autoparry.stop()
-		Stellar.ability_detections.initialize()
-		Stellar.dribble_detection.start()
+	local sig = remotes:FindFirstChild("ParrySuccess")
+	if sig then                                     -- local confirm (as used by hitsounds)
+		track(sig.OnClientEvent:Connect(handler))
+	else                                            -- broadcast fallback, owner-filtered
+		local all = remotes:FindFirstChild("ParrySuccessAll")
+		if all then
+			track(all.OnClientEvent:Connect(function(fx, ballRoot, sword, owner)
+				if owner ~= nil and tostring(owner) ~= LocalPlayer.Name then return end
+				handler(fx, ballRoot)
+			end))
+		end
+	end
+end)
 
-		parryFlag = false
-		autoSpamActive = false
-		lastCycle = os.clock()
+function Stellar.autoparry.start()
+	local props = Stellar.__properties
+	Stellar.autoparry.stop()
+	Stellar.ability_detections.initialize()
+	Stellar.dribble_detection.start()
 
-		props.__connections.__combat = RunService.PreSimulation:Connect(function()
-			if not props.__autoparry_enabled then return end
-			if autoSpamActive then return end
+	-- ⚡ cache hot-path references so the per-ball/per-frame loop never pays a
+	--    double table lookup for the parry gate (claim is on the reaction path).
+	local parry_claim   = Stellar.parry.claim
+	local parry_execute = Stellar.parry.execute_action
+	local parry_keypress = Stellar.parry.keypress
 
-			local char = LocalPlayer.Character
-			local root = char and char.PrimaryPart
-			if not root then return end
-			if root:FindFirstChild("SingularityCape") then return end
+	parryFlag = false
+	lastCycle = os.clock()
 
-			local det = Stellar.__config.__detections
-			if det.__infinity      and props.__infinity_active      then return end
-			if det.__deathslash    and props.__deathslash_active    then return end
-			if det.__timehole      and props.__timehole_active      then return end
-			if det.__slashesoffury and props.__slashesoffury_active then return end
+	props.__connections.__combat = RunService.PreSimulation:Connect(function()
+		if not props.__autoparry_enabled then return end
 
-			-- open the anti-curve frame: one clock read, one ping refresh
-			Stellar.detection.begin_frame()
+		-- ⚡ (v15) Auto-Parry always runs its full precision ladder. The v14
+		--    `autoSpamActive` step-aside was removed: the burst engine fires on
+		--    almost every frame, so yielding to it starved the AP ladder exactly
+		--    like v10 did. One engine owning the approach is NOT needed — the
+		--    AP-side possession latch plus the 120 ms hard floor (which now spans
+		--    possession changes) already make a second precision packet on the
+		--    same ball impossible, and Auto-Spam stays a full-rate safety net.
+		local char = LocalPlayer.Character
+		local root = char and char.PrimaryPart
+		if not root then return end
+		if root:FindFirstChild("SingularityCape") then return end
 
-			local cam = workspace.CurrentCamera
-			local camCF = cam.CFrame
-			local myPos = root.Position
-			local myName = LocalPlayer.Name
-			local closeRangeCombat = Stellar.detection.is_close_range_combat()
+		local det = Stellar.__config.__detections
+		if det.__infinity      and props.__infinity_active      then return end
+		if det.__deathslash    and props.__deathslash_active    then return end
+		if det.__timehole      and props.__timehole_active      then return end
+		if det.__slashesoffury and props.__slashesoffury_active then return end
 
-			-- Dribble state
-			local dribbleActive = det.__dribble and props.__dribble_active
-			if props.__dribble_was_active and not dribbleActive then
-				props.__dribble_was_active = false
-				props.__dribble_exit_time = os.clock()
+		Stellar.detection.begin_frame()
+
+		local cam = workspace.CurrentCamera
+		local camCF = cam.CFrame
+		local myPos = root.Position
+		local myName = LocalPlayer.Name
+		local closeRangeCombat = Stellar.detection.is_close_range_combat()
+
+		local dribbleActive = det.__dribble and props.__dribble_active
+		if props.__dribble_was_active and not dribbleActive then
+			props.__dribble_was_active = false
+			props.__dribble_exit_time = os.clock()
+		end
+		local postDribbleWindow = props.__dribble_exit_time
+			and (os.clock() - props.__dribble_exit_time < 0.2)
+
+		local pingS = (tonumber(getgenv()._ZX_PingCache or props.__cached_ping) or 50) / 1000
+		local rangeScale = math.clamp(props.__parry_range, 1, 20)
+		local accuracyMod = (props.__accuracy / 100) * props.__divisor_multiplier
+
+		local frameCF = nil   -- lazy: computed only once per frame on first fire
+
+		for ball in pairs(realBalls) do
+			if not ball.Parent then continue end
+
+			-- ⚡ Possession tracking lives here now. The precision ladder runs on
+			--    every frame (spam no longer short-circuits it), so this is the
+			--    one place that has to keep possession state fresh.
+			Stellar.parry.track(ball)
+
+			local zoomies = ball:FindFirstChild("zoomies")
+			if not zoomies then continue end
+
+			local velocity = zoomies.VectorVelocity
+			local ballSpeed = velocity.Magnitude
+
+			
+
+			-- ── sustained-stop tracker (parked / held ball detection) ──
+			local stopAge = 0
+			if ballSpeed < STOP_SPEED then
+				local since = ballStopSince[ball]
+				if not since then
+					since = os.clock()
+					ballStopSince[ball] = since
+				end
+				stopAge = os.clock() - since
+			else
+				ballStopSince[ball] = nil
 			end
-			local postDribbleWindow = props.__dribble_exit_time
-				and (os.clock() - props.__dribble_exit_time < 0.2)
 
-			local pingS = (tonumber(getgenv()._ZX_PingCache or props.__cached_ping) or 50) / 1000
-			local rangeScale = math.clamp(props.__parry_range, 1, 20)
-			local accuracyMod = (props.__accuracy / 100) * props.__divisor_multiplier
+			-- Tornado
+			local aero = ball:FindFirstChild("AeroDynamicSlashVFX")
+			if aero then
+				props.__tornado_time = os.clock()
+				aero:Destroy()
+			end
+			local tor = Runtime and Runtime:FindFirstChild("Tornado")
+			if tor then
+				local dur = tor:GetAttribute("TornadoTime") or 1
+				if (os.clock() - props.__tornado_time) < (dur + 0.314159) then continue end
+			end
 
-			local frameCF = nil   -- lazy: computed only once per frame on first fire
+			if not ball:GetAttribute("Stellar_TargetTracked") then
+				ball:SetAttribute("Stellar_TargetTracked", true)
+				ball:GetAttributeChangedSignal("target"):Connect(function()
+					if ball:GetAttribute("target") ~= myName
+						or not props.__autoparry_enabled then return end
+					if firedOnBall[ball] then return end
+					if os.clock() - (getgenv()._Stellar_LastAutoParry or 0) < 0.1 then return end   -- 🛡 vs Triggerbot
 
-			for ball in pairs(realBalls) do
-				if not ball.Parent then continue end
-				if firedOnBall[ball] then continue end
-				local lockUntil = parryLockUntil[ball]
-				if lockUntil then
-					if os.clock() < lockUntil then continue end
-					parryLockUntil[ball] = nil
-				end
+					local z = ball:FindFirstChild("zoomies")
+					if not z then return end
+					local lc = LocalPlayer.Character
+					local r = lc and lc.PrimaryPart
+					if not r then return end
 
-				local zoomies = ball:FindFirstChild("zoomies")
-				if not zoomies then continue end
+					local off     = ball.Position - r.Position
+					local closing = -z.VectorVelocity:Dot(off.Unit)
+					local t       = (closing > 0.1) and (off.Magnitude / closing) or math.huge
+					local pingS   = (tonumber(getgenv()._ZX_PingCache or props.__cached_ping) or 50) / 1000
 
-				local velocity = zoomies.VectorVelocity
-				local ballSpeed = velocity.Magnitude
-
-				-- ── sustained-stop tracker (parked / held ball detection) ──
-				local stopAge = 0
-				if ballSpeed < STOP_SPEED then
-					local since = ballStopSince[ball]
-					if not since then
-						since = os.clock()
-						ballStopSince[ball] = since
+					-- arrives within ~one frame → fire NOW, don't wait for the loop
+					local ff = fireFloorAt[ball]
+					if ff and os.clock() < ff then return end
+					if t <= math.max(0.14 - pingS, 0.05) then
+						-- 🛡 keep the cross-source claim on the reaction path, but
+						-- check it BEFORE arming the floor: a refused claim must not
+						-- set a floor that then blocks the AP main loop too.
+						if not parry_claim(ball, "ap", "precision") then return end
+						fireFloorAt[ball] = os.clock() + 0.12    -- ⏱ floor
+						parry_execute(workspace.CurrentCamera.CFrame)
+						getgenv()._Stellar_LastAutoParry = os.clock()
+						lockBall(ball)
+						lastFiredBall = ball
+						parryLockUntil[ball] = os.clock() + 0.05
 					end
-					stopAge = os.clock() - since
-				else
-					ballStopSince[ball] = nil
-				end
+				end)
+			end
+			local currentTarget = ball:GetAttribute("target")
+			local isTargeted = (currentTarget == myName)
+			if isTargeted then
+				Stellar.detection.mark_primary(ball)
+			end
+			if not isTargeted and not dribbleActive and not postDribbleWindow then continue end
+			-- ⚡ per-ball gate: claim + speed-scaled retry cadence
+			if firedOnBall[ball] then continue end
+			local nowLock = parryLockUntil[ball]
+			if nowLock and os.clock() < nowLock then continue end
+			local ff = fireFloorAt[ball]
+			if ff and os.clock() < ff then continue end
 
-				-- Tornado
-				local aero = ball:FindFirstChild("AeroDynamicSlashVFX")
-				if aero then
-					props.__tornado_time = os.clock()
-					aero:Destroy()
-				end
-				local tor = Runtime and Runtime:FindFirstChild("Tornado")
-				if tor then
-					local dur = tor:GetAttribute("TornadoTime") or 1
-					if (os.clock() - props.__tornado_time) < (dur + 0.314159) then continue end
-				end
+			local toPlayer = myPos - ball.Position
+			local distance = toPlayer.Magnitude
 
-				-- target-attr tracking (once per ball)
-				if not ball:GetAttribute("Stellar_TargetTracked") then
-					ball:SetAttribute("Stellar_TargetTracked", true)
-					ball:GetAttributeChangedSignal("target"):Connect(function()
-						parryFlag = false
-					end)
-				end
+			-- ── base window + reach (with slow-ball fix) ───────────────────
+			local speedBonus
+			if ballSpeed <= 400 then
+				speedBonus = 0
+			elseif ballSpeed <= 700 then
+				speedBonus = ((ballSpeed - 400) / 300) * 0.25
+			else
+				speedBonus = 0.25 + (ballSpeed - 700) * 0.0015
+			end
+			speedBonus = math.min(speedBonus, math.max((ballSpeed > 400) and 0.80 or 0, 0))
+			local speedFactor = 1 + speedBonus
+			local rangeMul = (0.20 + rangeScale * 0.08) * speedFactor
+			local baseWindow = math.max(rangeMul + pingS * 0.7, 0.05)
 
-				local currentTarget = ball:GetAttribute("target")
-				local isTargeted = (currentTarget == myName)
-				if isTargeted then
-					Stellar.detection.mark_primary(ball)
-				end
-				if not isTargeted and not dribbleActive and not postDribbleWindow then continue end
-				if parryFlag then continue end
+			if ballSpeed < 50 then
+				baseWindow = baseWindow * (1.0 + (50 - ballSpeed) * 0.015)
+			end
 
-				local toPlayer = myPos - ball.Position
-				local distance = toPlayer.Magnitude
+			local baseReach = baseWindow * math.max(ballSpeed, 20) * accuracyMod
+			local reach = baseReach + (rangeScale * 1.3 * speedFactor)
 
-				local speedBonus = (ballSpeed > 150) and math.sqrt(ballSpeed - 150) * 0.001 or 0
-				local speedFactor = 1 + speedBonus
-				local rangeMul = (0.20 + rangeScale * 0.08) * speedFactor
-				local baseWindow = math.max(rangeMul + pingS * 0.7, 0.05)
-				local reach = (baseWindow * math.max(ballSpeed, 20) * accuracyMod)
-					+ (rangeScale * 1.3 * speedFactor)
+			local approachRatio = (ballSpeed > 5)
+				and math.clamp(velocity:Dot(toPlayer.Unit) / ballSpeed, 0.1, 1.0)
+				or 1.0
 
-				-- Approach ratio
-				local approachRatio = (ballSpeed > 5)
-					and math.clamp(velocity:Dot(toPlayer.Unit) / ballSpeed, 0.1, 1.0)
-					or 1.0
-				reach = reach * approachRatio
+			local approachDir   = (distance > 0) and (toPlayer / distance) or Vector3.new()
+			local approachSpeed = velocity:Dot(approachDir)
+			local tti = (approachSpeed > 0.1) and (distance / approachSpeed) or math.huge
+			local closeRangeBoost = closeRangeCombat and 1.15 or 1.0
 
-				local approachDir   = (distance > 0) and (toPlayer / distance) or Vector3.new()
-				local approachSpeed = velocity:Dot(approachDir)
-				local tti = (approachSpeed > 0.1) and (distance / approachSpeed) or math.huge
-				local closeRangeBoost = closeRangeCombat and 1.15 or 1.0
+			local ac = Stellar.detection.analyze(ball, zoomies)
 
-				-- ── Unified anti-curve (single cached pass) ────────────
-				local ac = Stellar.detection.analyze(ball, zoomies)
-
-				-- ═══════════ SINGLE TRIGGER DECISION (speed-gated distance nets) ═══════════
+			-- ═══ TRIGGER DECISION · curve-veto edition ═════════════════════
 				local isCurving  = ac.curved or ac.backward
-				local FAST_SPEED = 120
-				local isFastBall = ballSpeed >= FAST_SPEED
+				local isFastBall = ballSpeed >= 120
 
-				local trigger = false
+				local curveConf = math.clamp(ac.score, 0, 1)
+				if isCurving then curveConf = math.max(curveConf, 0.45) end
+				local netScale = math.max(1 - 1.5 * curveConf, 0.10)
+				local predictorAgrees = ac.closest <= distance * 0.95
+				local horizonBlind = distance > math.max(ballSpeed * 0.8, 400)
 
-				-- Rule 1 · curved / straight bodies
-				if isCurving then
-					local bendingAway = (approachSpeed < -1) and (ac.closest > distance * 1.08)
+				local sSpeed  = Stellar.detection.speed_estimate(ball) or ballSpeed
+				local spiked  = ballSpeed > sSpeed * 1.4
+				local lagComp = (approachSpeed > 0) and approachSpeed * (pingS * 0.5 + 0.02) or 0
+				local effDist = math.max(distance - lagComp, 0)
+				local effTti  = (approachSpeed > 0.1) and (effDist / approachSpeed) or math.huge
 
-					if not bendingAway then
-						local riskCut   = 1 - 0.30 * ac.score
-						local curvedWin = baseWindow * riskCut * closeRangeBoost
+				local leadCap = math.max(0.42 - pingS * 0.5, 0.06)
 
-						if distance <= 5 then
-							trigger = approachSpeed > -1          -- point-blank
-						elseif isFastBall then
-							-- fast + possibly mis-flagged: small net, only while closing
-							trigger = (approachSpeed > 0.1)
-								and (tti <= curvedWin or distance <= reach * 0.6)
-						else
-							-- normal-speed curved: timing ONLY → no early parry
-							trigger = (approachSpeed > 0.1) and (tti <= curvedWin)
+				-- ── curve veto ladder (the V6.4.9 `if isCurved then continue`, modernized)
+				local energy     = ac.energy or 0
+				local activeCurve  = (curveConf >= 0.45) or (energy >= 0.35)
+				local lightCurve   = (curveConf >= 0.15) or (energy >= 0.15)
+				local resolvedCurve = (curveConf < 0.15) and (energy < 0.12)
+
+				local legacyBonus  = (ballSpeed > 150)
+					and math.sqrt(math.max(ballSpeed - 150, 0)) * 0.001 or 0
+				local legacyWindow = math.max(
+					(0.20 + rangeScale * 0.08) * (1 + legacyBonus) + pingS * 0.7, 0.05)
+				local legacyReach = (legacyWindow * math.max(ballSpeed, 20) * accuracyMod)
+					+ (rangeScale * 1.3 * (1 + legacyBonus))
+
+				local trigger, firedBy = false, ""
+
+				-- ① ballistic · TIME-based only · straight/latched-curve veto logic
+				if ballSpeed >= 600 and approachSpeed > 0.1 and not spiked and not activeCurve then
+					-- light curves: require near-perfect alignment AND shortened lead
+					local ratioNeed = resolvedCurve and 0.92 or 0.97
+					local leadAdj   = resolvedCurve and 1 or (1 - curveConf)
+					if approachRatio >= ratioNeed and (resolvedCurve or predictorAgrees)
+						and effTti <= math.min(legacyWindow, leadCap) * leadAdj then
+						trigger, firedBy = true, "①ballistic"
+					end
+				end
+				-- impact wall — available to EVERY ball incl. active curves;
+				-- ≤80ms to impact: no curve can meaningfully redirect in this window
+				if not trigger and ballSpeed >= 600 and approachSpeed > 0.1 and not spiked
+					and effDist <= math.max(approachSpeed * 0.08, 25)
+					and approachRatio >= 0.75 then
+					trigger, firedBy = true, "①wall"
+				end
+
+				-- ② horizon-blind · only when the curve is FINISHED
+				if not trigger and horizonBlind and isTargeted and not spiked
+					and resolvedCurve and approachSpeed > 0.1
+					and effDist <= math.min(legacyReach, approachSpeed * leadCap) then
+					trigger, firedBy = true, "②blind"
+				end
+
+				-- ③ curve-scaled rules — the ONLY mid-curve parry path (time-true window)
+				if not trigger and not horizonBlind then
+					if isCurving or activeCurve then
+						local bendingAway = (approachSpeed < -1) and (ac.closest > distance * 1.08)
+						if not bendingAway then
+							local riskCut   = 1 - 0.30 * ac.score
+							local curvedWin = math.min(baseWindow * riskCut * closeRangeBoost, leadCap)
+							if distance <= 5 then
+								trigger = approachSpeed > -1
+								firedBy = "③pointblank"
+							elseif isFastBall then
+								trigger = (approachSpeed > 0.1 and not spiked)
+									and (effTti <= curvedWin
+										or (effDist <= reach * 0.6 * netScale
+											and ac.reaches and predictorAgrees))
+								firedBy = "③curve"
+							else
+								trigger = (approachSpeed > 0.1) and (tti <= curvedWin)
+								firedBy = "③curve"
+							end
+						end
+					else
+						reach = reach * (ac.score > 0.30 and ac.tighten or 1.0)
+						if distance <= math.max(reach * 1.5, legacyReach * 1.2) then
+							local triggerWindow = math.min(baseWindow * closeRangeBoost, leadCap)
+							trigger = (approachSpeed > 0.1 and not spiked)
+								and effTti <= triggerWindow
+							firedBy = "③straight"
 						end
 					end
-				else
-					reach = reach * (ac.score > 0.30 and ac.tighten or 1.0)
-
-					if distance <= reach * 1.5 then           -- perf cull ONLY
-						local triggerWindow = baseWindow * closeRangeBoost
-						trigger = (approachSpeed > 0.1)
-							and (tti <= triggerWindow or (isFastBall and distance <= reach))
-					end
 				end
 
-				-- Rule 2 · targeted distance rescue — curve-gated
-				if not trigger and isTargeted then
+				-- ④ rescue · big radius ONLY for a finished curve; active/light curves
+				--   get the point-blank ping net — never the speed-scaled long net
+				if not trigger and isTargeted and not spiked then
 					local rawReach = (baseWindow * math.max(ballSpeed, 20) * accuracyMod)
 						+ (rangeScale * 1.3 * (1 + speedBonus))
-					local rescueRadius  = math.min(rawReach * 0.7, 12 + pingS * 20.0)
-					local stillIncoming = approachSpeed > -(0.25 * math.max(ballSpeed, 20))
-					local curveSafe     = (not isCurving) or isFastBall or ac.reaches or distance <= 8
-
+					local rescueRadius
+					if resolvedCurve and ballSpeed >= 600
+						and approachRatio >= 0.92 and curveConf < 0.15 then
+						rescueRadius = math.min(rawReach * 0.7, approachSpeed * leadCap)
+					else
+						rescueRadius = math.min(rawReach * 0.7, 12 + pingS * 20.0) * netScale
+					end
+					local stillIncoming = (approachSpeed > 0)
+						or (approachSpeed > -(0.25 * math.max(ballSpeed, 20)) and curveConf < 0.20)
+					local curveSafe = resolvedCurve
+						or ac.reaches
+						or (ballSpeed >= 600 and predictorAgrees and not activeCurve)
+						or distance <= 8
 					if distance <= rescueRadius and stillIncoming and curveSafe then
-						trigger = true
+						trigger, firedBy = true, "④rescue"
 					end
 				end
-				
-				-- Rule 2 · guarded targeted rescue — parked net is TARGETED-ONLY
+
+				-- ⑤ guarded parked rescue — unchanged
 				if not trigger and isTargeted then
 					local rescueRadius = math.min(reach * 0.7, 3.5 + pingS * 6.0)
-
-					local movingFast       = ballSpeed > 30
-					local parked           = (stopAge >= STOP_MIN) and isTargeted   -- explicit gate
-					local velocityCredible = movingFast or parked
-					local stillIncoming    = approachSpeed > -(0.25 * math.max(ballSpeed, 20))
-					local predictorAgrees  = parked or (ac.closest <= distance * 1.05)
-
+					local parked           = (stopAge >= STOP_MIN) and isTargeted
+					local velocityCredible = ballSpeed > 30 or parked
+					local stillIncoming    = (approachSpeed > 0)
+						or (approachSpeed > -(0.25 * math.max(ballSpeed, 20)) and curveConf < 0.20)
+					local predictorOK      = parked or predictorAgrees
+						or (curveConf < 0.20 and ac.closest <= distance * 1.05)
 					local aboutToLand
 					if parked then
-						aboutToLand = true                    -- stationarity IS the evidence
+						aboutToLand = true
 					elseif tti < math.huge then
 						aboutToLand = tti <= baseWindow * 2.2
 					else
 						aboutToLand = ac.closest <= rescueRadius
 					end
-
 					if distance <= rescueRadius
-						and velocityCredible
-						and stillIncoming
-						and predictorAgrees
-						and aboutToLand then
-						trigger = true
+						and velocityCredible and stillIncoming and predictorOK and aboutToLand then
+						trigger, firedBy = true, "⑤parked"
 					end
 				end
-				-- ══════════════════════════════════════════════
 
-				if not trigger then continue end
 
-				if Stellar.preclick and Stellar.preclick.track_speed then
-					Stellar.preclick.track_speed(currentTarget, ballSpeed)
+				if trigger and getgenv()._APDebug then
+					print(("[AP] %s | spd=%.0f conf=%.2f en=%.2f dist=%.0f eff=%.0f tti=%.3f")
+						:format(firedBy, ballSpeed, curveConf, energy, distance, effDist, effTti))
 				end
 
-				if isTargeted then
+			if not trigger then continue end
 
-					-- Cooldown protection
-					if det.__cooldown_protection then
-						local hotbar = LocalPlayer:FindFirstChild("PlayerGui")
-						local bi = hotbar and hotbar:FindFirstChild("Hotbar") and hotbar.Hotbar:FindFirstChild("Block")
-						local cd = bi and bi:FindFirstChild("UIGradient")
-						if cd and cd.Offset.Y < 0.4 then
-							local py = ReplicatedStorage:FindFirstChild("Remotes")
-							local press = py and py:FindFirstChild("AbilityButtonPress")
-							if press then
-								press:Fire()
-								parryFlag = true
-								lastCycle = os.clock()
-								continue
-							end
+			if Stellar.preclick and Stellar.preclick.track_speed then
+				Stellar.preclick.track_speed(currentTarget, ballSpeed)
+			end
+
+			if isTargeted then
+
+				-- Cooldown protection
+				if det.__cooldown_protection then
+					local hotbar = LocalPlayer:FindFirstChild("PlayerGui")
+					local bi = hotbar and hotbar:FindFirstChild("Hotbar") and hotbar.Hotbar:FindFirstChild("Block")
+					local cd = bi and bi:FindFirstChild("UIGradient")
+					if cd and cd.Offset.Y < 0.4 then
+						local py = ReplicatedStorage:FindFirstChild("Remotes")
+						local press = py and py:FindFirstChild("AbilityButtonPress")
+						if press then
+							press:Fire()
+							parryLockUntil[ball] = os.clock() + 0.4
+							lastCycle = os.clock()
+							continue
 						end
 					end
+				end
 
-					-- Auto ability
-					if getgenv().AutoAbility or props.__auto_ability_enabled then
-						local hotbar = LocalPlayer:FindFirstChild("PlayerGui")
-						local ai = hotbar and hotbar:FindFirstChild("Hotbar") and hotbar.Hotbar:FindFirstChild("Ability")
-						local acd = ai and ai:FindFirstChild("UIGradient")
-						if acd and acd.Offset.Y == 0.5 then
-							local abs = char:FindFirstChild("Abilities")
-							if abs then
-								for _, n in ipairs({"Raging Deflection","Rapture","Calming Deflection","Aerodynamic Slash","Fracture","Death Slash"}) do
-									local ab = abs:FindFirstChild(n)
-									if ab and ab.Enabled then
-										parryFlag = true
-										lastCycle = os.clock()
-										local py = ReplicatedStorage:FindFirstChild("Remotes")
-										if py and py:FindFirstChild("AbilityButtonPress") then
-											py.AbilityButtonPress:Fire()
-											task.delay(2.432, function()
-												local ds = py:FindFirstChild("DeathSlashShootActivation")
-												if ds then ds:FireServer(true) end
-											end)
-										end
-										continue
+				-- Auto ability
+				if getgenv().AutoAbility or props.__auto_ability_enabled then
+					local hotbar = LocalPlayer:FindFirstChild("PlayerGui")
+					local ai = hotbar and hotbar:FindFirstChild("Hotbar") and hotbar.Hotbar:FindFirstChild("Ability")
+					local acd = ai and ai:FindFirstChild("UIGradient")
+					if acd and acd.Offset.Y == 0.5 then
+						local abs = char:FindFirstChild("Abilities")
+						if abs then
+							for _, n in ipairs({"Raging Deflection","Rapture","Calming Deflection","Aerodynamic Slash","Fracture","Death Slash"}) do
+								local ab = abs:FindFirstChild(n)
+								if ab and ab.Enabled then
+									parryLockUntil[ball] = os.clock() + 0.4
+                           lastCycle = os.clock()
+									local py = ReplicatedStorage:FindFirstChild("Remotes")
+									if py and py:FindFirstChild("AbilityButtonPress") then
+										py.AbilityButtonPress:Fire()
+										task.delay(2.432, function()
+											local ds = py:FindFirstChild("DeathSlashShootActivation")
+											if ds then ds:FireServer(true) end
+										end)
 									end
+									continue
 								end
 							end
 						end
 					end
-
-					
-
-					if not frameCF then
-						local closest = Stellar.player.get_closest_to_cursor()
-						local target = (closest and closest:FindFirstChild("HumanoidRootPart"))
-							and closest.HumanoidRootPart.Position
-							or (myPos + camCF.LookVector * 100)
-						frameCF = (CURVE_T[props.__curve_mode] or CURVE_T[1])(root, target, cam)
-					end
-
-					if getgenv().AutoParryMode == "Keypress" then
-						Stellar.parry.keypress(frameCF)
-					else
-						Stellar.parry.execute_action(frameCF)
-					end
-
-					lockBall(ball)
-					-- time-lock: ping + fast-ball window
-					local lockDur = 0.03 + pingS * 0.9   -- was 0.05 + pingS * 0.6
-if ballSpeed > 250 then
-    lockDur += (ballSpeed - 250) * 0.00015
-end
-parryLockUntil[ball] = os.clock() + math.clamp(lockDur, 0.03, 0.15)  -- floor 0.05→0.03, cap 0.20→0.15
-					getgenv()._Stellar_LastAutoParry = os.clock()
-
-					parryFlag = true
-					lastCycle = os.clock()
-
-					if postDribbleWindow then
-						props.__dribble_exit_time = nil
-					end
 				end
+
+				if not frameCF then
+					local closest = Stellar.player.get_closest_to_cursor()
+					local target = (closest and closest:FindFirstChild("HumanoidRootPart"))
+						and closest.HumanoidRootPart.Position
+						or (myPos + camCF.LookVector * 100)
+					frameCF = (CURVE_T[props.__curve_mode] or CURVE_T[1])(root, target, cam)
+				end
+
+				if not parry_claim(ball, "ap", "precision") then
+					-- refused because this possession is already spent (the
+					-- anti-double rule). Do NOT arm parryLockUntil here: the old
+					-- 30 ms penalty was itself delaying the next legitimate
+					-- return parry after a clash. The claim alone gates the fire.
+					continue
+				end
+
+				if getgenv().AutoParryMode == "Keypress" then
+					parry_keypress(frameCF)
+				else
+					parry_execute(frameCF)
+				end
+
+				lockBall(ball)
+				lastFiredBall = ball
+				-- re-lock cadence: one retry per ~140 studs of ball travel
+				-- (10k → ~14ms · 3k → ~47ms · below 1500 → legacy 0.15s cap)
+				local lockStep = math.clamp(140 / math.max(ballSpeed, 200), 0.012, 0.055)
+				local lockDur = math.min(
+					0.03 + pingS * 0.9
+						+ ((ballSpeed > 250) and (ballSpeed - 250) * 0.00015 or 0),
+					lockStep)
+				parryLockUntil[ball] = os.clock() + math.max(lockDur, 0.012)
+				fireFloorAt[ball] = os.clock() + 0.12          -- ⏱ hard double-fire floor
+				getgenv()._Stellar_LastAutoParry = os.clock()
+
+				lastCycle = os.clock()
+
+				if postDribbleWindow then
+					props.__dribble_exit_time = nil
+				end
+			end
+		end
+	end)
+
+	-- ⚡ Precision-first ordering. PreSimulation fires connections in the order
+	--    they were registered, so re-queue the spam connection after this one
+	--    when spam was already running. Auto-Parry's single precision packet then
+	--    reaches the server before the same frame's burst. No-ops when spam is
+	--    off. (v12: no longer load-bearing for a claim-yield — spam is exempt.)
+	if props.__auto_spam_enabled and props.__connections.__autospam
+		and Stellar.autospam and Stellar.autospam.start then
+		task.defer(function()
+			if Stellar.__properties.__auto_spam_enabled
+				and Stellar.__properties.__autoparry_enabled then
+				pcall(Stellar.autospam.start)
 			end
 		end)
 	end
+end
 
-	function Stellar.autoparry.stop()
-		local props = Stellar.__properties
-		if props.__connections.__combat then
-			props.__connections.__combat:Disconnect()
-			props.__connections.__combat = nil
-		end
-		parryFlag = false
-		for b in pairs(firedOnBall) do firedOnBall[b] = nil end
-		table.clear(parryLockUntil)
-		table.clear(ballStopSince)
-		table.clear(ballLockConns)
+function Stellar.autoparry.stop()
+	local props = Stellar.__properties
+	if props.__connections.__combat then
+		props.__connections.__combat:Disconnect()
+		props.__connections.__combat = nil
 	end
-
+	parryFlag = false
+	for b in pairs(firedOnBall) do firedOnBall[b] = nil end
+	table.clear(parryLockUntil)
+	table.clear(ballStopSince)
+	table.clear(ballLockConns)
+end
 
 -- Instant Triggerbot Subsystem
 Stellar.triggerbot = {}
@@ -3411,6 +3982,7 @@ function Stellar.triggerbot.trigger(ball)
 	if Stellar.__triggerbot.__is_parrying or Stellar.__triggerbot.__parries > Stellar.__triggerbot.__max_parries then return end
 	if LocalPlayer.Character and LocalPlayer.Character.PrimaryPart and LocalPlayer.Character.PrimaryPart:FindFirstChild('SingularityCape') then return end
 	if os.clock() - (getgenv()._Stellar_LastAutoParry or 0) < 0.1 then return end   -- 🛡 skip if autoparry just fired
+	if not Stellar.parry.claim(ball, "triggerbot", "precision") then return end
 	Stellar.__triggerbot.__is_parrying = true
 	Stellar.__triggerbot.__parries = Stellar.__triggerbot.__parries + 1
 	Stellar.animation.play_grab_parry()
@@ -3457,34 +4029,143 @@ function Stellar.triggerbot.enable(enabled)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════
-	-- AZURE-STYLE AUTO SPAM · FINAL (lean)
-	--   Fires straight camera CFrame (no curve) · closed-loop win detection ·
-	--   FPS-adaptive burst · hysteresis range · batched accounting ·
-	--   target-change reaction · packet budget
-	-- ═══════════════════════════════════════════════════════════════════════════
+--  AUTO SPAM · v4 · reference-gated, original-speed burst
+--
+--   GATE   · Angeli / azure parry counter — `__parries > __spam_parry_gate`
+--            (default 1 → at least one OTHER parry must be in flight first)
+--   ENTRY  · zen.lua `Spam_Service` (azure / holy-skid / xinve): adaptive
+--            ping + ball-speed radius, retreat ×10, close-contact hysteresis,
+--            approach penalty. Out-of-range falls back to a 5-stud net.
+--   TARGET · ball targeted at me (or within grace), flicker-proof
+--   ENGINE · ORIGINAL Stellar V7.1 dt-accumulator burst — unchanged speed,
+--            30/frame cap, 1800 pps ceiling, escalation + no-success boost
+--   SAFETY · (v15) Auto-Parry and Auto-Spam run together; the post-clash double
+--            is prevented on the Auto-Parry side by the possession latch + the
+--            120 ms hard floor (which spans possession changes). Auto-Spam is
+--            never gated, throttled, held or deduped: it fires at the original
+--            V7.1 rate on every ball that is (or was just) targeted, so it
+--            stays a consistent full-rate safety net. (This restores the praised
+--            pre-v13 Auto-Spam; v13's approach gate and v14's step-aside split
+--            were the slow/inconsistent regressions.)
+-- ═══════════════════════════════════════════════════════════════════════════
+	local AS_REACTIONS   = {}
+	local AS_ballCache   = {}
+	local AS_accumulator = 0
+	local AS_escalation  = 0
+	local AS_lastSuccess = 0
+	local AS_gate        = setmetatable({}, { __mode = "k" })
 
-	-- ── Spam-local state ──────────────────────────────────────────────────────
-	local AS_engaged = false          -- hysteresis latch
-	local AS_lastSuccess = 0          -- last confirmed win (tick)
-	local AS_escalation = 0           -- silence-driven burst bump
-	local AS_firesThisSecond = 0      -- packet budget
-	local AS_secondMark = 0
-	local AS_BUDGET = 500             -- max remote fires / sec
-	local AS_reactions = {}           -- per-ball target-change conns
-	local E_inContact = false
-	local E_lastContact = 0
+	-- ── tuning ──────────────────────────────────────────────────────────────
+	local AS_TARGET_GRACE  = 0.30   -- ball.target may flicker this long
+	local AS_FRAME_CAP     = 30     -- FLAT per-frame packet ceiling
+	local AS_STEP_MAX      = 0.10   -- clamp dt: a stall can't dump a burst
+	local AS_RATE_CEILING  = 1800   -- absolute packets-per-second ceiling
+	local AS_SUCCESS_WINDOW = 1.0   -- no-success boost ramp (original)
 
-	local function AS_budgetAllows()
-		local now = tick()
-		if now - AS_secondMark >= 1 then
-			AS_secondMark = now
-			AS_firesThisSecond = 0
-		end
-		return AS_firesThisSecond < AS_BUDGET
+	-- zen `Spam_Service` close-contact state (per autospam session)
+	local AS_CLOSE_CONTACT = false
+	local AS_LAST_CLOSE    = 0
+
+	local function AS_newRec()
+		return { enteredAt = nil, lastTarget = -math.huge }
 	end
 
-	-- ── Batched burst firing (single accounting decrement per burst) ──────────
-	local function AS_fire_burst(cf, count)
+	local function AS_pingMs(props)
+		return tonumber(getgenv()._ZX_PingCache or props.__cached_ping) or 50
+	end
+
+	-- ── Angeli / azure activation gate ──────────────────────────────────────
+	--  `__parries` is the shared in-flight counter incremented by Auto-Parry,
+	--  the triggerbot and Auto-Spam itself (decremented ~0.5s later). With the
+	--  default gate of 1 the spam only activates once a real parry is already
+	--  in flight, which is what stops the blind post-clash double parry.
+	local function AS_parryGateOK(props)
+		if props.__spam_require_gate == false then return true end
+		local gate = tonumber(props.__spam_parry_gate)
+		if gate == nil then gate = 1 end
+		if gate < 0 then return true end
+		return (tonumber(props.__parries) or 0) > gate
+	end
+
+	-- ── reference spam radius · zen.lua `Spam_Service` ──────────────────────
+	--  Returns the maximum stud distance at which spam is allowed. Mirrors the
+	--  exact maths shared by azure, holy-skid and xinve. A value of 5 is the
+	--  reference "point-blank only" fallback.
+	local function AS_spamService(ball, myPos, pingMs)
+		local entity = Stellar.player.get_closest()
+		if not entity or not entity.PrimaryPart then return false end
+
+		local zoomies  = ball:FindFirstChild("zoomies")
+		local velocity = zoomies and zoomies.VectorVelocity
+			or ball.AssemblyLinearVelocity or Vector3.zero
+		local n = velocity.Magnitude
+		if n == 0 then return 5 end
+
+		local toBall = myPos - ball.Position
+		if toBall.Magnitude == 0 then return 5 end
+
+		local r = toBall.Unit
+		local t = 0
+		if velocity.Magnitude > 0 then t = r:Dot(velocity.Unit) end
+
+		local targetPos = entity.PrimaryPart.Position
+		local X = (myPos - targetPos).Magnitude
+
+		-- ping term is pre-scaled exactly like the reference (ms / 10)
+		local pingTerm = math.clamp((pingMs or 50) / 10, 1, 16)
+
+		-- ── retreat factor ────────────────────────────────────────────────
+		local E = 1
+		local fMove = Vector3.zero
+		local hum = LocalPlayer.Character
+			and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+		if hum and hum.MoveDirection then fMove = hum.MoveDirection end
+
+		local N = targetPos - myPos
+		if N.Magnitude > 0 then N = N.Unit else N = Vector3.zero end
+
+		local lMove = Vector3.zero
+		local eHum = entity:FindFirstChildOfClass("Humanoid")
+		if eHum and eHum.MoveDirection then lMove = eHum.MoveDirection end
+
+		local now = tick()
+		if X <= 3 then AS_CLOSE_CONTACT = true end
+		if AS_CLOSE_CONTACT and X > 3.3 then
+			AS_CLOSE_CONTACT = false
+			AS_LAST_CLOSE = now
+		end
+		local separated = (not AS_CLOSE_CONTACT)
+			and (now - (AS_LAST_CLOSE or 0) >= 1.5)
+		if separated and fMove.Magnitude > 0.2 and fMove:Dot(N) < -0.4 then E = 10 end
+		if separated and lMove.Magnitude > 0.2 and lMove:Dot(-N) < -0.4 then E = 10 end
+
+		local B = pingTerm * 0.7 + math.min(n / (E * 1.2), 80)
+		local multiplier = tonumber(Stellar.__properties.__auto_spam_distance_multiplier) or 1.0
+		B = B * multiplier
+
+		-- out of range → reference point-blank fallback
+		local entityDist = (myPos - targetPos).Magnitude
+		local ballDist   = (myPos - ball.Position).Magnitude
+		if entityDist > B or ballDist > B then return 5 end
+
+		local U = math.clamp(-t, 0, 1)
+		local q = math.clamp(U * (n / 40), 0, 4)
+		return B - q
+	end
+
+	local function AS_sense(ball, myPos)
+		local z   = ball:FindFirstChild("zoomies")
+		local vel = z and z.VectorVelocity or ball.AssemblyLinearVelocity
+		local off = myPos - ball.Position
+		local dist = off.Magnitude
+		if dist < 0.05 then return 0, 0, math.huge end
+		local approach = vel:Dot(off / dist)
+		local tti = (approach > 0.1) and (dist / approach) or math.huge
+		return vel.Magnitude, dist, tti
+	end
+
+	local function AS_fire(cf, count)
+		if count < 1 then return end
 		local props = Stellar.__properties
 		local keypress = (getgenv().AutoSpamMode or getgenv().AutoParryMode) == "Keypress"
 		for _ = 1, count do
@@ -3494,53 +4175,110 @@ end
 				fireParry(cf)
 			end
 		end
-		AS_firesThisSecond += count
 		props.__parries += count
-		task.delay(0.25, function()
+		task.delay(0.4, function()
 			props.__parries = math.max(0, props.__parries - count)
 		end)
 	end
 
-	-- ── Cached realBall list ──────────────────────────────────────────────────
-	local AS_ballCache = {}
+	-- ── combined gate · reference radius + optional far-target veto ─────────
+	--  returns armed, spamDist, enemyDist, why
+	local function AS_gateCheck(ball, myPos, pingMs)
+		local enemyDist = Stellar.detection.get_closest_player_distance()
+		local spamDist  = AS_spamService(ball, myPos, pingMs)
+		if not spamDist then
+			return false, nil, enemyDist, "no-service"
+		end
+
+		local entity = Stellar.player.get_closest()
+		local targetPos = entity and entity.PrimaryPart and entity.PrimaryPart.Position
+		if not targetPos then
+			return false, spamDist, enemyDist, "no-enemy"
+		end
+
+		local targetDist = (myPos - targetPos).Magnitude
+		local ballDist   = (myPos - ball.Position).Magnitude
+
+		-- reference caller checks
+		if targetDist > spamDist or ballDist > spamDist then
+			return false, spamDist, enemyDist, "out-of-range"
+		end
+
+		-- a ball aimed at me but very far is left to Auto-Parry's precision
+		if ball:GetAttribute("target") == LocalPlayer.Name
+			and targetDist > 30 and ballDist > 30 then
+			return false, spamDist, enemyDist, "far-targeted"
+		end
+
+		return true, spamDist, enemyDist, "armed"
+	end
+
+	-- ── realBall cache ──────────────────────────────────────────────────────
 	do
 		local ballsFolder = workspace:FindFirstChild("Balls")
-		if ballsFolder then
-			for _, b in ipairs(ballsFolder:GetChildren()) do
-				if b:IsA("BasePart") and b:GetAttribute("realBall") then
-					AS_ballCache[b] = true
-				end
+		local function addBall(b)
+			if b:IsA("BasePart") and b:GetAttribute("realBall") then
+				AS_ballCache[b] = true
 			end
-			ballsFolder.ChildAdded:Connect(function(b)
-				if b:IsA("BasePart") and b:GetAttribute("realBall") then
-					AS_ballCache[b] = true
-				end
-			end)
-			ballsFolder.ChildRemoved:Connect(function(b)
-				AS_ballCache[b] = nil
-				if AS_reactions[b] then
-					AS_reactions[b]:Disconnect()
-					AS_reactions[b] = nil
-				end
+		end
+		local function removeBall(b)
+			AS_ballCache[b] = nil
+			AS_gate[b] = nil
+			if AS_REACTIONS[b] then
+				AS_REACTIONS[b]:Disconnect()
+				AS_REACTIONS[b] = nil
+			end
+		end
+		if ballsFolder then
+			for _, b in ipairs(ballsFolder:GetChildren()) do addBall(b) end
+			ballsFolder.ChildAdded:Connect(addBall)
+			ballsFolder.ChildRemoved:Connect(removeBall)
+		else
+			task.spawn(function()
+				local f = workspace:WaitForChild("Balls", 30)
+				if not f then return end
+				for _, b in ipairs(f:GetChildren()) do addBall(b) end
+				f.ChildAdded:Connect(addBall)
+				f.ChildRemoved:Connect(removeBall)
 			end)
 		end
 	end
 
-	-- ── Target-change reaction (fires before PreSimulation on tag swap) ───────
-	local function AS_attach_reaction(ball, props)
-		if AS_reactions[ball] then return end
-		AS_reactions[ball] = ball:GetAttributeChangedSignal("target"):Connect(function()
+	-- ── target-change fast path · same gate, fires one packet ───────────────
+	local function AS_attach_reaction(ball)
+		if AS_REACTIONS[ball] then return end
+		AS_REACTIONS[ball] = ball:GetAttributeChangedSignal("target"):Connect(function()
+			local props = Stellar.__properties
 			if not props.__auto_spam_enabled then return end
+			-- ⚡ Auto-Parry owns the target-change fast path. When it is on, skip
+			--    this one extra packet — Auto-Parry already fires on the flip and
+			--    the burst engine below now runs unthrottled every frame, so the
+			--    reaction would only duplicate it. (v12: the burst no longer yields
+			--    to a precision claim, so this is purely de-duplication.)
+			if props.__autoparry_enabled then return end
 			if ball:GetAttribute("target") ~= LocalPlayer.Name then return end
-			if not ball:FindFirstChild("zoomies") then return end
+			if not AS_parryGateOK(props) then return end
+			if props.__slashesoffury_active then return end
+
 			local char = LocalPlayer.Character
 			local root = char and char.PrimaryPart
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local hum  = char and char:FindFirstChildOfClass("Humanoid")
 			if not root or not hum or hum.Health <= 0 then return end
-			if (root.Position - ball.Position).Magnitude > math.max(props.__spam_threshold * 2.5, 35) then return end
-			if not AS_budgetAllows() then return end
-			AS_engaged = true
-			AS_fire_burst(workspace.CurrentCamera.CFrame, math.min(props.__burst_multiplier or 1, 2))
+			if root:FindFirstChild("SingularityCape") then return end
+			if char:GetAttribute("Pulsed") then return end
+
+			local now    = os.clock()
+			local pingMs = AS_pingMs(props)
+
+			local rec = AS_gate[ball]
+			if not rec then rec = AS_newRec(); AS_gate[ball] = rec end
+			rec.lastTarget = now
+
+			local armed = AS_gateCheck(ball, root.Position, pingMs)
+			if not armed then return end
+			if not Stellar.parry.claim(ball, "spam", "spam") then return end
+
+			AS_fire(workspace.CurrentCamera.CFrame, 1)
 		end)
 	end
 
@@ -3550,149 +4288,146 @@ end
 		local props = Stellar.__properties
 		Stellar.autospam.stop()
 
-		AS_engaged = false
-		AS_lastSuccess = 0
-		AS_escalation = 0
-		AS_firesThisSecond = 0
-		AS_secondMark = tick()
+		table.clear(AS_gate)
+		AS_accumulator = 0
+		AS_escalation  = 0
+		AS_lastSuccess = os.clock()
+		AS_CLOSE_CONTACT = false
+		AS_LAST_CLOSE    = 0
 
-		-- Closed loop: confirm our wins, reset escalation on success
-		props.__connections.__spam_win = ReplicatedStorage.Remotes.ParrySuccessAll.OnClientEvent:Connect(function(_, root)
-			if root and root.Parent == LocalPlayer.Character then
-				AS_lastSuccess = tick()
-				AS_escalation = 0
+		task.spawn(function()
+			local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+				or ReplicatedStorage:WaitForChild("Remotes", 10)
+			local parryall = remotes and remotes:FindFirstChild("ParrySuccessAll")
+			if parryall then
+				props.__connections.__spam_win = parryall.OnClientEvent:Connect(function(_, rootInst)
+					if rootInst and rootInst.Parent == LocalPlayer.Character then
+						AS_lastSuccess = os.clock()
+						-- original V7.1 behaviour: a won clash clears the
+						-- fractional carry so the next burst rebuilds from zero
+						AS_accumulator = 0
+					end
+				end)
 			end
 		end)
 
 		for ball in pairs(AS_ballCache) do
-			AS_attach_reaction(ball, props)
+			AS_attach_reaction(ball)
 		end
 
-		props.__connections.__autospam = RunService.PreSimulation:Connect(function()
+		props.__connections.__autospam = RunService.PreSimulation:Connect(function(dt)
 			if not props.__auto_spam_enabled then return end
+
 			if props.__slashesoffury_active then return end
+
+			local det = Stellar.__config.__detections
+			if det.__infinity   and props.__infinity_active   then return end
+			if det.__deathslash and props.__deathslash_active  then return end
+			if det.__timehole   and props.__timehole_active    then return end
 
 			local character = LocalPlayer.Character
 			local root = character and character.PrimaryPart
 			if not root then return end
-
 			local humanoid = character:FindFirstChildOfClass("Humanoid")
 			if not humanoid or humanoid.Health <= 0 then return end
 			if root:FindFirstChild("SingularityCape") then return end
+			if character:GetAttribute("Pulsed") then return end
 
-			-- Nearest live ball from cache
-			local myPos = root.Position
-			local ball, zoomies, nearest = nil, nil, math.huge
+			-- ── Angeli/azure parry gate · must be armed before any spam ─────
+			if not AS_parryGateOK(props) then
+				AS_accumulator = 0
+				AS_escalation  = 0
+				return
+			end
+
+			local now    = os.clock()
+			local myPos  = root.Position
+			local pingMs = AS_pingMs(props)
+			local step   = math.min(dt or (1 / math.max(props.__cached_fps or 60, 1)), AS_STEP_MAX)
+
+			-- ── pick the most urgent ball that is (or was just) targeted ────
+			local best, bestTTI, fallback = nil, math.huge, nil
 			for b in pairs(AS_ballCache) do
 				if b.Parent then
-					local z = b:FindFirstChild("zoomies")
-					if z and z.VectorVelocity.Magnitude > 0 then
-						local d = (myPos - b.Position).Magnitude
-						if d < nearest then
-							nearest = d
-							ball, zoomies = b, z
-						end
+					local rec = AS_gate[b]
+					local targetedNow = (b:GetAttribute("target") == LocalPlayer.Name)
+					if targetedNow then
+						if not rec then rec = AS_newRec(); AS_gate[b] = rec end
+						rec.lastTarget = now
+					end
+					local grace = rec and ((now - rec.lastTarget) <= AS_TARGET_GRACE)
+					if targetedNow or grace then
+						if not fallback then fallback = b end
+						local _, _, tti = AS_sense(b, myPos)
+						if tti < bestTTI then bestTTI = tti; best = b end
 					end
 				end
 			end
-			if not ball then return end
+			best = best or fallback
 
-			local velocity = zoomies.VectorVelocity
-			local speed = velocity.Magnitude
-			local ballTarget = ball:GetAttribute("target")
-			if not ballTarget then return end
-
-			local closest = Stellar.player.get_closest()
-			if not closest or not closest.PrimaryPart then return end
-
-			local toBall = myPos - ball.Position
-			local distance = toBall.Magnitude
-			if distance == 0 then return end
-
-			local enemyPos = closest.PrimaryPart.Position
-			local enemyDist = (enemyPos - myPos).Magnitude
-
-			-- Far-range gate (Azure)
-			if ballTarget == LocalPlayer.Name and enemyDist > props.__spam_threshold and distance > props.__spam_threshold then
-				AS_engaged = false
-				autoSpamActive = false
+			if not best then
+				AS_accumulator = 0
+				AS_escalation  = 0
 				return
 			end
 
-			-- ── Azure spam_service envelope ────────────────────────────────────
-			local E = 1
-			local now = tick()
+			if not AS_REACTIONS[best] then AS_attach_reaction(best) end
 
-			if enemyDist <= 3 then
-				E_inContact = true
-			elseif E_inContact and enemyDist > 3.3 then
-				E_inContact = false
-				E_lastContact = now
-			end
+			local rec = AS_gate[best]
+			if not rec then rec = AS_newRec(); AS_gate[best] = rec end
+			rec.lastTarget = now
 
-			if (not E_inContact) and (now - E_lastContact >= 1.5) then
-				local nDir = enemyPos - myPos
-				nDir = (nDir.Magnitude > 0) and nDir.Unit or Vector3.new()
-
-				local myMove = humanoid.MoveDirection
-				if myMove.Magnitude > 0.2 and myMove:Dot(nDir) < -0.4 then E = 10 end
-
-				local eHum = closest:FindFirstChildOfClass("Humanoid")
-				local eMove = eHum and eHum.MoveDirection or Vector3.new()
-				if eMove.Magnitude > 0.2 and eMove:Dot(-nDir) < -0.4 then E = 10 end
-			end
-
-			local ping = tonumber(getgenv()._ZX_PingCache or props.__cached_ping) or 50
-			local range = math.min((ping * 0.7) + math.min(speed / (E * 1.2), 80), props.__spam_threshold)
-			if enemyDist > range then return end
-
-			-- Post-hit approach penalty (faster re-arm than stock Azure)
-			local dirToBall = toBall / distance
-			local approach = dirToBall:Dot(velocity.Unit)
-			local penalty = math.clamp(math.clamp(-approach, 0, 1) * (speed / 30), 0, 6)
-
-			local scale = math.clamp((props.__spam_threshold / 11) * (props.__auto_spam_distance_multiplier or 1), 0.5, 2.5)
-			local spamRange = (range - penalty) * scale
-
-			-- ── Hysteresis: outer edge 1.2x, inner edge exact ──────────────────
-			if AS_engaged then
-				if distance > spamRange * 1.2 then
-					AS_engaged = false
-				end
-			else
-				if distance <= spamRange then
-					AS_engaged = true
-				end
-			end
-
-			if not AS_engaged then
-				autoSpamActive = false
+			local targetedNow = (best:GetAttribute("target") == LocalPlayer.Name)
+			local inGrace     = (now - rec.lastTarget) <= AS_TARGET_GRACE
+			if not (targetedNow or inGrace) then
+				AS_gate[best] = nil
+				AS_accumulator = 0
+				AS_escalation  = 0
 				return
 			end
 
-			if props.__parries <= 1 then return end
-			if character:GetAttribute("Pulsed") then return end
-			if not AS_budgetAllows() then return end
+			-- ── ② reference spam gate · adaptive distance ───────────────────
+			local armed, spamDist, enemyDist, why = AS_gateCheck(best, myPos, pingMs)
+			if not armed then
+				AS_accumulator = 0
+				AS_escalation  = 0
+				return
+			end
 
-			autoSpamActive = true
+			-- ── engine · ORIGINAL V7.1 dt-accumulator burst ─────────────────
+			local fireRate = math.clamp(props.__spam_rate or 500, 20, 1000)
+			if props.__ispam_weak then fireRate = math.min(fireRate, 300) end
+
+			local headroom = math.max(AS_RATE_CEILING / fireRate - 1, 0)
+			AS_escalation = math.min(AS_escalation + fireRate * 0.002 * step, 1)
+
+			local escBoost = AS_escalation * headroom * 0.60
+			local recBoost = math.clamp((now - AS_lastSuccess) / AS_SUCCESS_WINDOW, 0, 1) * headroom * 0.40
+			local effRate  = math.min(fireRate * (1 + escBoost + recBoost), AS_RATE_CEILING)
+
+			AS_accumulator += effRate * step
+			local burst = math.floor(AS_accumulator)
+			if burst < 1 then return end
+
+			AS_accumulator -= burst
+			burst = math.min(burst, AS_FRAME_CAP)
+			if burst < 1 then return end
+
+			-- ── burst engine · Auto-Spam is exempt from the precision epoch gate
+			if not Stellar.parry.claim(best, "spam", "spam") then
+				AS_accumulator = 0
+				return
+			end
+
+			if getgenv()._SpamDebug then
+				print(string.format(
+					"[AutoSpam] %s base=%d eff=%.0f burst=%d enemy=%.1f spam=%.1f parries=%d",
+					why, fireRate, effRate, burst, enemyDist, spamDist, props.__parries or 0))
+			end
+
 			parryFlag = false
 
-			-- ── Adaptive burst: slider floor + silence escalation + low-FPS ────
-			local burst = math.max(1, math.ceil(props.__burst_multiplier or 1))
-
-			if now - AS_lastSuccess > (0.3 + AS_escalation * 0.15) then
-				AS_escalation = math.min(AS_escalation + 1, 3)
-			end
-			burst = burst + AS_escalation
-
-			local fps = props.__cached_fps or 60
-			if fps < 90 then
-				burst = burst + 1
-			end
-			burst = math.min(burst, 4)
-
-			-- Straight camera CFrame — no curve on spam packets
-			AS_fire_burst(workspace.CurrentCamera.CFrame, burst)
+			AS_fire(workspace.CurrentCamera.CFrame, burst)
 
 			if props.__play_animation then
 				Stellar.animation.play_grab_parry()
@@ -3710,28 +4445,37 @@ end
 			props.__connections.__spam_win:Disconnect()
 			props.__connections.__spam_win = nil
 		end
-		for ball, conn in pairs(AS_reactions) do
+		for b, conn in pairs(AS_REACTIONS) do
 			conn:Disconnect()
-			AS_reactions[ball] = nil
+			AS_REACTIONS[b] = nil
 		end
-		AS_engaged = false
-		autoSpamActive = false
+		table.clear(AS_gate)
+		AS_accumulator = 0
+		AS_escalation  = 0
 	end
 
 -- Manual High-Frequency Spam Subsystem
 Stellar.manual_spam = {}
 local manualSpamActive = false
 local manualConnection = nil
+local MS_accumulator = 0   -- fractional packet carry for the rate slider
 function Stellar.manual_spam.start()
 	Stellar.manual_spam.stop()
 	manualSpamActive = true
-	manualConnection = RunService.PreSimulation:Connect(function()
+	MS_accumulator = 0
+	manualConnection = RunService.PreSimulation:Connect(function(dt)
 		if not (Stellar.__properties.__manual_spam_enabled and Stellar.__properties.__gui_spam_active) then
 			Stellar.manual_spam.stop()
 			return
 		end
-		local batchAmount = Stellar.__properties.__spam_batch_amount
-		local burstCount = (batchAmount == "FPS Priority" and 4) or (batchAmount == "Bruteforce" and 15) or (batchAmount == "Extremely Fast" and 20) or 8
+		-- "Manual Spam Rate" slider (100–1000) = target packets per second
+		local fireRate = math.clamp(Stellar.__properties.__manual_spam_rate or 600, 100, 1000)
+		local step = dt or (1 / math.max(Stellar.__properties.__cached_fps or 60, 1))
+		MS_accumulator += fireRate * step
+		local burstCount = math.floor(MS_accumulator)
+		if burstCount < 1 then return end          -- rate not reached yet: keep carrying
+		MS_accumulator -= burstCount
+		burstCount = math.min(burstCount, 30)      -- per-frame ceiling (old "Extremely Fast" max)
 		local cachedCF = Stellar.curve.get_cframe()
 		for _ = 1, burstCount do
 			if getgenv().AutoParryMode == "Keypress" then Stellar.parry.keypress(cachedCF) else Stellar.parry.execute_bruteforce(cachedCF) end
@@ -3742,6 +4486,7 @@ end
 
 function Stellar.manual_spam.stop()
 	manualSpamActive = false
+	MS_accumulator = 0
 	if manualConnection then manualConnection:Disconnect(); manualConnection = nil end
 end
 
@@ -3846,6 +4591,9 @@ local function startPreclickTracking()
         task.delay(delay, function()
             pcall(function()
                 if Stellar and Stellar.parry then
+                    -- 🛡 cross-source claim: never stack preclick on AP / spam
+                    local b = Stellar.ball.get()
+                    if b and not Stellar.parry.claim(b, "preclick", "precision") then return end
                     if getgenv().AutoParryMode == "Keypress" then
                         Stellar.parry.keypress()
                     else
@@ -4226,7 +4974,6 @@ Stellar.sound_controller = {
 		-- 🎧 Asset ID tracks
 		["Eeyuh"]                       = { ID = "rbxassetid://16190782181" },
 		["Low Cortisol"]                = { ID = "rbxassetid://110919391228823" },
-		["Bounce"]                      = { ID = "rbxassetid://5907568539" },
 		["Erwachen"]                    = { ID = "rbxassetid://124853612881772" },
 		["Grasp the Light"]             = { ID = "rbxassetid://89549155689397" },
 		["Beyond the Shadows"]          = { ID = "rbxassetid://120729792529978" },
@@ -4823,6 +5570,7 @@ end)
 -- AUTO-APPLY ON STARTUP — waits for all modules to exist
 -- ═══════════════════════════════════════════════════════════════
 task.spawn(function()
+	do return end -- PERF: duplicate spoofer auto-apply disabled (ran twice at startup)
 	local wasLoaded = loadSpoofConfig()
 	if not wasLoaded then return end
 
@@ -4869,6 +5617,8 @@ task.spawn(function()
 	print("[Stellar] Device Spoofer auto-applied: " .. device)
 end)
 
+
+-- [STELLAR-UI-MODULES-BEGIN]
 -- UI MODULE BINDINGS & EXPANDED CONFIGURATION SLIDERS
 local autoparry_module = AutoparryTab:create_module({
 	title = "Auto Parry Core",
@@ -4924,7 +5674,8 @@ autoparry_module:create_dropdown({
 	title = "Parry Mode",
 	flag = "ParryMode",
 	options = { "Remote", "Keypress" },
-	maximum_options = 1,
+   multi_dropdown = false,
+	maximum_options = 2,
 	callback = function(value) getgenv().AutoParryMode = value end
 })
 
@@ -5096,7 +5847,7 @@ preclick_module:create_slider({
 
 local spam_module = SpamTab:create_module({
 	title = "Auto Spam",
-	description = "Rapid parry with high speed based on Spam Mode",
+	description = "Rapid parry with high speed",
 	flag = "AutoSpamModule",
 	section = "left",
 	callback = function(state) 
@@ -5106,25 +5857,39 @@ local spam_module = SpamTab:create_module({
 })
 
 spam_module:create_slider({
-	title = "Auto Spam Distance",
-	flag = "AutoSpamDist",
-	maximum_value = 50,
-	minimum_value = 5,
-	value = 35,
+	title = "Spam Rate",
+	flag = "AutoSpamRate",
+	minimum_value = 20, maximum_value = 1000, value = 500,
 	round_number = true,
-	callback = function(value) Stellar.__properties.__spam_threshold = value end
+	callback = function(v) Stellar.__properties.__spam_rate = v end
 })
 
 spam_module:create_slider({
-	title = "Burst Multiplier",
-	flag = "SpamBurstMultiplier",
-	minimum_value = 0.5,
-	maximum_value = 2,
-	value = 1,
-	round_number = false,
-	callback = function(value)
-		Stellar.__properties.__burst_multiplier = value
-	end
+	title = "Parry Gate",
+	flag = "AutoSpamParryGate",
+	minimum_value = 0, maximum_value = 5, value = 1,
+	round_number = true,
+	callback = function(v) Stellar.__properties.__spam_parry_gate = v end
+})
+
+spam_module:create_slider({
+	title = "Range Multiplier",
+	flag = "AutoSpamDistanceMultiplier",
+	minimum_value = 0.3, maximum_value = 3.0, value = 1.0,
+	round_number = true,
+	callback = function(v) Stellar.__properties.__auto_spam_distance_multiplier = v end
+})
+
+spam_module:create_checkbox({
+	title = "Force Spam (Ignore Parry Gate)",
+	flag = "AutoSpamForceGate",
+	callback = function(v) Stellar.__properties.__spam_require_gate = not v end
+})
+
+spam_module:create_checkbox({
+	title = "Weak Device Mode (Lag-Safe)",
+	flag = "AutoSpamWeakDevice",
+	callback = function(v) Stellar.__properties.__ispam_weak = v end
 })
 
 local manual_spam_module = SpamTab:create_module({
@@ -5143,13 +5908,12 @@ local manual_spam_module = SpamTab:create_module({
 	end
 })
 
-manual_spam_module:create_dropdown({
-	title = "Spam Mode",
-	flag = "SpamBatchAmount",
-	options = { "FPS Priority", "Balanced", "Bruteforce", "Extremely Fast" },
-	multi_dropdown = false,
-	maximum_options = 4,
-	callback = function(value) Stellar.__properties.__spam_batch_amount = value end
+manual_spam_module:create_slider({
+	title = "Manual Spam Rate",
+	flag = "ManualSpamRate",
+	minimum_value = 100, maximum_value = 1000, value = 600,
+	round_number = true,
+	callback = function(v) Stellar.__properties.__manual_spam_rate = v end
 })
 local detection_module = DetectionTab:create_module({
 	title = "Ability Detections",
@@ -5373,7 +6137,10 @@ local immortality_module = PlayerTab:create_module({
 	flag = "ImmortalityModule",
 	description = "Semi-immortal orbital desync",
 	section = "right",
-	callback = function(state) Stellar.__properties.__immortality_enabled = state end
+	callback = function(state)
+		Stellar.__properties.__immortality_enabled = state
+		if state then pcall(installImmortalityHook) end
+	end
 })
 
 immortality_module:create_checkbox({
@@ -6205,15 +6972,14 @@ local winstreak_module = VisualsTab:create_module({
 	end
 })
 
-winstreak_module:create_slider({
+winstreak_module:create_textbox({
 	title = "Winstreak Value",
+	placeholder = "Enter number or text...",
 	flag = "WinstreakValue",
-	minimum_value = 0,
-	maximum_value = 999,
-	value = 0,
-	round_number = true,
 	callback = function(value)
-		Stellar.winstreak_changer:set_value(value)
+		if Stellar and Stellar.winstreak_changer then
+			Stellar.winstreak_changer:set_value(value)
+		end
 	end
 })
 
@@ -6328,33 +7094,41 @@ local ability_esp_module = MiscTab:create_module({
 	end
 })
 
+-- FIX: Define Connections_Manager table to store module connections
+local Connections_Manager = Connections_Manager or {}
+
 local no_render_module = MiscTab:create_module({
 	title = "No Render",
 	description = "Disables rendering of heavy effects",
 	flag = "NoRenderModule",
 	section = "right",
-	callback = function(state)
-		local effectScripts = nil
-		pcall(function()
-			if Players and Players.LocalPlayer and Players.LocalPlayer.PlayerScripts then
-				effectScripts = Players.LocalPlayer.PlayerScripts:FindFirstChild("EffectScripts")
-			end
-		end)
-		if effectScripts then
-			local clientFX = effectScripts:FindFirstChild("ClientFX")
-			if clientFX then clientFX.Disabled = state end
-		end
-		if state then
-			Stellar.__properties.__connections.__no_render = workspace.Runtime.ChildAdded:Connect(function(Value)
-				Debris:AddItem(Value, 0)
-			end)
-		else
-			if Stellar.__properties.__connections.__no_render then
-				Stellar.__properties.__connections.__no_render:Disconnect()
-				Stellar.__properties.__connections.__no_render = nil
-			end
-		end
-	end
+	callback = function(state: boolean)
+        getgenv().No_Render = state
+
+        local playerScripts = Players.LocalPlayer:FindFirstChild('PlayerScripts')
+        local effectScripts = playerScripts and playerScripts:FindFirstChild('EffectScripts')
+        local clientFX = effectScripts and effectScripts:FindFirstChild('ClientFX')
+
+        if clientFX then
+            clientFX.Disabled = state
+        end
+
+        if state then
+            if not Connections_Manager['No Render'] then
+                local runtime = workspace:FindFirstChild('Runtime')
+                if runtime then
+                    Connections_Manager['No Render'] = runtime.ChildAdded:Connect(function(value)
+                        Debris:AddItem(value, 0)
+                    end)
+                end
+            end
+        else
+            if Connections_Manager['No Render'] then
+                Connections_Manager['No Render']:Disconnect()
+                Connections_Manager['No Render'] = nil
+            end
+        end
+    end
 })
 
 local thunder_dash_module = MiscTab:create_module({
@@ -6529,7 +7303,7 @@ bgm_module:create_dropdown({
 	title = "Select Track",
 	flag = "BGMTrackDropdown",
 	options = {
-		"Eeyuh", "Low Cortisol", "Bounce", "Misery",
+		"Eeyuh", "Low Cortisol", "Hikari", "Misery",
 		"ODETARI", "PIXY", "Erwachen", "Grasp the Light",
 		"Beyond the Shadows", "Rise to the Horizon", "Echoes of the Candy Kingdom",
 		"Speed", "Lo-fi Chill A", "Lo-fi Ambient", "Tears in the Rain"
@@ -6624,6 +7398,27 @@ misc_module:create_button({
 	end
 })
 
+-- [STELLAR-UI-MODULES-END]
+
+-- ═══════════════════════════════════════════════════════════════
+--  Blocking loader. Each stage does real work:
+--    Verifying Executor      -> identifyexecutor() + webhook + block list
+--    Initializing Interface  -> build_interface() constructs the window
+--    Loading Modules         -> saved flags/keybinds re-synced into the UI
+--  `block = true` (the default) holds this script until the loader closes;
+--  a blocked executor (Xeno, Solara) stops the script right here.
+-- ═══════════════════════════════════════════════════════════════
+end -- build_interface
+
+library:create_loader({
+	brand      = 'Stellar.',
+	stages     = { 'Verifying Executor', 'Initializing Interface', 'Loading Modules' },
+	build      = build_interface,
+	block      = true,
+	weather    = 'snow',
+	snow_speed = 16,
+	quote      = "Do what you want. We can judge you — just don't get caught."
+})
 -- Launch Initialization
 library:load()
-Library.SendNotification({ title = "Stellar Engine", text = "Stellar V6.7.8.5 Initialized.", duration = 3 })
+Library.SendNotification({ title = "Stellar Engine", text = "Stellar V7.2 Initialized.", duration = 3 })
