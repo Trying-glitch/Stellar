@@ -1,224 +1,831 @@
-local CoreGui = game:GetService("CoreGui")
-local Lighting = game:GetService("Lighting")
-local Debris = game:GetService("Debris")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local TextService = game:GetService("TextService")
-local HttpService = game:GetService("HttpService")
-local ContentProvider = game:GetService("ContentProvider")
+--[[
+    ╔══════════════════════════════════════════════════════════════════════╗
+    ║  S T E L L A R   U I   ·   "Ethereal Edition"                        ║
+    ║                                                                      ║
+    ║  A ground-up visual redesign of the Stellar UI library. It adopts    ║
+    ║  the Ethereal design language — soft layered panels, hairline        ║
+    ║  borders, considered typography, fluid spring motion — while        ║
+    ║  keeping the entire Stellar component API intact:                    ║
+    ║                                                                      ║
+    ║      library:create_tab(name, icon)                                  ║
+    ║      tab:create_module{ ... }        module:create_slider{ ... }     ║
+    ║      module:create_toggle{ ... }     module:create_dropdown{ ... }   ║
+    ║      module:create_keybind{ ... }    module:create_textbox{ ... }    ║
+    ║      module:create_button{ ... }     module:create_colorpicker{ ... }║
+    ║                                                                      ║
+    ║  Everything is themeable, animated and mobile aware.                 ║
+    ╚══════════════════════════════════════════════════════════════════════╝
+]]
 
-getgenv().GG = {
-	SelectedLanguage = "en",
+--=====================================================================
+--  Services
+--=====================================================================
+local cloneref = cloneref or function(service) return service end
+
+local CoreGui          = cloneref(game:GetService('CoreGui'))
+local Lighting         = cloneref(game:GetService('Lighting'))
+local Debris           = cloneref(game:GetService('Debris'))
+local TweenService     = cloneref(game:GetService('TweenService'))
+local UserInputService = cloneref(game:GetService('UserInputService'))
+local TextService      = cloneref(game:GetService('TextService'))
+local HttpService      = cloneref(game:GetService('HttpService'))
+local ContentProvider  = cloneref(game:GetService('ContentProvider'))
+local Players          = cloneref(game:GetService('Players'))
+local RunService       = cloneref(game:GetService('RunService'))
+local Workspace        = cloneref(game:GetService('Workspace'))
+
+local LocalPlayer = Players.LocalPlayer
+
+local FONT_HEAD = 'rbxasset://fonts/families/GothamSSm.json'
+local FONT_BODY = 'rbxasset://fonts/families/SourceSansPro.json'
+
+--=====================================================================
+--  Localisation  (kept 1:1 with the original Stellar "GG" contract)
+--=====================================================================
+getgenv().GG = getgenv().GG or {
+    SelectedLanguage = 'en',
     Language = {
-        CheckboxEnabled = "Enabled",
-        CheckboxDisabled = "Disabled",
-        SliderValue = "Value",
-        DropdownSelect = "Select",
-        DropdownNone = "None",
-        DropdownSelected = "Selected",
-        ButtonClick = "Click",
-        TextboxEnter = "Enter",
-        ModuleEnabled = "Enabled",
-        ModuleDisabled = "Disabled",
-        TabGeneral = "General",
-        TabSettings = "Settings",
-        Loading = "Loading...",
-        Error = "Error",
-        Success = "Success"
+        CheckboxEnabled  = 'Enabled',
+        CheckboxDisabled = 'Disabled',
+        SliderValue      = 'Value',
+        DropdownSelect   = 'Select',
+        DropdownNone     = 'None',
+        DropdownSelected = 'Selected',
+        ButtonClick      = 'Click',
+        TextboxEnter     = 'Enter',
+        ModuleEnabled    = 'Enabled',
+        ModuleDisabled   = 'Disabled',
+        TabGeneral       = 'General',
+        TabSettings      = 'Settings',
+        Loading          = 'Loading...',
+        Error            = 'Error',
+        Success          = 'Success'
     }
 }
 
--- Replace the SelectedLanguage with a reference to GG.Language
-local SelectedLanguage = GG.Language
-
-function convertStringToTable(inputString)
-    local result = {}
-    for value in string.gmatch(inputString, "([^,]+)") do
-        local trimmedValue = value:match("^%s*(.-)%s*$")
-        table.insert(result, trimmedValue)
-    end
-
-    return result
+local GG = getgenv().GG
+local LANG = GG.Language
+local function tr(key, fallback)
+    local value = LANG and LANG[key]
+    if value == nil then return fallback or key end
+    return value
 end
 
-function convertTableToString(inputTable)
-    return table.concat(inputTable, ", ")
+--=====================================================================
+--  Theme engine
+--  Every colour in the interface flows through this table. Objects are
+--  registered through `bind()` so `library:set_theme()` can live-swap
+--  the entire palette without rebuilding the window.
+--=====================================================================
+local Theme_Presets = {
+    -- Default: the cool indigo/sapphire palette from the reference shot.
+    Stellar = {
+        Accent      = Color3.fromRGB(88, 132, 255),
+        Accent_2    = Color3.fromRGB(138, 104, 255),
+        Accent_Soft = Color3.fromRGB(30, 44, 92),
+        Panel       = Color3.fromRGB(11, 12, 21),
+        Panel_2     = Color3.fromRGB(16, 18, 30),
+        Panel_3     = Color3.fromRGB(23, 26, 41),
+        Panel_4     = Color3.fromRGB(31, 35, 54),
+        Border      = Color3.fromRGB(38, 43, 64),
+        Text        = Color3.fromRGB(232, 234, 244),
+        Muted       = Color3.fromRGB(140, 146, 170),
+        Dim         = Color3.fromRGB(92, 98, 124),
+        NotEnabled  = Color3.fromRGB(26, 29, 44),
+        Success     = Color3.fromRGB(86, 214, 154),
+        Warning     = Color3.fromRGB(230, 188, 100),
+        Danger      = Color3.fromRGB(240, 100, 122)
+    },
+    -- Faithful to Ethereal.lua's own rose / graphite palette.
+    Ethereal = {
+        Accent      = Color3.fromRGB(203, 104, 118),
+        Accent_2    = Color3.fromRGB(232, 138, 118),
+        Accent_Soft = Color3.fromRGB(48, 24, 30),
+        Panel       = Color3.fromRGB(12, 12, 14),
+        Panel_2     = Color3.fromRGB(17, 17, 20),
+        Panel_3     = Color3.fromRGB(23, 23, 28),
+        Panel_4     = Color3.fromRGB(30, 30, 36),
+        Border      = Color3.fromRGB(45, 45, 52),
+        Text        = Color3.fromRGB(232, 232, 240),
+        Muted       = Color3.fromRGB(144, 144, 160),
+        Dim         = Color3.fromRGB(96, 96, 112),
+        NotEnabled  = Color3.fromRGB(26, 26, 30),
+        Success     = Color3.fromRGB(96, 212, 160),
+        Warning     = Color3.fromRGB(230, 188, 64),
+        Danger      = Color3.fromRGB(220, 96, 110)
+    },
+    Emerald = {
+        Accent      = Color3.fromRGB(72, 199, 142),
+        Accent_2    = Color3.fromRGB(120, 220, 170),
+        Accent_Soft = Color3.fromRGB(18, 52, 40),
+        Panel       = Color3.fromRGB(10, 15, 14),
+        Panel_2     = Color3.fromRGB(15, 22, 20),
+        Panel_3     = Color3.fromRGB(21, 31, 28),
+        Panel_4     = Color3.fromRGB(28, 42, 37),
+        Border      = Color3.fromRGB(38, 55, 48),
+        Text        = Color3.fromRGB(230, 240, 236),
+        Muted       = Color3.fromRGB(136, 156, 148),
+        Dim         = Color3.fromRGB(88, 108, 100),
+        NotEnabled  = Color3.fromRGB(23, 34, 30),
+        Success     = Color3.fromRGB(120, 226, 168),
+        Warning     = Color3.fromRGB(230, 188, 100),
+        Danger      = Color3.fromRGB(232, 104, 122)
+    },
+    Amethyst = {
+        Accent      = Color3.fromRGB(163, 116, 255),
+        Accent_2    = Color3.fromRGB(214, 120, 255),
+        Accent_Soft = Color3.fromRGB(42, 28, 74),
+        Panel       = Color3.fromRGB(13, 11, 20),
+        Panel_2     = Color3.fromRGB(19, 16, 29),
+        Panel_3     = Color3.fromRGB(27, 22, 40),
+        Panel_4     = Color3.fromRGB(36, 30, 53),
+        Border      = Color3.fromRGB(50, 42, 72),
+        Text        = Color3.fromRGB(236, 232, 246),
+        Muted       = Color3.fromRGB(150, 142, 176),
+        Dim         = Color3.fromRGB(102, 94, 128),
+        NotEnabled  = Color3.fromRGB(29, 24, 44),
+        Success     = Color3.fromRGB(110, 214, 168),
+        Warning     = Color3.fromRGB(232, 190, 108),
+        Danger      = Color3.fromRGB(240, 104, 140)
+    }
+}
+
+local Theme = {}
+for key, value in pairs(Theme_Presets.Stellar) do
+    Theme[key] = value
 end
 
-local Connections = setmetatable({
-    disconnect = function(self, connection)
-        if not self[connection] then
-            return
-        end
-    
-        self[connection]:Disconnect()
-        self[connection] = nil
-    end,
-    disconnect_all = function(self)
-        for _, value in self do
-            if typeof(value) == 'function' then
-                continue
-            end
-    
-            value:Disconnect()
+local Theme_Name = 'Stellar'
+
+local Theme_Bindings = {}
+local Theme_Functions = {}
+
+-- Register a colour property so it follows live theme changes.
+local function bind(object, property, key)
+    if not object then return object end
+    table.insert(Theme_Bindings, { object = object, property = property, key = key })
+    if Theme[key] ~= nil then
+        object[property] = Theme[key]
+    end
+    return object
+end
+
+-- Register an arbitrary callback for things gradients / composite colours.
+local function bind_fn(fn)
+    table.insert(Theme_Functions, fn)
+    fn()
+end
+
+local function apply_theme()
+    for _, entry in ipairs(Theme_Bindings) do
+        local object = entry.object
+        if object and object.Parent and Theme[entry.key] ~= nil then
+            object[entry.property] = Theme[entry.key]
         end
     end
-}, Connections)
-
-
-local Util = setmetatable({
-    map = function(self: any, value: number, in_minimum: number, in_maximum: number, out_minimum: number, out_maximum: number)
-        return (value - in_minimum) * (out_maximum - out_minimum) / (in_maximum - in_minimum) + out_minimum
-    end,
-    viewport_point_to_world = function(self: any, location: any, distance: number)
-        local unit_ray = workspace.CurrentCamera:ScreenPointToRay(location.X, location.Y)
-
-        return unit_ray.Origin + unit_ray.Direction * distance
-    end,
-    get_offset = function(self: any)
-        local viewport_size_Y = workspace.CurrentCamera.ViewportSize.Y
-
-        return self:map(viewport_size_Y, 0, 2560, 8, 56)
-    end,
-    resolve_asset_id = function(self: any, id: any)
-        if id == nil then
-            return nil
-        end
-
-        id = tostring(id)
-
-        if id:match('^rbxassetid://') or id:match('^rbxthumb://') or id:match('^http') then
-            return id
-        end
-
-        -- strip anything but digits in case a full marketplace URL was pasted in
-        local digits = id:match('(%d+)')
-        if not digits then
-            return nil
-        end
-
-        return 'rbxassetid://' .. digits
+    for _, fn in ipairs(Theme_Functions) do
+        pcall(fn)
     end
-}, Util)
+end
 
+--=====================================================================
+--  Tiny instance / tween helpers
+--=====================================================================
+local function create(class, properties, parent)
+    local object = Instance.new(class)
+    if properties then
+        for property, value in pairs(properties) do
+            object[property] = value
+        end
+    end
+    if parent then object.Parent = parent end
+    return object
+end
 
+local function tween(object, duration, properties, style, direction)
+    if not object then return end
+    local info = TweenInfo.new(duration, style or Enum.EasingStyle.Quint, direction or Enum.EasingDirection.Out)
+    local anim = TweenService:Create(object, info, properties)
+    anim:Play()
+    return anim
+end
+
+-- An infinitely repeating tween. The caller keeps the handle so the motion
+-- can be cancelled when the state that needs it goes away (e.g. a status dot
+-- that switched off).
+local function looping_tween(object, duration, properties, style, direction, reverses)
+    if not object then return nil end
+    local info = TweenInfo.new(
+        duration,
+        style or Enum.EasingStyle.Linear,
+        direction or Enum.EasingDirection.Out,
+        -1, -- repeat forever
+        reverses or false,
+        0
+    )
+    local anim = TweenService:Create(object, info, properties)
+    anim:Play()
+    return anim
+end
+
+-- Short "pop" entrance: find-or-create a UIScale, jump it below 1 and spring
+-- it back. A resting scale of exactly 1 renders identically to no scale, so
+-- leaving the child behind is harmless.
+local function pop_scale(object, from, to, duration, style)
+    if not object or not object.Parent then return nil end
+    local scale = object:FindFirstChild('StellarPopScale')
+    if not scale then
+        scale = create('UIScale', { Name = 'StellarPopScale', Scale = 1 }, object)
+    end
+    scale.Scale = from or 0.96
+    tween(scale, duration or 0.26, { Scale = to or 1 }, style or Enum.EasingStyle.Back)
+    return scale
+end
+
+local function corner(parent, radius, aspect)
+    return create('UICorner', {
+        CornerRadius = aspect and UDim.new(aspect, radius) or UDim.new(0, radius)
+    }, parent)
+end
+
+local function stroke(parent, color, thickness, transparency)
+    return create('UIStroke', {
+        Color = color or Theme.Border,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    }, parent)
+end
+
+local function padding(parent, top, right, bottom, left)
+    return create('UIPadding', {
+        PaddingTop = UDim.new(0, top or 0),
+        PaddingRight = UDim.new(0, right or top or 0),
+        PaddingBottom = UDim.new(0, bottom or top or 0),
+        PaddingLeft = UDim.new(0, left or right or top or 0)
+    }, parent)
+end
+
+local function list_layout(parent, properties)
+    local props = properties or {}
+    props.SortOrder = props.SortOrder or Enum.SortOrder.LayoutOrder
+    return create('UIListLayout', props, parent)
+end
+
+local function gradient(parent, color_sequence, rotation, transparency)
+    local grad = create('UIGradient', {
+        Color = color_sequence,
+        Rotation = rotation or 0
+    }, parent)
+    if transparency then grad.Transparency = transparency end
+    return grad
+end
+
+local function accent_gradient(parent, rotation)
+    local grad = gradient(parent, ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(1, Theme.Accent_2)
+    }), rotation or 0)
+    bind_fn(function()
+        grad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Theme.Accent),
+            ColorSequenceKeypoint.new(1, Theme.Accent_2)
+        })
+    end)
+    return grad
+end
+
+local function font(weight)
+    return Font.new(FONT_HEAD, weight or Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+end
+
+local function body_font(weight)
+    return Font.new(FONT_BODY, weight or Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+end
+
+local function sound(parent, id, volume)
+    return create('Sound', {
+        Name = 'StellarSound',
+        SoundId = 'rbxassetid://' .. tostring(id),
+        Volume = volume or 0.4
+    }, parent)
+end
+
+local function hex(color)
+    return string.format('#%02X%02X%02X',
+        math.floor(color.R * 255 + 0.5),
+        math.floor(color.G * 255 + 0.5),
+        math.floor(color.B * 255 + 0.5))
+end
+
+local function measure_text(text, width, text_size, weight)
+    text = tostring(text or '')
+    local ok, bounds = pcall(function()
+        local params = Instance.new('GetTextBoundsParams')
+        params.Text = text
+        params.Font = Font.new(FONT_HEAD, weight or Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+        params.Size = text_size
+        params.Width = width
+        return TextService:GetTextBoundsAsync(params)
+    end)
+    if ok and bounds then
+        return math.max(text_size * 1.35, bounds.Y)
+    end
+    local per_line = math.max(1, math.floor(width / (text_size * 0.56)))
+    local lines = math.max(1, math.ceil(#text / per_line))
+    return text_size * 1.35 * lines
+end
+
+--=====================================================================
+--  Connection bookkeeping
+--=====================================================================
+local Connections = {}
+
+function Connections:disconnect(key)
+    local connection = self[key]
+    if connection and typeof(connection) == 'RBXScriptConnection' then
+        pcall(function() connection:Disconnect() end)
+    end
+    self[key] = nil
+end
+
+function Connections:disconnect_all()
+    local keys = {}
+    for key in pairs(self) do
+        if typeof(self[key]) == 'RBXScriptConnection' then
+            table.insert(keys, key)
+        end
+    end
+    for _, key in ipairs(keys) do
+        pcall(function() self[key]:Disconnect() end)
+        self[key] = nil
+    end
+end
+
+--=====================================================================
+--  Config persistence (same Stellar/<gameId>.json format as before)
+--=====================================================================
+local Config = {}
+
+local SESSION_DIR = 'Stellar'
+local NAMED_DIR = 'Stellar/configs'
+
+local function sanitize_name(name)
+    name = tostring(name or ''):gsub('^%s+', ''):gsub('%s+$', '')
+    -- Keep it a single file name: no path separators, no traversal.
+    name = name:gsub('[\\/]+', '_'):gsub('%.%.', '_')
+    name = name:gsub('[%c]', '')
+    if #name > 64 then name = name:sub(1, 64) end
+    return name
+end
+
+local function normalize(config)
+    if type(config) ~= 'table' then
+        config = { _flags = {}, _keybinds = {}, _library = {} }
+    end
+    config._flags = config._flags or {}
+    config._keybinds = config._keybinds or {}
+    config._library = config._library or {}
+    return config
+end
+
+function Config:ensure_folder()
+    pcall(function()
+        if isfolder and makefolder then
+            if not isfolder(SESSION_DIR) then makefolder(SESSION_DIR) end
+            if not isfolder(NAMED_DIR) then makefolder(NAMED_DIR) end
+        end
+    end)
+end
+
+function Config:save(file_name, config)
+    self:ensure_folder()
+    if type(writefile) ~= 'function' then return false end
+    local ok, result = pcall(function()
+        writefile(SESSION_DIR .. '/' .. tostring(file_name) .. '.json', HttpService:JSONEncode(config))
+        return true
+    end)
+    if not ok then
+        warn('[Stellar] failed to save config:', result)
+        return false
+    end
+    return true
+end
+
+function Config:load(file_name)
+    local ok, result = pcall(function()
+        if not (isfile and readfile) then return nil end
+        if not isfile(SESSION_DIR .. '/' .. tostring(file_name) .. '.json') then
+            return nil
+        end
+        local raw = readfile(SESSION_DIR .. '/' .. tostring(file_name) .. '.json')
+        if not raw or raw == '' then return nil end
+        return HttpService:JSONDecode(raw)
+    end)
+
+    if not ok then
+        warn('[Stellar] failed to load config:', result)
+    end
+
+    return normalize(result)
+end
+
+--=====================================================================
+--  Named configs  ("saved configs")
+--  Stored as Stellar/configs/<name>.json so players can keep several
+--  profiles (e.g. "legit", "rage") and switch between them.
+--=====================================================================
+function Config:named_path(name)
+    return NAMED_DIR .. '/' .. sanitize_name(name) .. '.json'
+end
+
+function Config:exists_named(name)
+    if not (isfile and sanitize_name(name) ~= '') then return false end
+    local ok, exists = pcall(isfile, self:named_path(name))
+    return ok and exists == true
+end
+
+function Config:save_named(name, config)
+    name = sanitize_name(name)
+    if name == '' then return false end
+    if type(writefile) ~= 'function' then return false end
+    self:ensure_folder()
+    local ok, result = pcall(function()
+        writefile(self:named_path(name), HttpService:JSONEncode(config))
+        return true
+    end)
+    if not ok then
+        warn('[Stellar] failed to save named config:', result)
+        return false
+    end
+    return true
+end
+
+function Config:load_named(name)
+    name = sanitize_name(name)
+    if name == '' then return nil end
+    if not (isfile and readfile) then return nil end
+    if not self:exists_named(name) then return nil end
+    local ok, result = pcall(function()
+        local raw = readfile(self:named_path(name))
+        if not raw or raw == '' then return nil end
+        return HttpService:JSONDecode(raw)
+    end)
+    if not ok then
+        warn('[Stellar] failed to load named config:', result)
+        return nil
+    end
+    if type(result) ~= 'table' then return nil end
+    return normalize(result)
+end
+
+function Config:delete_named(name)
+    name = sanitize_name(name)
+    if name == '' then return false end
+    if type(delfile) ~= 'function' then return false end
+    if not self:exists_named(name) then return false end
+    local ok = pcall(delfile, self:named_path(name))
+    return ok
+end
+
+function Config:list_named()
+    local names = {}
+    if type(listfiles) ~= 'function' then return names end
+    local ok, files = pcall(listfiles, NAMED_DIR)
+    if not ok or type(files) ~= 'table' then return names end
+    for _, path in ipairs(files) do
+        local name = tostring(path):match('([^/\\]+)%.json$')
+        if name then table.insert(names, name) end
+    end
+    table.sort(names)
+    return names
+end
+
+--=====================================================================
+--  Asset resolution (accepts raw ids, rbxassetid://, marketplace urls)
+--=====================================================================
+local Util = {}
+
+function Util:map(value, in_min, in_max, out_min, out_max)
+    return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+end
+
+function Util:resolve_asset_id(id)
+    if id == nil then return nil end
+    id = tostring(id)
+    if id == '' then return nil end
+    if id:match('^rbxassetid://') or id:match('^rbxthumb://') or id:match('^http') or id:match('^rbxasset://') then
+        return id
+    end
+    local digits = id:match('(%d+)')
+    if not digits then return nil end
+    return 'rbxassetid://' .. digits
+end
+
+--=====================================================================
+--  Animated logo (sprite sheets)
+--=====================================================================
+-- The original Stellar library shipped a little animated cat sprite and
+-- Ethereal ships its own animated mark. Both are plain sprite sheets, so
+-- we can play either one by stepping ImageRectOffset on an ImageLabel.
+--
+-- Each entry: image + the sheet's pixel size + its grid + frame count/fps.
+local Logo_Animations = {
+    Stellar = {
+        image   = 'rbxassetid://74080484918102', -- Stellar cat (5 frames)
+        width   = 60,  height = 40,
+        columns = 3,   rows   = 2,
+        frames  = 5,   fps    = 10
+    },
+    Ethereal = {
+        image   = 'rbxassetid://133009150415671', -- Ethereal mark (8 frames)
+        width   = 150, height = 120,
+        columns = 3,   rows   = 3,
+        frames  = 8,   fps    = 12
+    }
+}
+
+-- Plays a sprite sheet on an ImageLabel. Returns a stop() function. The
+-- loop self-terminates as soon as the label leaves the DataModel, so it
+-- is safe to fire-and-forget.
+function Util:animate_sprite(image_label, sheet)
+    local noop = function() end
+    if not image_label or type(sheet) ~= 'table' then return noop end
+
+    local columns = math.max(1, tonumber(sheet.columns) or 1)
+    local rows    = math.max(1, tonumber(sheet.rows) or 1)
+    local frames  = math.max(1, tonumber(sheet.frames) or (columns * rows))
+    local fps     = math.max(1, tonumber(sheet.fps) or 10)
+
+    if sheet.image then
+        image_label.Image = Util:resolve_asset_id(sheet.image) or sheet.image
+    end
+
+    local sheet_width  = tonumber(sheet.width) or 0
+    local sheet_height = tonumber(sheet.height) or 0
+    if sheet_width > 0 and sheet_height > 0 then
+        image_label.ImageRectSize = Vector2.new(
+            math.floor(sheet_width / columns),
+            math.floor(sheet_height / rows)
+        )
+    end
+
+    local frame_size = image_label.ImageRectSize
+    if not frame_size or frame_size.X <= 0 or frame_size.Y <= 0 then
+        return noop
+    end
+
+    local offsets = {}
+    for index = 0, frames - 1 do
+        local column = index % columns
+        local row = math.floor(index / columns)
+        offsets[index + 1] = Vector2.new(column * frame_size.X, row * frame_size.Y)
+    end
+
+    image_label.ImageRectOffset = offsets[1]
+
+    local stopped = false
+    local index = 1
+    task.spawn(function()
+        while not stopped and image_label and image_label.Parent do
+            task.wait(1 / fps)
+            if stopped or not image_label or not image_label.Parent then break end
+            index = (index % frames) + 1
+            image_label.ImageRectOffset = offsets[index]
+        end
+    end)
+
+    return function() stopped = true end
+end
+
+-- Applies either an animated sprite sheet or a plain static image to a
+-- logo ImageLabel and returns a stop() function.
+--
+-- options = {
+--     animation = 'Stellar' | 'Ethereal' | <sheet table> | false,
+--     image     = <asset id>   -- when given, shown statically
+-- }
+function Util:apply_logo(image_label, options)
+    local noop = function() end
+    if not image_label then return noop end
+    options = options or {}
+
+    local choice = options.animation
+    local sheet
+
+    if type(choice) == 'table' then
+        sheet = choice
+    elseif options.image == nil or options.image == false then
+        if choice ~= false then
+            sheet = Logo_Animations[choice or 'Stellar'] or Logo_Animations.Stellar
+        end
+    end
+
+    if sheet then
+        return Util:animate_sprite(image_label, sheet)
+    end
+
+    image_label.Image = Util:resolve_asset_id(options.image) or ''
+    image_label.ImageRectSize = Vector2.new(0, 0)
+    image_label.ImageRectOffset = Vector2.new(0, 0)
+    return noop
+end
+
+-- Blends two colours; t = 0 returns `a`, t = 1 returns `b`.
+local function mix_color(a, b, t)
+    return Color3.new(
+        a.R + (b.R - a.R) * t,
+        a.G + (b.G - a.G) * t,
+        a.B + (b.B - a.B) * t
+    )
+end
+
+-- Approximate rendered width of the edition badge text. The chip grows and
+-- shrinks with its label, so a build/version string like "ETHEREAL v2.1" fits
+-- without clipping or leaving a gap.
+local function edition_badge_width(text)
+    local length = #tostring(text or '')
+    return math.max(34, math.floor(length * 5.4) + 16)
+end
+
+-- Animated "wordmark" title (Discord-style).
+--
+-- A UIGradient parented to a TextLabel tints the glyphs themselves. The
+-- resting glyphs are a dimmed version of the theme text colour and a bright
+-- white highlight band travels across them, so the title reads as a glossy
+-- shine rather than flat text. The band is roughly three glyphs wide (not the
+-- one-glyph sliver it used to be), and it travels from fully off the left edge
+-- to fully off the right edge before repeating, so the loop never snaps a
+-- half-visible highlight back across the word.
+--
+-- The label's own TextColor3 is forced to white so the gradient colours are
+-- shown exactly as authored, and the palette is re-authored on every theme
+-- change so the sheen always matches the active typography.
+--
+-- options = {
+--     band     = 0.4,   -- highlight width, in label widths (~3 glyphs)
+--     period   = 2.4,   -- seconds for one full sweep
+--     pause    = 0.9,   -- seconds to rest before sweeping again
+--     rotation = 0      -- gradient angle (0 = horizontal)
+-- }
+--
+-- Returns a stop() function.
+function Util:animate_wordmark(label, options)
+    local noop = function() end
+    if not label then return noop end
+    options = options or {}
+
+    local band     = math.clamp(tonumber(options.band) or 0.4, 0.12, 0.6)
+    local period   = math.max(0.4, tonumber(options.period) or 2.4)
+    local pause    = math.max(0, tonumber(options.pause) or 0.9)
+    local rotation = tonumber(options.rotation) or 0
+
+    -- White base: the gradient is multiplied into the glyph colour, so this
+    -- keeps the authored gradient exact instead of tinting it twice.
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+    local lo = 0.5 - band * 0.5
+    local hi = 0.5 + band * 0.5
+
+    local function palette()
+        local text = Theme.Text
+        -- Resting glyphs are dimmed toward black so the white highlight band
+        -- is clearly visible as it sweeps; a near-white resting colour would
+        -- hide the shine entirely on the dark panel.
+        local base = mix_color(text, Color3.fromRGB(0, 0, 0), 0.45)
+        local bright = mix_color(text, Color3.fromRGB(255, 255, 255), 0.95)
+        return ColorSequence.new({
+            ColorSequenceKeypoint.new(0.00, base),
+            ColorSequenceKeypoint.new(lo, base),
+            ColorSequenceKeypoint.new(0.50, bright),
+            ColorSequenceKeypoint.new(hi, base),
+            ColorSequenceKeypoint.new(1.00, base)
+        })
+    end
+
+    -- Travel the highlight from fully off the left edge to fully off the right
+    -- edge before resetting, so the loop never snaps a half-visible sheen
+    -- across the word; the pause then reads as a natural gap between passes.
+    local from = -hi
+    local to = 1 - lo
+
+    local grad = create('UIGradient', {
+        Name = 'WordmarkGradient',
+        Rotation = rotation,
+        Offset = Vector2.new(from, 0),
+        Color = palette()
+    }, label)
+    grad:SetAttribute('BandWidth', band)
+
+    bind_fn(function()
+        if grad and grad.Parent then
+            grad.Color = palette()
+        end
+    end)
+
+    local stopped = false
+    task.spawn(function()
+        while not stopped and label and label.Parent and grad and grad.Parent do
+            grad.Offset = Vector2.new(from, 0)
+            tween(grad, period, { Offset = Vector2.new(to, 0) }, Enum.EasingStyle.Sine)
+            task.wait(period)
+            if stopped then break end
+            task.wait(pause)
+        end
+    end)
+
+    return function()
+        stopped = true
+        if grad and grad.Parent then grad:Destroy() end
+    end
+end
+
+--=====================================================================
+--  Acrylic backdrop blur (ported from Stellar — quality gated)
+--=====================================================================
 local AcrylicBlur = {}
 AcrylicBlur.__index = AcrylicBlur
 
-
-function AcrylicBlur.new(object: GuiObject)
+function AcrylicBlur.new(object)
     local self = setmetatable({
         _object = object,
         _folder = nil,
         _frame = nil,
         _root = nil
     }, AcrylicBlur)
-
     self:setup()
-
     return self
 end
 
-
 function AcrylicBlur:create_folder()
-    local old_folder = workspace.CurrentCamera:FindFirstChild('AcrylicBlur')
-
-    if old_folder then
-        Debris:AddItem(old_folder, 0)
+    local old = Workspace.CurrentCamera:FindFirstChild('StellarAcrylic')
+    if old then
+        Debris:AddItem(old, 0)
     end
-
-    local folder = Instance.new('Folder')
-    folder.Name = 'AcrylicBlur'
-    folder.Parent = workspace.CurrentCamera
-
+    local folder = create('Folder', { Name = 'StellarAcrylic' }, Workspace.CurrentCamera)
     self._folder = folder
 end
 
-
 function AcrylicBlur:create_depth_of_fields()
-    local depth_of_fields = Lighting:FindFirstChild('AcrylicBlur') or Instance.new('DepthOfFieldEffect')
-    depth_of_fields.FarIntensity = 0
-    depth_of_fields.FocusDistance = 0.05
-    depth_of_fields.InFocusRadius = 0.1
-    depth_of_fields.NearIntensity = 1
-    depth_of_fields.Name = 'AcrylicBlur'
-    depth_of_fields.Parent = Lighting
-
-    for _, object in Lighting:GetChildren() do
-        if not object:IsA('DepthOfFieldEffect') then
-            continue
-        end
-
-        if object == depth_of_fields then
-            continue
-        end
-
-        Connections[object] = object:GetPropertyChangedSignal('FarIntensity'):Connect(function()
-            object.FarIntensity = 0
-        end)
-
-        object.FarIntensity = 0
-    end
+    local dof = Lighting:FindFirstChild('StellarAcrylic') or create('DepthOfFieldEffect', {}, Lighting)
+    dof.FarIntensity = 0
+    dof.FocusDistance = 0.05
+    dof.InFocusRadius = 0.1
+    dof.NearIntensity = 1
+    dof.Name = 'StellarAcrylic'
+    dof.Parent = Lighting
 end
 
-
 function AcrylicBlur:create_frame()
-    local frame = Instance.new('Frame')
-    frame.Size = UDim2.new(1, 0, 1, 0)
-    frame.Position = UDim2.new(0.5, 0, 0.5, 0)
-    frame.AnchorPoint = Vector2.new(0.5, 0.5)
-    frame.BackgroundTransparency = 1
-    frame.Parent = self._object
-
+    local frame = create('Frame', {
+        Size = UDim2.new(1, 0, 1, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1
+    }, self._object)
     self._frame = frame
 end
 
-
 function AcrylicBlur:create_root()
-    local part = Instance.new('Part')
-    part.Name = 'Root'
-    part.Color = Color3.new(0, 0, 0)
-    part.Material = Enum.Material.Glass
-    part.Size = Vector3.new(1, 1, 0)  -- Use a thin part
-    part.Anchored = true
-    part.CanCollide = false
-    part.CanQuery = false
-    part.Locked = true
-    part.CastShadow = false
-    part.Transparency = 0.98
-    part.Parent = self._folder
+    local part = create('Part', {
+        Name = 'Root',
+        Color = Color3.new(0, 0, 0),
+        Material = Enum.Material.Glass,
+        Size = Vector3.new(1, 1, 0),
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        Locked = true,
+        CastShadow = false,
+        Transparency = 0.98
+    }, self._folder)
 
-    -- Create a SpecialMesh to simulate the acrylic blur effect
-    local specialMesh = Instance.new('SpecialMesh')
-    specialMesh.Name = 'Mesh'
-    specialMesh.MeshType = Enum.MeshType.Brick  -- Use Brick mesh or another type suitable for the effect
-    specialMesh.Offset = Vector3.new(0, 0, -0.000001)  -- Small offset to prevent z-fighting
-    specialMesh.Parent = part
+    create('SpecialMesh', {
+        Name = 'Mesh',
+        MeshType = Enum.MeshType.Brick,
+        Offset = Vector3.new(0, 0, -0.000001)
+    }, part)
 
-    self._root = part  -- Store the part as root
+    self._root = part
 end
-
 
 function AcrylicBlur:setup()
     self:create_depth_of_fields()
     self:create_folder()
     self:create_root()
-    
     self:create_frame()
     self:render(0.001)
-
     self:check_quality_level()
 end
 
-
-function AcrylicBlur:render(distance: number)
+function AcrylicBlur:render(distance)
     local positions = {
         top_left = Vector2.new(),
         top_right = Vector2.new(),
-        bottom_right = Vector2.new(),
+        bottom_right = Vector2.new()
     }
 
-    local function update_positions(size: any, position: any)
+    local function update_positions(size, position)
         positions.top_left = position
         positions.top_right = position + Vector2.new(size.X, 0)
         positions.bottom_right = position + size
@@ -229,682 +836,5804 @@ function AcrylicBlur:render(distance: number)
         local top_right = positions.top_right
         local bottom_right = positions.bottom_right
 
-        local top_left3D = Util:viewport_point_to_world(top_left, distance)
-        local top_right3D = Util:viewport_point_to_world(top_right, distance)
-        local bottom_right3D = Util:viewport_point_to_world(bottom_right, distance)
+        local ray1 = Workspace.CurrentCamera:ScreenPointToRay(top_left.X, top_left.Y)
+        local ray2 = Workspace.CurrentCamera:ScreenPointToRay(top_right.X, top_right.Y)
+        local ray3 = Workspace.CurrentCamera:ScreenPointToRay(bottom_right.X, bottom_right.Y)
 
-        local width = (top_right3D - top_left3D).Magnitude
-        local height = (top_right3D - bottom_right3D).Magnitude
+        local p1 = ray1.Origin + ray1.Direction * distance
+        local p2 = ray2.Origin + ray2.Direction * distance
+        local p3 = ray3.Origin + ray3.Direction * distance
 
-        if not self._root then
-            return
-        end
+        if not self._root or not self._root.Parent then return end
 
-        self._root.CFrame = CFrame.fromMatrix((top_left3D + bottom_right3D) / 2, workspace.CurrentCamera.CFrame.XVector, workspace.CurrentCamera.CFrame.YVector, workspace.CurrentCamera.CFrame.ZVector)
+        local width = (p2 - p1).Magnitude
+        local height = (p2 - p3).Magnitude
+
+        self._root.CFrame = CFrame.fromMatrix(
+            (p1 + p3) / 2,
+            Workspace.CurrentCamera.CFrame.XVector,
+            Workspace.CurrentCamera.CFrame.YVector,
+            Workspace.CurrentCamera.CFrame.ZVector
+        )
 
         local mesh = self._root:FindFirstChild('Mesh')
         if mesh then
-            mesh.Scale = Vector3.new(width, height, 0)
+            mesh.Scale = Vector3.new(math.max(width, 0.01), math.max(height, 0.01), 0)
         end
     end
 
     local function on_change()
-        local offset = Util:get_offset()
+        if not self._frame or not self._frame.Parent then return end
+        local offset = Util:map(Workspace.CurrentCamera.ViewportSize.Y, 0, 2560, 8, 56)
         local size = self._frame.AbsoluteSize - Vector2.new(offset, offset)
         local position = self._frame.AbsolutePosition + Vector2.new(offset / 2, offset / 2)
-
         update_positions(size, position)
         task.spawn(update)
     end
 
-    Connections['cframe_update'] = workspace.CurrentCamera:GetPropertyChangedSignal('CFrame'):Connect(update)
-    Connections['viewport_size_update'] = workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(update)
-    Connections['field_of_view_update'] = workspace.CurrentCamera:GetPropertyChangedSignal('FieldOfView'):Connect(update)
+    Connections['acrylic_cframe'] = Workspace.CurrentCamera:GetPropertyChangedSignal('CFrame'):Connect(update)
+    Connections['acrylic_viewport'] = Workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(update)
+    Connections['acrylic_fov'] = Workspace.CurrentCamera:GetPropertyChangedSignal('FieldOfView'):Connect(update)
+    Connections['acrylic_pos'] = self._frame:GetPropertyChangedSignal('AbsolutePosition'):Connect(on_change)
+    Connections['acrylic_size'] = self._frame:GetPropertyChangedSignal('AbsoluteSize'):Connect(on_change)
 
-    Connections['frame_absolute_position'] = self._frame:GetPropertyChangedSignal('AbsolutePosition'):Connect(on_change)
-    Connections['frame_absolute_size'] = self._frame:GetPropertyChangedSignal('AbsoluteSize'):Connect(on_change)
-    
     task.spawn(update)
 end
 
-
 function AcrylicBlur:check_quality_level()
-    local game_settings = UserSettings().GameSettings
-    local quality_level = game_settings.SavedQualityLevel.Value
+    local ok, settings = pcall(function()
+        return UserSettings().GameSettings
+    end)
+    if not ok or not settings then return end
 
-    if quality_level < 8 then
-        self:change_visiblity(false)
-    end
+    local quality = settings.SavedQualityLevel.Value
+    self:set_visible(quality >= 8)
 
-    Connections['quality_level'] = game_settings:GetPropertyChangedSignal('SavedQualityLevel'):Connect(function()
-        local game_settings = UserSettings().GameSettings
-        local quality_level = game_settings.SavedQualityLevel.Value
-
-        self:change_visiblity(quality_level >= 8)
+    Connections['acrylic_quality'] = settings:GetPropertyChangedSignal('SavedQualityLevel'):Connect(function()
+        self:set_visible(settings.SavedQualityLevel.Value >= 8)
     end)
 end
 
-
-function AcrylicBlur:change_visiblity(state: boolean)
-    self._root.Transparency = state and 0.98 or 1
+function AcrylicBlur:set_visible(state)
+    if self._root and self._root.Parent then
+        self._root.Transparency = state and 0.98 or 1
+    end
 end
 
+--=====================================================================
+--  Small vector glyphs drawn with frames (no asset dependencies)
+--=====================================================================
+local function draw_chevron(parent, size, color, thickness)
+    size = size or 8
+    thickness = thickness or 1.6
+    local holder = create('Frame', {
+        Size = UDim2.fromOffset(size, size),
+        BackgroundTransparency = 1,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5)
+    }, parent)
 
-local Config = setmetatable({
-    save = function(self: any, file_name: any, config: any)
-        local success_save, result = pcall(function()
-            local flags = HttpService:JSONEncode(config)
-            writefile('Stellar/'..file_name..'.json', flags)
+    create('Frame', {
+        Size = UDim2.new(0, size * 0.62, 0, thickness),
+        Position = UDim2.new(0, size * 0.02, 0, size * 0.34),
+        AnchorPoint = Vector2.new(0, 0.5),
+        Rotation = 40,
+        BackgroundColor3 = color,
+        BorderSizePixel = 0
+    }, holder)
+
+    create('Frame', {
+        Size = UDim2.new(0, size * 0.62, 0, thickness),
+        Position = UDim2.new(1, -size * 0.02, 0, size * 0.34),
+        AnchorPoint = Vector2.new(1, 0.5),
+        Rotation = -40,
+        BackgroundColor3 = color,
+        BorderSizePixel = 0
+    }, holder)
+
+    return holder
+end
+
+local function draw_check(parent, color, thickness)
+    thickness = thickness or 1.8
+    local holder = create('Frame', {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1
+    }, parent)
+
+    create('Frame', {
+        Size = UDim2.new(0, 5, 0, thickness),
+        Position = UDim2.new(0.5, -2, 0.5, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = 45,
+        BackgroundColor3 = color,
+        BorderSizePixel = 0
+    }, holder)
+
+    create('Frame', {
+        Size = UDim2.new(0, 9, 0, thickness),
+        Position = UDim2.new(0.5, 1, 0.5, -1),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = -45,
+        BackgroundColor3 = color,
+        BorderSizePixel = 0
+    }, holder)
+
+    return holder
+end
+
+local function draw_magnifier(parent, color, size)
+    size = size or 12
+    local holder = create('Frame', {
+        Size = UDim2.fromOffset(size, size),
+        BackgroundTransparency = 1
+    }, parent)
+
+    local ring = create('Frame', {
+        Size = UDim2.fromOffset(size * 0.62, size * 0.62),
+        Position = UDim2.fromOffset(size * 0.05, size * 0.05),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0
+    }, holder)
+    corner(ring, 1, 1)
+    create('UIStroke', {
+        Color = color,
+        Thickness = 1.4,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    }, ring)
+
+    create('Frame', {
+        Size = UDim2.fromOffset(size * 0.34, 1.4),
+        Position = UDim2.fromOffset(size * 0.6, size * 0.66),
+        Rotation = 45,
+        BackgroundColor3 = color,
+        BorderSizePixel = 0
+    }, holder)
+
+    return holder
+end
+
+--=====================================================================
+--  Global tooltip
+--=====================================================================
+local Tooltip = { _gui = nil, _frame = nil, _label = nil, _token = 0 }
+
+function Tooltip.ensure()
+    if Tooltip._gui and Tooltip._gui.Parent then return end
+
+    local gui = create('ScreenGui', {
+        Name = 'StellarTooltip',
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 2000,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    }, CoreGui)
+
+    local frame = create('Frame', {
+        Name = 'Tip',
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 0.05,
+        BorderSizePixel = 0,
+        AutomaticSize = Enum.AutomaticSize.XY,
+        Visible = false,
+        ZIndex = 2
+    }, gui)
+    corner(frame, 6)
+    stroke(frame, Theme.Border, 1, 0.2)
+    padding(frame, 5, 9, 5, 9)
+
+    local label = create('TextLabel', {
+        Name = 'Text',
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Medium),
+        TextColor3 = Theme.Text,
+        TextSize = 11,
+        AutomaticSize = Enum.AutomaticSize.XY,
+        Text = '',
+        ZIndex = 3
+    }, frame)
+
+    Tooltip._gui = gui
+    Tooltip._frame = frame
+    Tooltip._label = label
+    bind(frame, 'BackgroundColor3', 'Panel_3')
+    bind(label, 'TextColor3', 'Text')
+end
+
+function Tooltip.show(text)
+    Tooltip.ensure()
+    Tooltip._token = Tooltip._token + 1
+    local token = Tooltip._token
+    Tooltip._label.Text = text
+    Tooltip._frame.Visible = true
+    Tooltip._frame.BackgroundTransparency = 1
+    Tooltip._label.TextTransparency = 1
+    tween(Tooltip._frame, 0.16, { BackgroundTransparency = 0.05 })
+    tween(Tooltip._label, 0.16, { TextTransparency = 0 })
+
+    task.spawn(function()
+        while Tooltip._token == token and Tooltip._frame.Visible do
+            local mouse = UserInputService:GetMouseLocation()
+            Tooltip._frame.Position = UDim2.fromOffset(mouse.X + 16, mouse.Y + 18)
+            task.wait()
+        end
+    end)
+end
+
+function Tooltip.hide()
+    if not Tooltip._frame then return end
+    Tooltip._token = Tooltip._token + 1
+    tween(Tooltip._frame, 0.12, { BackgroundTransparency = 1 })
+    tween(Tooltip._label, 0.12, { TextTransparency = 1 })
+    task.delay(0.13, function()
+        if Tooltip._frame then Tooltip._frame.Visible = false end
+    end)
+end
+
+function Tooltip.attach(object, text)
+    if not object or not text then return end
+    local pending = nil
+    object.MouseEnter:Connect(function()
+        if pending then task.cancel(pending) end
+        pending = task.delay(0.4, function()
+            Tooltip.show(text)
         end)
-    
-        if not success_save then
-            warn('failed to save config', result)
-        end
-    end,
-    load = function(self: any, file_name: any, config: any)
-        local success_load, result = pcall(function()
-            if not isfile('Stellar/'..file_name..'.json') then
-                self:save(file_name, config)
-        
-                return
-            end
-        
-            local flags = readfile('Stellar/'..file_name..'.json')
-        
-            if not flags then
-                self:save(file_name, config)
-        
-                return
-            end
+    end)
+    object.MouseLeave:Connect(function()
+        if pending then task.cancel(pending) pending = nil end
+        Tooltip.hide()
+    end)
+end
 
-            return HttpService:JSONDecode(flags)
-        end)
-    
-        if not success_load then
-            warn('failed to load config', result)
-        end
-    
-        if not result then
-            result = {
-                _flags = {},
-                _keybinds = {},
-                _library = {}
-            }
-        end
-    
-        return result
-    end
-}, Config)
+--=====================================================================
+--  Toast notifications
+--=====================================================================
+local Notifications = { _gui = nil, _container = nil }
 
-
-local Library = {
-    _config = Config:load(game.GameId),
-
-    _choosing_keybind = false,
-    _device = nil,
-
-    _ui_open = true,
-    _ui_scale = 1,
-    _ui_loaded = false,
-    _ui = nil,
-
-    _dragging = false,
-    _drag_start = nil,
-    _container_position = nil
+local NOTIFY_COLORS = {
+    info    = 'Accent',
+    success = 'Success',
+    warning = 'Warning',
+    error   = 'Danger'
 }
-Library.__index = Library
 
+local NOTIFY_GLYPHS = {
+    info = 'i',
+    success = '✓',
+    warning = '!',
+    error = '×'
+}
 
-function Library.new()
-    local self = setmetatable({
-        _loaded = false,
-        _tab = 0,
-    }, Library)
-    
-    self:create_ui()
+function Notifications.ensure()
+    if Notifications._gui and Notifications._gui.Parent then return end
 
-    return self
+    local gui = create('ScreenGui', {
+        Name = 'StellarNotifications',
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 1500,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    }, CoreGui)
+
+    local container = create('Frame', {
+        Name = 'Stack',
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -18, 0, 18),
+        Size = UDim2.new(0, 306, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1
+    }, gui)
+
+    list_layout(container, { Padding = UDim.new(0, 10) })
+
+    Notifications._gui = gui
+    Notifications._container = container
 end
 
--- Create Notification Container
-local NotificationContainer = Instance.new("Frame")
-NotificationContainer.Name = "RobloxCoreGuis"
-NotificationContainer.Size = UDim2.new(0, 320, 0, 0)  -- Fixed width (320px), dynamic height (Y)
-NotificationContainer.AnchorPoint = Vector2.new(1, 0) -- anchor to its own top-right corner
-NotificationContainer.Position = UDim2.new(1, -20, 0, 10) -- 20px in from the right edge, works on any screen width
-NotificationContainer.BackgroundTransparency = 1
-NotificationContainer.ClipsDescendants = false;
-NotificationContainer.Parent = game:GetService("CoreGui").RobloxGui:FindFirstChild("RobloxCoreGuis") or Instance.new("ScreenGui", game:GetService("CoreGui").RobloxGui)
-NotificationContainer.AutomaticSize = Enum.AutomaticSize.Y
+function Notifications.push(settings)
+    settings = settings or {}
+    Notifications.ensure()
 
--- UIListLayout to arrange notifications vertically
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.FillDirection = Enum.FillDirection.Vertical
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 10)
-UIListLayout.Parent = NotificationContainer
+    local kind = settings.type or 'info'
+    local color_key = NOTIFY_COLORS[kind] or 'Accent'
+    local title_text = settings.title or tr('Success', 'Notification')
+    local body_text = tostring(settings.text or '')
 
--- Function to create notifications
-function Library.SendNotification(settings)
-    -- Create the notification frame (this will be managed by UIListLayout)
-    local Notification = Instance.new("Frame")
-    Notification.Size = UDim2.new(1, 0, 0, 72)  -- Width = 100% of NotificationContainer's width, dynamic height (Y)
-    Notification.BackgroundTransparency = 1  -- Outer frame is transparent for layout to work
-    Notification.BorderSizePixel = 0
-    Notification.Name = "Notification"
-    Notification.Parent = NotificationContainer  -- Parent it to your NotificationContainer (the parent of the list layout)
-    Notification.AutomaticSize = Enum.AutomaticSize.Y  -- Allow this frame to resize based on child height
+    -- Compute the toast height up front. Relying on AutomaticSize here made
+    -- the card jump around because its children are absolutely positioned.
+    local width = 306
+    local text_width = width - 72
+    local body_height = body_text ~= '' and math.max(14, measure_text(body_text, text_width, 10)) or 0
+    local height = math.max(62, 31 + body_height + (body_text ~= '' and 9 or 0) + 16)
 
-    -- Add rounded corners to outer frame
-    local UICorner = Instance.new("UICorner")
-    UICorner.CornerRadius = UDim.new(0, 4)
-    UICorner.Parent = Notification
+    local toast = create('CanvasGroup', {
+        Name = 'Toast',
+        Size = UDim2.new(1, 0, 0, height),
+        BackgroundColor3 = Theme.Panel_2,
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        GroupTransparency = 1,
+        ClipsDescendants = false
+    }, Notifications._container)
+    corner(toast, 10)
+    local toast_stroke = stroke(toast, Theme.Border, 1, 0.25)
+    bind(toast, 'BackgroundColor3', 'Panel_2')
 
-    -- Create the inner frame for the notification's content
-    local InnerFrame = Instance.new("Frame")
-    InnerFrame.Size = UDim2.new(1, 0, 0, 72)  -- Start with an initial height, width will adapt
-    InnerFrame.Position = UDim2.new(0, 0, 0, 0)  -- Positioned inside the outer notification frame
-    InnerFrame.BackgroundColor3 = Color3.fromRGB(12, 7, 4) -- dark warm brown, matches theme
-    InnerFrame.BackgroundTransparency = 0
-    InnerFrame.BorderSizePixel = 0
-    InnerFrame.Name = "InnerFrame"
-    InnerFrame.Parent = Notification
-    InnerFrame.AutomaticSize = Enum.AutomaticSize.Y  -- Automatically resize based on its content
+    local accent_bar = create('Frame', {
+        Name = 'Accent',
+        Size = UDim2.new(0, 3, 0, math.max(16, height - 16)),
+        Position = UDim2.new(0, 0, 0, 8),
+        BackgroundColor3 = Theme[color_key],
+        BorderSizePixel = 0
+    }, toast)
+    corner(accent_bar, 1, 1)
+    bind(accent_bar, 'BackgroundColor3', color_key)
 
-    -- Add rounded corners to the inner frame
-    local InnerUICorner = Instance.new("UICorner")
-    InnerUICorner.CornerRadius = UDim.new(0, 4)
-    InnerUICorner.Parent = InnerFrame
+    local icon_holder = create('Frame', {
+        Name = 'Icon',
+        Size = UDim2.fromOffset(30, 30),
+        Position = UDim2.fromOffset(15, 14),
+        BackgroundColor3 = Theme[color_key],
+        BackgroundTransparency = 0.82,
+        BorderSizePixel = 0
+    }, toast)
+    corner(icon_holder, 1, 1)
+    bind(icon_holder, 'BackgroundColor3', color_key)
 
-    -- Title Label (with automatic size support)
-    local Title = Instance.new("TextLabel")
-    Title.Text = settings.title or "Notification Title"
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    Title.TextSize = 15
-    Title.Size = UDim2.new(1, -10, 0, 22)  -- Width is 1 (100% of parent width), height is fixed initially
-    Title.Position = UDim2.new(0, 7, 0, 7)
-    Title.BackgroundTransparency = 1
-    Title.TextXAlignment = Enum.TextXAlignment.Left
-    Title.TextYAlignment = Enum.TextYAlignment.Center
-    Title.TextWrapped = true  -- Enable wrapping
-    Title.AutomaticSize = Enum.AutomaticSize.Y  -- Allow the title to resize based on content
-    Title.Parent = InnerFrame
+    -- The glyph label must fill its holder: without an explicit Size a
+    -- TextLabel defaults to 0x0 and the icon is invisible.
+    local icon_label = create('TextLabel', {
+        Name = 'Glyph',
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme[color_key],
+        TextSize = 15,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        Text = NOTIFY_GLYPHS[kind] or 'i'
+    }, icon_holder)
+    bind(icon_label, 'TextColor3', color_key)
 
-    -- Body Text (with automatic size support)
-    local Body = Instance.new("TextLabel")
-    Body.Text = settings.text or "This is the body of the notification."
-    Body.TextColor3 = Color3.fromRGB(240, 240, 240)
-    Body.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    Body.TextSize = 13
-    Body.Size = UDim2.new(1, -16, 0, 34)  -- Width is 1 (100% of parent width), height is fixed initially
-    Body.Position = UDim2.new(0, 7, 0, 30)
-    Body.BackgroundTransparency = 1
-    Body.TextXAlignment = Enum.TextXAlignment.Left
-    Body.TextYAlignment = Enum.TextYAlignment.Top
-    Body.TextWrapped = true  -- Enable wrapping for long text
-    Body.AutomaticSize = Enum.AutomaticSize.Y  -- Allow the body text to resize based on content
-    Body.Parent = InnerFrame
+    local title = create('TextLabel', {
+        Name = 'Title',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = title_text,
+        Size = UDim2.new(1, -92, 0, 15),
+        Position = UDim2.fromOffset(56, 15)
+    }, toast)
+    bind(title, 'TextColor3', 'Text')
 
-    -- Force the size to adjust after the text is fully loaded and wrapped
-    task.spawn(function()
-        wait(0.1)  -- Allow text wrapping to finish
-        -- Adjust inner frame size based on content
-        local totalHeight = Title.TextBounds.Y + Body.TextBounds.Y + 12  -- Add padding
-        InnerFrame.Size = UDim2.new(1, 0, 0, totalHeight)  -- Resize the inner frame
-    end)
+    local body
+    if body_text ~= '' then
+        body = create('TextLabel', {
+            Name = 'Body',
+            BackgroundTransparency = 1,
+            FontFace = body_font(Enum.FontWeight.Regular),
+            TextColor3 = Theme.Muted,
+            TextSize = 10,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            Text = body_text,
+            Size = UDim2.new(1, -72, 0, body_height),
+            Position = UDim2.fromOffset(56, 33)
+        }, toast)
+        bind(body, 'TextColor3', 'Muted')
+    end
 
-    -- Use task.spawn to ensure the notification tweening happens asynchronously
-    task.spawn(function()
-        -- Tween In the Notification (inner frame)
-        local tweenIn = TweenService:Create(InnerFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-            Position = UDim2.new(0, 0, 0, 10 + NotificationContainer.Size.Y.Offset)
-        })
-        tweenIn:Play()
+    local close = create('TextButton', {
+        Name = 'Close',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Dim,
+        TextSize = 15,
+        Text = '×',
+        Size = UDim2.fromOffset(22, 22),
+        Position = UDim2.new(1, -30, 0, 9),
+        AutoButtonColor = false
+    }, toast)
+    bind(close, 'TextColor3', 'Dim')
 
-        -- Wait for the duration before tweening out
-        local duration = settings.duration or 5  -- Default to 5 seconds if not provided
-        wait(duration)
+    local progress_track = create('Frame', {
+        Name = 'ProgressTrack',
+        Size = UDim2.new(1, -30, 0, 3),
+        Position = UDim2.new(0, 15, 1, -11),
+        BackgroundColor3 = Theme.Panel_4,
+        BorderSizePixel = 0
+    }, toast)
+    corner(progress_track, 1, 1)
+    bind(progress_track, 'BackgroundColor3', 'Panel_4')
 
-        -- Tween Out the Notification (inner frame) to the right side of the screen
-        local tweenOut = TweenService:Create(InnerFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
-            Position = UDim2.new(1, 310, 0, 10 + NotificationContainer.Size.Y.Offset)  -- Move to the right off-screen
-        })
-        tweenOut:Play()
+    local progress_fill = create('Frame', {
+        Name = 'ProgressFill',
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundColor3 = Theme[color_key],
+        BorderSizePixel = 0
+    }, progress_track)
+    corner(progress_fill, 1, 1)
+    bind(progress_fill, 'BackgroundColor3', color_key)
 
-        -- Remove the notification after it is done tweening out
-        tweenOut.Completed:Connect(function()
-            Notification:Destroy()
+    local duration = tonumber(settings.duration) or 5
+    local dismissed = false
+
+    local function dismiss()
+        if dismissed then return end
+        dismissed = true
+        -- Fade the whole group at once: a UIListLayout owns child Position,
+        -- so sliding is not possible, and per-child fades can leave text
+        -- floating over a transparent card.
+        tween(toast, 0.28, { GroupTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        tween(toast_stroke, 0.2, { Transparency = 1 })
+        task.delay(0.32, function()
+            if toast then toast:Destroy() end
         end)
-    end)
-end
-
-function Library:get_screen_scale()
-    local viewport_size_x = workspace.CurrentCamera.ViewportSize.X
-
-    self._ui_scale = viewport_size_x / 1400
-end
-
-
-function Library:get_device()
-    local device = 'Unknown'
-
-    if not UserInputService.TouchEnabled and UserInputService.KeyboardEnabled and UserInputService.MouseEnabled then
-        device = 'PC'
-    elseif UserInputService.TouchEnabled then
-        device = 'Mobile'
-    elseif UserInputService.GamepadEnabled then
-        device = 'Console'
     end
 
-    self._device = device
-end
+    close.MouseButton1Click:Connect(dismiss)
 
-
-function Library:removed(action: any)
-    self._ui.AncestryChanged:Once(action)
-end
-
-
-function Library:flag_type(flag: any, flag_type: any)
-    if not Library._config._flags[flag] then
-        return
-    end
-
-    return typeof(Library._config._flags[flag]) == flag_type
-end
-
-
-function Library:remove_table_value(__table: any, table_value: string)
-    for index, value in __table do
-        if value ~= table_value then
-            continue
-        end
-
-        table.remove(__table, index)
+    -- entrance: the group fades in while the card springs from slightly
+    -- small, and the icon tile pops in ahead of the text
+    tween(toast, 0.4, { GroupTransparency = 0 })
+    pop_scale(toast, 0.94, 1, 0.34)
+    pop_scale(icon_holder, 0.55, 1, 0.32)
+    if duration > 0 then
+        tween(progress_fill, duration, { Size = UDim2.new(0, 0, 1, 0) }, Enum.EasingStyle.Linear)
+        task.delay(duration, dismiss)
+    else
+        progress_track.Visible = false
     end
 end
 
--- Loader / splash screen shown while the main UI is preparing.
--- settings = {
---     title = "My Script",              -- text under the logo while idle (used only if `stages` isn't given)
---     logo = "rbxassetid://0",          -- image id for the logo (optional)
---     logo_aspect_ratio = 1,            -- width / height of the logo image, for correct scaling (optional)
---     accent_color = Color3.fromRGB(255, 185, 110), -- theme color for the glow / particles (optional)
---     duration = 2.6,                   -- seconds for the auto-fill progress bar (optional)
---     auto_progress = true,             -- if true, the loader advances on its own over `duration` then closes
---     stages = {                        -- status text cycled through as the loader advances (optional)
---         "Initializing",
---         "Building folders",
---         "Loading assets",
---         "Preparing UI",
---         "Ready",
---     },
---     dim_background = true,            -- darken the game behind the loader (optional)
--- }
--- Returns an object with :set_progress(alpha), :set_stage(text) and :close() for manual control.
-function Library:create_loader(settings)
+--=====================================================================
+--  Loader
+--=====================================================================
+local Library = {}
+
+function Library.create_loader(self, settings)
     settings = settings or {}
 
-    local old_loader = CoreGui:FindFirstChild('StellarLoader')
-    if old_loader then
-        old_loader:Destroy()
-    end
+    local old = CoreGui:FindFirstChild('StellarLoader')
+    if old then old:Destroy() end
 
-    local accent = settings.accent_color or Color3.fromRGB(255, 185, 110)
-    local stages = settings.stages or {settings.title or "Loading"}
+    local accent = settings.accent_color or Theme.Accent
+    local stages = settings.stages
+    if type(stages) ~= 'table' or #stages == 0 then
+        stages = { settings.title or 'Loading' }
+    end
     local rng = Random.new()
-
-    local LoaderGui = Instance.new('ScreenGui')
-    LoaderGui.Name = 'StellarLoader'
-    LoaderGui.ResetOnSpawn = false
-    LoaderGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    LoaderGui.DisplayOrder = 1000
-    LoaderGui.IgnoreGuiInset = true -- otherwise the top bar strip is left uncovered
-    LoaderGui.Parent = CoreGui
-
-    -- Full-screen dim so the game world recedes and the animation reads
-    -- clearly no matter what's behind it. Sized a hair past the edges so
-    -- there's no seam on devices with rounded corners/notches.
-    local Backdrop = Instance.new('Frame')
-    Backdrop.Name = 'Backdrop'
-    Backdrop.AnchorPoint = Vector2.new(0.5, 0.5)
-    Backdrop.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Backdrop.Size = UDim2.new(1, 4, 1, 4)
-    Backdrop.BackgroundColor3 = settings.backdrop_color or Color3.fromRGB(0, 0, 0)
-    Backdrop.BackgroundTransparency = 1
-    Backdrop.BorderSizePixel = 0
-    Backdrop.ZIndex = 0
-    Backdrop.Parent = LoaderGui
-
-    local backdrop_target_transparency = settings.backdrop_transparency
-    if backdrop_target_transparency == nil then
-        backdrop_target_transparency = 0.12
-    end
-
-    if settings.dim_background ~= false then
-        TweenService:Create(Backdrop, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = backdrop_target_transparency}):Play()
-    end
-
-    -- Ambient sparkles drifting slowly behind the logo. Purely decorative:
-    -- each one fades in, drifts upward, fades out, then respawns elsewhere.
-    local ParticleLayer = Instance.new('Frame')
-    ParticleLayer.Name = 'ParticleLayer'
-    ParticleLayer.Size = UDim2.new(1, 0, 1, 0)
-    ParticleLayer.BackgroundTransparency = 1
-    ParticleLayer.ZIndex = 1
-    ParticleLayer.Parent = LoaderGui
-
     local particles_alive = true
+    local closed = false
+    local finished = false
 
-    local function spawn_ambient_particle()
-        local dot = Instance.new('Frame')
-        dot.AnchorPoint = Vector2.new(0.5, 0.5)
-        local size = rng:NextNumber(2, 4)
-        dot.Size = UDim2.new(0, size, 0, size)
-        dot.Position = UDim2.new(rng:NextNumber(0.35, 0.65), 0, rng:NextNumber(0.4, 0.7), 0)
-        dot.BackgroundColor3 = accent
-        dot.BackgroundTransparency = 1
-        dot.BorderSizePixel = 0
-        dot.Parent = ParticleLayer
+    local gui = create('ScreenGui', {
+        Name = 'StellarLoader',
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = 1000,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    }, CoreGui)
 
-        local corner = Instance.new('UICorner')
-        corner.CornerRadius = UDim.new(1, 0)
-        corner.Parent = dot
+    -- The weather is the *only* full-screen element. Everything else lives on
+    -- the floating card below, so the loader never blacks out the viewport.
+    local particle_layer = create('Frame', {
+        Name = 'ParticleLayer',
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        ZIndex = 1
+    }, gui)
 
-        task.spawn(function()
-            while particles_alive and dot and dot.Parent do
-                local target_y = dot.Position.Y.Scale - rng:NextNumber(0.05, 0.12)
-                TweenService:Create(dot, TweenInfo.new(rng:NextNumber(2, 3.2), Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-                    BackgroundTransparency = rng:NextNumber(0.25, 0.55),
-                    Position = UDim2.new(dot.Position.X.Scale, 0, target_y, 0)
-                }):Play()
-                task.wait(rng:NextNumber(2, 3.2))
-                if not (particles_alive and dot and dot.Parent) then break end
+    local weather = settings.weather
+    if weather == nil then weather = 'rain' end
+    local weather_count = tonumber(settings.weather_count)
+        or (weather == 'snow' and 46 or 48)
+    -- Seconds for a snowflake to cross the whole screen. Slow on purpose:
+    -- the old 4.5-9s fall read as a hurried burst rather than calm snow.
+    local snow_speed = math.max(4, tonumber(settings.snow_speed) or 16)
+    particle_layer:SetAttribute('Weather', tostring(weather))
+    particle_layer:SetAttribute('SnowSpeed', snow_speed)
 
-                TweenService:Create(dot, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {BackgroundTransparency = 1}):Play()
-                task.wait(0.8)
-                if dot and dot.Parent then
-                    dot.Position = UDim2.new(rng:NextNumber(0.3, 0.7), 0, rng:NextNumber(0.55, 0.75), 0)
+    -- One particle falls top-to-bottom on a loop. Rain is a thin, fast streak
+    -- that fades toward its tail; snow is a slow, gentle flake. The first fall
+    -- keeps the particle's random starting height so the sky is populated the
+    -- instant the loader appears instead of emptying and refilling as a burst.
+    local function spawn_weather_particle()
+        if weather == false or weather == 'none' then return end
+
+        if weather == 'snow' then
+            local flake = create('Frame', {
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                Size = UDim2.fromOffset(rng:NextNumber(2, 4), rng:NextNumber(2, 4)),
+                Position = UDim2.new(rng:NextNumber(-0.02, 1.02), 0, rng:NextNumber(-0.15, 0.95), 0),
+                BackgroundColor3 = accent,
+                BackgroundTransparency = rng:NextNumber(0.3, 0.72),
+                BorderSizePixel = 0,
+                ZIndex = 1
+            }, particle_layer)
+            corner(flake, 0, 1)
+
+            task.spawn(function()
+                while particles_alive and flake and flake.Parent do
+                    local start_x = flake.Position.X.Scale
+                    local start_y = flake.Position.Y.Scale
+                    local distance = math.max(0.15, 1.12 - start_y)
+                    tween(flake, snow_speed * distance, {
+                        Position = UDim2.new(start_x + rng:NextNumber(-0.04, 0.04), 0, 1.12, 0)
+                    }, Enum.EasingStyle.Linear)
+                    task.wait(snow_speed * distance)
+                    if not (particles_alive and flake and flake.Parent) then break end
+                    task.wait(rng:NextNumber(0, 2))
+                    if not (particles_alive and flake and flake.Parent) then break end
+                    flake.Position = UDim2.new(rng:NextNumber(-0.02, 1.02), 0, -0.12, 0)
+                end
+            end)
+        else
+            local streak = create('Frame', {
+                Size = UDim2.fromOffset(rng:NextNumber(1, 2), rng:NextNumber(9, 20)),
+                Position = UDim2.new(rng:NextNumber(-0.02, 1.02), 0, rng:NextNumber(-0.15, 0.95), 0),
+                BackgroundColor3 = accent,
+                BackgroundTransparency = rng:NextNumber(0.45, 0.8),
+                BorderSizePixel = 0,
+                ZIndex = 1
+            }, particle_layer)
+            corner(streak, 1, 1)
+            -- Fade the tail so each streak reads as a falling drop of light.
+            gradient(streak, ColorSequence.new(accent), 90, NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.1),
+                NumberSequenceKeypoint.new(1, 1)
+            }))
+
+            task.spawn(function()
+                local base_duration = rng:NextNumber(0.7, 1.4)
+                while particles_alive and streak and streak.Parent do
+                    local start_x = streak.Position.X.Scale
+                    local start_y = streak.Position.Y.Scale
+                    local distance = math.max(0.15, 1.12 - start_y)
+                    tween(streak, base_duration * distance, {
+                        Position = UDim2.new(start_x + rng:NextNumber(-0.02, 0.02), 0, 1.12, 0)
+                    }, Enum.EasingStyle.Linear)
+                    task.wait(base_duration * distance)
+                    if not (particles_alive and streak and streak.Parent) then break end
+                    task.wait(rng:NextNumber(0, 1.2))
+                    if not (particles_alive and streak and streak.Parent) then break end
+                    streak.Position = UDim2.new(rng:NextNumber(-0.02, 1.02), 0, -0.12, 0)
+                end
+            end)
+        end
+    end
+
+    for _ = 1, weather_count do spawn_weather_particle() end
+
+    -- ------------------------------------------------------------------
+    --  Floating card: brand + clock, status checklist, animated mark,
+    --  progress (ETA left / percent right) and the bottom quote.
+    --  Deliberately NOT a full-screen panel — only the weather spans the
+    --  viewport.
+    -- ------------------------------------------------------------------
+    -- Tall enough that a full 5-row status list still clears the pinned quote.
+    local CARD_W, CARD_H = 520, 380
+    local PAD = 22
+
+    local card = create('CanvasGroup', {
+        Name = 'LoaderCard',
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(CARD_W, CARD_H),
+        BackgroundColor3 = Theme.Panel,
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        GroupTransparency = 1,
+        ZIndex = 2
+    }, gui)
+    corner(card, 16)
+    local card_stroke = stroke(card, Theme.Border, 1, 0.25)
+    bind(card, 'BackgroundColor3', 'Panel')
+    bind(card_stroke, 'Color', 'Border')
+
+    -- Top accent hairline, matching the main window.
+    local accent_line = create('Frame', {
+        Name = 'AccentLine',
+        Size = UDim2.new(1, 0, 0, 1),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 6
+    }, card)
+    gradient(accent_line, ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(0.5, Theme.Accent_2),
+        ColorSequenceKeypoint.new(1, Theme.Accent)
+    }), 0, NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    }))
+    bind_fn(function()
+        accent_line.BackgroundColor3 = Theme.Accent
+    end)
+
+    -- Responsive scaling so the card never looks oversized on a phone or
+    -- tiny on a large display.
+    local scale = create('UIScale', {}, card)
+    local function update_scale()
+        local camera = Workspace.CurrentCamera
+        if camera then
+            local viewport = camera.ViewportSize
+            scale.Scale = math.clamp(
+                math.min(viewport.X / (CARD_W + 120), viewport.Y / (CARD_H + 120)),
+                0.62, 1.15
+            )
+        end
+    end
+    update_scale()
+    local scale_connection
+    local camera = Workspace.CurrentCamera
+    if camera then
+        scale_connection = camera:GetPropertyChangedSignal('ViewportSize'):Connect(update_scale)
+    end
+
+    local container = create('Frame', {
+        Name = 'LoaderContainer',
+        Size = UDim2.new(1, -PAD * 2, 1, -PAD * 2),
+        Position = UDim2.fromOffset(PAD, PAD),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, card)
+    list_layout(container, {
+        FillDirection = Enum.FillDirection.Vertical,
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        VerticalAlignment = Enum.VerticalAlignment.Top,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 12)
+    })
+
+    -- Header: brand on the left, "07:31 PM · 00s" on the right.
+    local header = create('Frame', {
+        Name = 'Header',
+        LayoutOrder = 1,
+        Size = UDim2.new(1, 0, 0, 30),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, container)
+
+    local brand = create('TextLabel', {
+        Name = 'Brand',
+        -- Hug the text so the wordmark gradient spans the glyphs exactly.
+        Size = UDim2.new(0, 0, 1, 0),
+        AutomaticSize = Enum.AutomaticSize.X,
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme.Text,
+        TextSize = 20,
+        Text = settings.brand or 'Stellar.',
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTransparency = 1,
+        ZIndex = 3
+    }, header)
+    -- Animated Discord-style wordmark: a dark→bright→dark sheen sweeps the
+    -- brand text for as long as the loader is open.
+    local stop_wordmark = Util:animate_wordmark(brand)
+
+    local clock = create('TextLabel', {
+        Name = 'Clock',
+        Size = UDim2.fromOffset(96, 20),
+        Position = UDim2.new(1, -42, 0.5, 0),
+        AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Medium),
+        TextColor3 = Theme.Muted,
+        TextSize = 13,
+        Text = '--:-- -- ·',
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextTransparency = 1,
+        ZIndex = 3
+    }, header)
+    bind(clock, 'TextColor3', 'Muted')
+
+    local elapsed = create('TextLabel', {
+        Name = 'Elapsed',
+        Size = UDim2.fromOffset(42, 20),
+        Position = UDim2.new(1, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Dim,
+        TextSize = 12,
+        Text = '0s',
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextTransparency = 1,
+        ZIndex = 3
+    }, header)
+    bind(elapsed, 'TextColor3', 'Dim')
+
+    local divider = create('Frame', {
+        Name = 'Divider',
+        Size = UDim2.new(1, 0, 0, 1),
+        Position = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = Theme.Border,
+        BackgroundTransparency = 0.5,
+        BorderSizePixel = 0,
+        ZIndex = 3
+    }, header)
+    bind(divider, 'BackgroundColor3', 'Border')
+
+    -- Live status checklist, left aligned. Every row is "> text"; the active
+    -- row shows a trailing spinner, completed rows just dim.
+    --
+    -- The list is a *fixed* height sized for the maximum number of rows. It
+    -- used to auto-size, which meant every new log line pushed the centred
+    -- mark (and the progress bar) down the card. Pinning the height keeps the
+    -- whole card still while the checklist fills in.
+    local STATUS_ROW_H, STATUS_ROW_GAP = 18, 6
+    local max_status = math.clamp(tonumber(settings.max_log_lines) or 5, 1, 5)
+    local status_h = max_status * STATUS_ROW_H + (max_status - 1) * STATUS_ROW_GAP
+
+    local status_list = create('Frame', {
+        Name = 'StatusList',
+        LayoutOrder = 2,
+        Size = UDim2.new(1, 0, 0, status_h),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        ZIndex = 3
+    }, container)
+    list_layout(status_list, {
+        FillDirection = Enum.FillDirection.Vertical,
+        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+        VerticalAlignment = Enum.VerticalAlignment.Top,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, STATUS_ROW_GAP)
+    })
+
+    local status_entries = {}
+    local active_entry = nil
+
+    local function make_status_row(text)
+        local row = create('Frame', {
+            Name = 'StatusLine',
+            LayoutOrder = #status_entries + 1,
+            Size = UDim2.new(1, 0, 0, 18),
+            BackgroundTransparency = 1,
+            ZIndex = 3
+        }, status_list)
+
+        local marker = create('TextLabel', {
+            Name = 'Icon',
+            Size = UDim2.fromOffset(14, 18),
+            BackgroundTransparency = 1,
+            FontFace = font(Enum.FontWeight.Bold),
+            TextColor3 = Theme.Accent,
+            TextSize = 13,
+            Text = '>',
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 4
+        }, row)
+
+        local label = create('TextLabel', {
+            Name = 'Label',
+            Size = UDim2.new(1, -44, 1, 0),
+            Position = UDim2.fromOffset(15, 0),
+            BackgroundTransparency = 1,
+            FontFace = body_font(Enum.FontWeight.Medium),
+            TextColor3 = Theme.Text,
+            TextSize = 13,
+            Text = tostring(text),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTransparency = 1,
+            ZIndex = 4
+        }, row)
+
+        local spin = create('TextLabel', {
+            Name = 'Spinner',
+            Size = UDim2.fromOffset(16, 18),
+            Position = UDim2.new(1, -16, 0, 0),
+            BackgroundTransparency = 1,
+            FontFace = font(Enum.FontWeight.Bold),
+            TextColor3 = Theme.Accent,
+            TextSize = 13,
+            Text = '/',
+            TextXAlignment = Enum.TextXAlignment.Right,
+            Visible = false,
+            ZIndex = 4
+        }, row)
+
+        return { row = row, icon = marker, label = label, spinner = spin }
+    end
+
+    local function finish_active()
+        local entry = active_entry
+        if not entry then return end
+        active_entry = nil
+        if entry.spinner and entry.spinner.Parent then
+            entry.spinner.Visible = false
+        end
+        if entry.label and entry.label.Parent then
+            entry.label.TextColor3 = Theme.Dim
+        end
+    end
+
+    local function add_status(text)
+        if closed then return nil end
+        local entry = make_status_row(text)
+        entry.active = true
+        active_entry = entry
+        table.insert(status_entries, entry)
+        if entry.spinner and entry.spinner.Parent then
+            entry.spinner.Visible = true
+        end
+        tween(entry.label, 0.3, { TextTransparency = 0 })
+        if #status_entries > max_status then
+            local oldest = table.remove(status_entries, 1)
+            if oldest and oldest.row then oldest.row:Destroy() end
+        end
+        return entry
+    end
+
+    local spinner_frames = { '/', '|', '\\', '-' }
+    task.spawn(function()
+        local index = 1
+        while not closed do
+            local entry = active_entry
+            if entry and entry.spinner and entry.spinner.Parent then
+                entry.spinner.Text = spinner_frames[index]
+            end
+            index = (index % #spinner_frames) + 1
+            task.wait(0.12)
+        end
+    end)
+
+    -- Centre row: a single animated mark. There is deliberately no second
+    -- icon — the old orbiting accent ring read as a duplicate next to the
+    -- sprite, so the sprite is now the only thing in this row, centred.
+    local mark_row = create('Frame', {
+        Name = 'MarkRow',
+        LayoutOrder = 3,
+        Size = UDim2.new(1, 0, 0, 84),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, container)
+
+    local mark_group = create('Frame', {
+        Name = 'MarkGroup',
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(84, 84),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, mark_row)
+
+    local logo_bg = create('Frame', {
+        Name = 'LogoMark',
+        Size = UDim2.fromOffset(64, 64),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 4
+    }, mark_group)
+    corner(logo_bg, 18)
+    -- A soft accent fade instead of a solid tile: the colour pools behind
+    -- the top of the animation and dissolves toward the bottom, so the mark
+    -- floats on the card rather than sitting in a blue square. (UIGradient
+    -- composes multiplicatively with BackgroundTransparency, so the fade
+    -- lives in the gradient's transparency sequence, not on the frame.)
+    gradient(logo_bg, ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(1, Theme.Accent_2)
+    }), 90, NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.78),
+        NumberSequenceKeypoint.new(0.6, 0.9),
+        NumberSequenceKeypoint.new(1, 1)
+    }))
+    bind_fn(function()
+        if not logo_bg.Parent then return end
+        local fade = logo_bg:FindFirstChildOfClass('UIGradient')
+        if fade then
+            fade.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Theme.Accent),
+                ColorSequenceKeypoint.new(1, Theme.Accent_2)
+            })
+        end
+    end)
+
+    local logo_image = create('ImageLabel', {
+        Name = 'Logo',
+        Size = UDim2.fromOffset(46, 46),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageColor3 = Color3.fromRGB(255, 255, 255),
+        ImageTransparency = 1,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 5
+    }, logo_bg)
+    local stop_logo = Util:apply_logo(logo_image, {
+        animation = settings.animation or Library.Logo_Animation,
+        image = settings.logo
+    })
+    -- Simple fade in — no overshoot, no scale.
+    tween(logo_image, 0.45, { ImageTransparency = 0 })
+
+    -- Progress meta: ETA stamp on the left, percentage on the right.
+    local meta_row = create('Frame', {
+        Name = 'ProgressMeta',
+        LayoutOrder = 4,
+        Size = UDim2.new(1, 0, 0, 16),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, container)
+
+    local eta = create('TextLabel', {
+        Name = 'Eta',
+        Size = UDim2.fromOffset(120, 16),
+        Position = UDim2.fromOffset(0, 0),
+        AnchorPoint = Vector2.new(0, 0),
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Medium),
+        TextColor3 = Theme.Muted,
+        TextSize = 12,
+        Text = '00:00',
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 3
+    }, meta_row)
+    bind(eta, 'TextColor3', 'Muted')
+
+    local percent = create('TextLabel', {
+        Name = 'Percent',
+        Size = UDim2.fromOffset(120, 16),
+        Position = UDim2.new(1, 0, 0, 0),
+        AnchorPoint = Vector2.new(1, 0),
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme.Text,
+        TextSize = 13,
+        Text = '0%',
+        TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = 3
+    }, meta_row)
+    bind(percent, 'TextColor3', 'Text')
+
+    -- Simple rounded progress bar: a flat track with a solid accent fill.
+    -- Deliberately no leading knob (it read as a slider handle) and no shimmer.
+    local bar = create('Frame', {
+        Name = 'ProgressTrack',
+        LayoutOrder = 5,
+        Size = UDim2.new(1, 0, 0, 7),
+        BackgroundColor3 = Theme.Panel_3,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 3
+    }, container)
+    corner(bar, 4)
+    bind(bar, 'BackgroundColor3', 'Panel_3')
+
+    local fill = create('Frame', {
+        Name = 'Fill',
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = accent,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 4
+    }, bar)
+    corner(fill, 4)
+    accent_gradient(fill, 0)
+
+    -- Quote pinned to the bottom of the card, horizontally centred.
+    local quote = create('TextLabel', {
+        Name = 'Quote',
+        Size = UDim2.new(1, -PAD * 2, 0, 16),
+        Position = UDim2.new(0.5, 0, 1, -PAD),
+        AnchorPoint = Vector2.new(0.5, 1),
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Dim,
+        TextSize = 12,
+        Text = settings.quote or "Do what you want. We can judge you — just don't get caught.",
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+        ZIndex = 3
+    }, card)
+    bind(quote, 'TextColor3', 'Dim')
+
+    local function format_clock()
+        local ok, t = pcall(os.date, '*t')
+        if not ok or type(t) ~= 'table' then return '--:--' end
+        local hour = t.hour % 12
+        if hour == 0 then hour = 12 end
+        local suffix = t.hour < 12 and 'AM' or 'PM'
+        return string.format('%02d:%02d %s', hour, t.min, suffix)
+    end
+
+    local function format_time(seconds)
+        seconds = math.max(0, math.floor((seconds or 0) + 0.5))
+        return string.format('%02d:%02d', math.floor(seconds / 60), seconds % 60)
+    end
+
+    local loader = { _gui = gui }
+    local current_stage = 1
+    local failed = nil
+    local sequencer_driving = false
+
+    -- A blocking loader holds the thread that called `create_loader` until
+    -- loading is fully done, so the calling script cannot run a single line
+    -- behind it. `block = false` (or `Library.Blocking_Loader = false`)
+    -- restores the old fire-and-forget card.
+    local blocking = settings.block ~= false and Library.Blocking_Loader ~= false
+    -- `auto_progress = false` keeps the legacy manual mode: nothing runs
+    -- automatically and the caller drives set_stage/set_progress/close.
+    local manual = settings.auto_progress == false
+
+    local lib_self = (type(self) == 'table') and self or Library
+
+    local stage_count = math.max(1, #stages)
+    local total_time = math.max(0.1, tonumber(settings.duration)
+        or (tonumber(Library.Loader_Stage_Time) or 1.1) * stage_count)
+    local per_stage = total_time / stage_count
+
+    -- ------------------------------------------------------------------
+    --  Built-in stage work. The loader is not a fake timer: its stages run
+    --  real jobs, and the progress bar tracks their actual duration.
+    --    "Verifying Executor"     -> identifyexecutor + webhook + block list
+    --    "Initializing Interface" -> the caller's `build` function
+    --    "Loading Modules"        -> re-sync widgets/keybinds from config
+    -- ------------------------------------------------------------------
+    local function stage_key(name)
+        return string.lower(tostring(name):gsub('[^%w%s]', ''):gsub('%s+', ' '))
+    end
+
+    -- Verify the host executor: report the execution, then stop the load
+    -- dead if the executor is on the blocked list.
+    local function verify_executor()
+        local executor = 'Unknown'
+        pcall(function() executor = lib_self:detect_executor() end)
+        loader:log('executor: ' .. executor)
+        -- The execution report fires regardless of the block list.
+        if settings.report ~= false then
+            pcall(function() lib_self:send_execution_report(executor) end)
+        end
+        local blocked = false
+        pcall(function()
+            blocked = lib_self:is_executor_blocked(executor) == true
+        end)
+        if blocked then
+            loader:fail('not supported: ' .. executor)
+            return false
+        end
+        return true
+    end
+
+    -- Normalise `stages` into models with an optional run function and time
+    -- slot. A run resolves from (1) the stage table's `run`, (2) the
+    -- `tasks` map, (3) a built-in keyed off the stage name.
+    local stage_models = {}
+    for index, raw in ipairs(stages) do
+        local model
+        if type(raw) == 'table' then
+            model = {
+                name = tostring(raw.name or raw[1] or ('Stage ' .. index)),
+                run = raw.run,
+                time = tonumber(raw.time)
+            }
+        else
+            model = { name = tostring(raw) }
+        end
+        if type(model.run) ~= 'function' and type(settings.tasks) == 'table' then
+            local mapped = settings.tasks[model.name] or settings.tasks[stage_key(model.name)]
+            if type(mapped) == 'function' then model.run = mapped end
+        end
+        if type(model.run) ~= 'function' then
+            local key = stage_key(model.name)
+            if key:find('executor', 1, true) then
+                model.run = function() return verify_executor() end
+            elseif key:find('interface', 1, true) or key:find('initializ', 1, true) then
+                if type(settings.build) == 'function' then
+                    model.run = function()
+                        -- This is where the interface is actually built.
+                        settings.build(loader)
+                        local device
+                        pcall(function() lib_self:get_device() end)
+                        pcall(function() device = lib_self._device end)
+                        loader:log('device: ' .. tostring(device or 'Unknown'))
+                    end
+                end
+            elseif key:find('module', 1, true) then
+                model.run = function()
+                    local census, total = lib_self:hydrate_modules(loader)
+                    local modules = (type(census) == 'table' and census.module) or 0
+                    loader:log(string.format(
+                        '%d modules · %d widgets ready',
+                        tonumber(modules) or 0, tonumber(total) or 0
+                    ))
                 end
             end
+        end
+        stage_models[index] = model
+    end
+
+    local has_verify_stage = false
+    for _, model in ipairs(stage_models) do
+        if stage_key(model.name):find('executor', 1, true) then has_verify_stage = true end
+    end
+
+    function loader:set_stage(text)
+        if closed then return end
+        finish_active()
+        add_status(text)
+    end
+
+    local function apply_progress(alpha, instant)
+        alpha = math.clamp(alpha or 0, 0, 1)
+        -- `instant` is used by the stage drivers: they update the bar every
+        -- frame, so tweening each step would stack dozens of tweens and make
+        -- the bar stutter. Manual calls still animate smoothly.
+        if instant then
+            fill.Size = UDim2.new(alpha, 0, 1, 0)
+        else
+            tween(fill, 0.25, { Size = UDim2.new(alpha, 0, 1, 0) }, Enum.EasingStyle.Quint)
+        end
+        percent.Text = math.floor(alpha * 100 + 0.5) .. '%'
+        eta.Text = format_time(total_time * (1 - alpha))
+        if alpha >= 1 then
+            finish_active()
+        end
+    end
+
+    function loader:set_progress(alpha, instant)
+        if closed then return end
+        apply_progress(alpha, instant)
+        -- Manual drivers don't call set_stage per step, so keep the old
+        -- convenience of the checklist following the bar. The stage
+        -- sequencer drives the checklist itself.
+        if not sequencer_driving then
+            local index = math.min(stage_count, math.floor((alpha or 0) * stage_count) + 1)
+            if index > current_stage then
+                finish_active()
+                current_stage = index
+                local model = stage_models[index]
+                add_status(model and model.name or tostring(stages[index]))
+            end
+        end
+    end
+
+    -- Append a custom line to the live status list (useful for real work,
+    -- e.g. "downloading config.json").
+    function loader:log(text)
+        if closed then return end
+        finish_active()
+        add_status(text)
+    end
+
+    -- Abort the load: mark the checklist red, warn, toast and tear down.
+    -- The sequencer then stops before another stage can run — and in
+    -- blocking mode raises into the caller's thread, ending the script.
+    -- Used for unsupported executors and for stage work that errors.
+    function loader:fail(reason)
+        if closed or failed then return end
+        failed = tostring(reason or 'failed')
+
+        local active = active_entry
+        finish_active()
+        if active and active.label and active.label.Parent then
+            active.label.TextColor3 = Theme.Danger
+        end
+        local row = add_status('✗ ' .. failed)
+        if row and row.label and row.label.Parent then
+            row.label.TextColor3 = Theme.Danger
+        end
+
+        warn('[Stellar] ' .. failed)
+        pcall(function()
+            lib_self:SendNotification({
+                title = 'Load aborted',
+                text = failed,
+                type = 'error',
+                duration = 8
+            })
         end)
 
-        return dot
+        -- Keep the card up just long enough to read, then close.
+        task.wait(1.4)
+        loader:close()
     end
 
-    local ambient_particles = {}
-    for _ = 1, 10 do
-        table.insert(ambient_particles, spawn_ambient_particle())
+    function loader:is_failed()
+        return failed
     end
 
-    -- Logo -> status text, stacked and centered.
-    local Container = Instance.new('Frame')
-    Container.Name = 'LoaderContainer'
-    Container.AnchorPoint = Vector2.new(0.5, 0.5)
-    Container.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Container.Size = UDim2.new(0, 260, 0, 0)
-    Container.AutomaticSize = Enum.AutomaticSize.Y
-    Container.BackgroundTransparency = 1
-    Container.ZIndex = 2
-    Container.Parent = LoaderGui
+    -- Block the calling thread until the loader has fully closed (fade-out,
+    -- teardown and completion callback included). `library:load()` uses this
+    -- so the interface is never revealed behind the loading card, and scripts
+    -- can call it directly to gate their own setup work.
+    --
+    -- `timeout` (seconds) bounds the wait so a manual loader that is never
+    -- closed cannot hang the script forever. Returns true if the loader
+    -- finished, false if the wait timed out.
+    --
+    -- The isyieldable() guard keeps a call from a non-yieldable context (or a
+    -- bare command bar) from spinning forever; in a normal Roblox script the
+    -- thread is always yieldable, so it really waits.
+    function loader:wait(timeout)
+        if not (coroutine and coroutine.isyieldable and coroutine.isyieldable()) then
+            return finished
+        end
+        timeout = tonumber(timeout)
+        local waited = 0
+        while not finished do
+            if timeout and timeout > 0 and waited >= timeout then
+                return false
+            end
+            local delta = task.wait(0.03) or 0.03
+            waited = waited + delta
+        end
+        return true
+    end
 
-    local ContainerLayout = Instance.new('UIListLayout')
-    ContainerLayout.FillDirection = Enum.FillDirection.Vertical
-    ContainerLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    ContainerLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-    ContainerLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    ContainerLayout.Padding = UDim.new(0, 16)
-    ContainerLayout.Parent = Container
-
-    -- Responsive scaling: matches the old loader's behaviour so it never
-    -- looks oversized on a phone or tiny on a tablet/monitor.
-    local LoaderScale = Instance.new('UIScale')
-    LoaderScale.Parent = Container
-
-    local function update_loader_scale()
-        local camera = workspace.CurrentCamera
-        if not camera then
+    -- Idempotent close: teardown happens once, and an explicit override
+    -- callback still fires even if the loader already closed itself.
+    function loader:close(override_callback)
+        if closed then
+            if override_callback then override_callback() end
             return
         end
+        closed = true
+        particles_alive = false
+        if scale_connection then scale_connection:Disconnect() end
+        if stop_logo then stop_logo() end
+        if stop_wordmark then stop_wordmark() end
 
-        LoaderScale.Scale = math.clamp(camera.ViewportSize.X / 1280, 0.65, 1.5)
-    end
-
-    update_loader_scale()
-    local scale_connection = workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(update_loader_scale)
-
-    local logo_width = 84
-    local logo_aspect_ratio = settings.logo_aspect_ratio or 1
-    local logo_height = math.floor(logo_width / logo_aspect_ratio)
-
-    local LogoHolder = Instance.new('Frame')
-    LogoHolder.Name = 'LogoHolder'
-    LogoHolder.LayoutOrder = 1
-    LogoHolder.Size = UDim2.new(0, logo_width, 0, logo_height)
-    LogoHolder.BackgroundTransparency = 1
-    LogoHolder.ZIndex = 2
-    LogoHolder.Parent = Container
-
-    local Logo = Instance.new('ImageLabel')
-    Logo.Name = 'Logo'
-    Logo.AnchorPoint = Vector2.new(0.5, 0.5)
-    Logo.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Logo.Size = UDim2.new(1, 0, 1, 0)
-    Logo.BackgroundTransparency = 1
-    Logo.ScaleType = Enum.ScaleType.Fit -- preserve aspect ratio, never stretch/squash
-    Logo.ImageColor3 = accent
-    Logo.Image = Util:resolve_asset_id(settings.logo) or "rbxassetid://0"
-    Logo.ImageTransparency = 1
-    Logo.ZIndex = 2
-    Logo.Parent = LogoHolder
-
-    local LogoScale = Instance.new('UIScale')
-    LogoScale.Scale = 0.4
-    LogoScale.Parent = Logo
-
-    local Title = Instance.new('TextLabel')
-    Title.Name = 'Title'
-    Title.LayoutOrder = 2
-    Title.Size = UDim2.new(1, 0, 0, 20)
-    Title.BackgroundTransparency = 1
-    Title.Text = ""
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.TextTransparency = 1
-    Title.TextSize = 14
-    Title.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.Medium, Enum.FontStyle.Normal)
-    Title.Parent = Container
-
-    -- Logo pops in small with a little overshoot, then opens up further
-    -- with each stage below (see bloom_to_stage).
-    TweenService:Create(Logo, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {ImageTransparency = 0}):Play()
-    TweenService:Create(LogoScale, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
-
-    -- "Bloom" = the logo grows a little more with every stage it clears and
-    -- never shrinks back down, like a flower slowly opening rather than a
-    -- breathing pulse. It reaches bloom_peak_scale right as the last stage
-    -- hits, then burst() carries it the rest of the way and holds it there.
-    local bloom_base_scale = 1
-    local bloom_peak_scale = settings.bloom_scale or 1.35
-    local bloom_step_duration = settings.bloom_duration or 0.5
-    local current_bloom_scale = bloom_base_scale
-
-    local function bloom_to_stage(index)
-        local alpha = math.clamp(index / math.max(#stages, 1), 0, 1)
-        current_bloom_scale = bloom_base_scale + (bloom_peak_scale - bloom_base_scale) * alpha
-
-        TweenService:Create(LogoScale, TweenInfo.new(bloom_step_duration, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = current_bloom_scale}):Play()
-    end
-
-    -- Small burst of particles radiating out from the logo once loading
-    -- finishes, plus a little pop on the logo itself.
-    local function burst()
-        for _ = 1, 14 do
-            local dot = Instance.new('Frame')
-            dot.AnchorPoint = Vector2.new(0.5, 0.5)
-            local size = rng:NextNumber(3, 6)
-            dot.Size = UDim2.new(0, size, 0, size)
-            dot.Position = UDim2.new(0.5, 0, 0.5, 0)
-            dot.BackgroundColor3 = accent
-            dot.BorderSizePixel = 0
-            dot.ZIndex = 3
-            dot.Parent = LogoHolder
-
-            local corner = Instance.new('UICorner')
-            corner.CornerRadius = UDim.new(1, 0)
-            corner.Parent = dot
-
-            local angle = rng:NextNumber(0, math.pi * 2)
-            local distance = rng:NextNumber(28, 54)
-            local target = UDim2.new(0.5, math.cos(angle) * distance, 0.5, math.sin(angle) * distance)
-
-            TweenService:Create(dot, TweenInfo.new(rng:NextNumber(0.5, 0.8), Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Position = target,
-                BackgroundTransparency = 1,
-                Size = UDim2.new(0, size * 0.3, 0, size * 0.3)
-            }):Play()
-
-            Debris:AddItem(dot, 1)
+        -- Fade the falling weather out, then hide the layer.
+        if particle_layer then
+            for _, drop in ipairs(particle_layer:GetDescendants()) do
+                if drop:IsA('GuiObject') then
+                    tween(drop, 0.2, { BackgroundTransparency = 1 })
+                end
+            end
+            task.delay(0.22, function()
+                if particle_layer then particle_layer.Visible = false end
+            end)
         end
 
-        -- Final push past the bloom peak — no settle-back, it just stays
-        -- fully opened until the loader closes.
-        current_bloom_scale = bloom_peak_scale * 1.12
-        TweenService:Create(LogoScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = current_bloom_scale}):Play()
+        -- Fade the card as one group, then destroy the whole GUI.
+        tween(card, 0.28, { GroupTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        tween(container, 0.28, { Position = UDim2.fromOffset(PAD, PAD + 6) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+        task.wait(0.32)
+        gui:Destroy()
+
+        local callback = override_callback or settings.callback
+        -- An aborted load (blocked executor / failed stage) must not run the
+        -- completion callback — the script is about to be stopped anyway.
+        if callback and not failed then callback() end
+        -- Set last: `wait()` returns only once the callback has run, so callers
+        -- that gate on the loader see a fully torn-down screen.
+        finished = true
     end
 
-    local current_stage_index = 0
+    -- ------------------------------------------------------------------
+    --  Stage sequencer. Runs the stages in order, animating each stage's
+    --  slice of the progress bar while its work executes, and closes the
+    --  loader at the end. In blocking mode this runs inside the caller's
+    --  own thread, so `error()` here is what stops the calling script dead.
+    -- ------------------------------------------------------------------
+    local function abort()
+        if not failed then return end
+        if blocking then
+            error('[Stellar] ' .. failed, 0)
+        end
+        if type(settings.on_fail) == 'function' then
+            pcall(settings.on_fail, failed)
+        end
+    end
 
-    local function set_stage_text(text)
-        TweenService:Create(Title, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {TextTransparency = 1}):Play()
-        task.delay(0.16, function()
-            if not (Title and Title.Parent) then
+    local function run_stage_work(model)
+        if type(model.run) ~= 'function' then return true end
+        local ok, err = pcall(model.run, loader)
+        if not ok and not failed then
+            loader:fail('stage "' .. model.name .. '" failed: ' .. tostring(err))
+            return false
+        end
+        return not failed
+    end
+
+    local function run_stages()
+        sequencer_driving = true
+        loader._ran = {}
+
+        -- Executors without a dedicated verification stage are still gated
+        -- before anything gets built.
+        if settings.detect ~= false and not has_verify_stage then
+            add_status('Verifying Executor')
+            loader._ran[#loader._ran + 1] = 'Verifying Executor'
+            if not verify_executor() then
+                abort()
                 return
             end
-
-            Title.Text = text
-            TweenService:Create(Title, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {TextTransparency = 0}):Play()
-        end)
-    end
-
-    local loader = {}
-    loader._gui = LoaderGui
-
-    -- Manually jump to a specific status line, bypassing the alpha->stage mapping.
-    function loader:set_stage(text)
-        set_stage_text(text)
-    end
-
-    function loader:set_progress(alpha)
-        alpha = math.clamp(alpha, 0, 1)
-
-        local index = math.min(#stages, math.floor(alpha * #stages) + 1)
-        if index ~= current_stage_index then
-            current_stage_index = index
-            set_stage_text(stages[index])
-            bloom_to_stage(index)
+            apply_progress(0.04, true)
+            task.wait(math.max(0.3, per_stage * 0.4))
         end
 
-        if alpha >= 1 and current_stage_index == #stages then
-            burst()
+        for index, model in ipairs(stage_models) do
+            if closed then return end
+            current_stage = index
+            loader:set_stage(model.name)
+            loader._ran[#loader._ran + 1] = model.name
+
+            local band_start = (index - 1) / stage_count
+            local band_end = index / stage_count
+            local stage_time = model.time or per_stage
+
+            -- Animate this stage's slice while its work runs. The cap holds
+            -- the bar under the band edge until the stage really finishes.
+            local stage_done = false
+            local stage_elapsed = 0
+            task.spawn(function()
+                while not stage_done and not closed do
+                    local delta = task.wait(0.03) or 0.03
+                    if stage_done or closed then break end
+                    stage_elapsed = stage_elapsed + delta
+                    local frac = math.min(stage_elapsed / stage_time, 1) * 0.92
+                    apply_progress(band_start + (band_end - band_start) * frac, true)
+                end
+            end)
+
+            if not run_stage_work(model) then break end
+
+            -- Hold each stage open for at least its slot, so a fast task
+            -- never flashes past unread.
+            if not closed and stage_elapsed < stage_time then
+                task.wait(stage_time - stage_elapsed)
+            end
+            stage_done = true
+            if closed then return end
+            apply_progress(band_end, true)
         end
+
+        if failed then
+            abort()
+            return
+        end
+        if closed then return end
+        apply_progress(1, true)
+        task.wait(0.45)
+        if not closed then loader:close() end
     end
 
-    function loader:close(override_callback)
-        particles_alive = false
+    -- Opening state. When the sequencer drives the checklist it adds the
+    -- first row itself; manual mode still gets one immediately.
+    if manual then
+        add_status(stages[1])
+    end
+    clock.Text = format_clock() .. ' ·'
+    tween(card, 0.45, { GroupTransparency = 0 })
+    tween(brand, 0.5, { TextTransparency = 0 })
+    tween(clock, 0.5, { TextTransparency = 0 })
+    tween(elapsed, 0.5, { TextTransparency = 0 })
+    tween(quote, 0.6, { TextTransparency = 0.45 })
 
-        if scale_connection then
-            scale_connection:Disconnect()
+    local elapsed_seconds = 0
+    task.spawn(function()
+        while not closed do
+            task.wait(1)
+            if closed then break end
+            elapsed_seconds = elapsed_seconds + 1
+            if clock and clock.Parent then clock.Text = format_clock() .. ' ·' end
+            if elapsed and elapsed.Parent then elapsed.Text = elapsed_seconds .. 's' end
         end
+    end)
 
-        TweenService:Create(Backdrop, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(Title, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {TextTransparency = 1}):Play()
-        TweenService:Create(Logo, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {ImageTransparency = 1}):Play()
-        TweenService:Create(LogoScale, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0.6}):Play()
+    -- Track the active loader on the library so `load()` can gate on it.
+    if self and self._ui then self._loader = loader end
 
-        for _, dot in ambient_particles do
-            if dot and dot.Parent then
-                TweenService:Create(dot, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+    if not manual then
+        if blocking then
+            -- Runs in the caller's own thread: the script cannot continue
+            -- until every stage has run and the card has closed. An aborted
+            -- load raises here, which stops the calling script entirely.
+            run_stages()
+        else
+            task.spawn(function()
+                local ok, err = pcall(run_stages)
+                if not ok and not closed then
+                    warn('[Stellar] loader error: ' .. tostring(err))
+                    pcall(loader.close, loader)
+                end
+            end)
+            -- Legacy gate: `wait = true` blocks this thread until the
+            -- asynchronously driven loader has finished.
+            if settings.wait == true then
+                loader:wait(tonumber(Library.Loader_Timeout))
             end
         end
-
-        task.wait(0.4)
-        LoaderGui:Destroy()
-
-        local fn = override_callback or settings.callback
-        if fn then
-            fn()
-        end
-    end
-
-    set_stage_text(stages[1])
-    current_stage_index = 1
-    bloom_to_stage(1)
-
-    if settings.auto_progress then
-        task.spawn(function()
-            local duration = settings.duration or 2.6
-            local start = os.clock()
-            while os.clock() - start < duration do
-                loader:set_progress((os.clock() - start) / duration)
-                task.wait(0.03)
-            end
-            loader:set_progress(1)
-            task.wait(0.5)
-            loader:close()
-        end)
     end
 
     return loader
 end
 
+--=====================================================================
+--  Library core
+--=====================================================================
+Library._config = Config:load(game.GameId)
 
--- Customizes ONLY the main window's backdrop image — tabs, modules, toggles,
--- sliders etc. keep their own backgrounds untouched since they're separate
--- opaque frames layered on top of this.
+-- Look & feel knobs. Set these before calling `Library.new()`.
 --
+-- The drop shadow is OFF by default: the panel already has a crisp 1px
+-- hairline border, and a soft halo read as a distracting blur. Turn it on
+-- (with a hairline spread) only if you want a little lift.
+Library.Shadow = false            -- draw a subtle drop shadow behind the window
+Library.Shadow_Spread = 4         -- total extra pixels (2px each side)
+Library.Shadow_Drop = 1           -- downward offset of the shadow
+Library.Shadow_Transparency = 0.6
+
+-- Acrylic backdrop blur is opt-in. It renders a glass plane + depth of
+-- field behind the window, which some GPUs/executors draw as a large
+-- smear. Enable with `library.Acrylic = true` before `library:load()`.
+Library.Acrylic = false
+
+Library.Logo_Animation = 'Stellar' -- 'Stellar' | 'Ethereal' | sheet table | false
+Library.Logo = nil                 -- set to an asset id to use a static image
+
+-- Badge next to the product name. Change it per build/version with
+-- `Library.Edition = 'V2.1'` before `Library.new()`, or at runtime with
+-- `library:set_edition('V2.1')`.
+Library.Edition = 'ETHEREAL'
+
+-- Safety bound (seconds) on how long `library:load()` will wait for a loader
+-- before revealing the window anyway. Auto loaders close themselves long
+-- before this; it only matters if a manual loader is never closed.
+Library.Loader_Timeout = 30
+
+-- Auto-save writes the session file (`Stellar/<gameId>.json`) on every
+-- change. Set to false (or call `library:set_autosave(false)`) to pause it
+-- while still being able to save/load named configs manually.
+Library.Auto_Save = true
+
+-- The loading card runs *real* work and, by default, blocks the thread that
+-- called `create_loader` until loading finishes — the script genuinely
+-- cannot continue behind it. Opt out with `Library.Blocking_Loader = false`.
+Library.Blocking_Loader = true
+-- Seconds each stage gets when `duration` isn't supplied to `create_loader`.
+Library.Loader_Stage_Time = 1.1
+
+-- Executor gate. The loader checks `identifyexecutor()` (falling back to
+-- `getexecutorname()`) before anything is built; a name containing any of
+-- these patterns stops the script immediately with a warning + toast.
+Library.Blocked_Executors = { 'xeno', 'solara' }
+
+-- Optional execution report (Discord webhook). Posts player, executor and
+-- join info asynchronously the moment the executor is verified. Disabled by
+-- default; set before `Library.new()`:
+--   Library.Webhook = { url = 'https://discord.com/api/webhooks/...', script = 'My script' }
+-- (also per-instance: `library.Webhook = { ... }`)
+Library.Webhook = false
+
+Library._choosing_keybind = false
+Library._device = nil
+
+Library._ui_open = true
+Library._ui_scale = 1
+Library._ui_loaded = false
+Library._ui = nil
+Library._deferred = {}
+
+Library._dragging = false
+Library._drag_start = nil
+Library._container_position = nil
+
+Library._refs = {}
+Library._tabs = {}
+Library._search_items = {}
+Library._active_tab = nil
+Library._search_text = ''
+Library._open_dropdown = nil
+Library._status_token = 0
+
+Library.Theme = Theme
+Library.Theme_Presets = Theme_Presets
+
+Library.__index = Library
+
+function Library.new()
+    -- Every mutable field lives on the instance so multiple windows can
+    -- coexist without sharing tabs, search results or visibility state.
+    local self = setmetatable({
+        _loaded = false,
+        _tab = 0,
+        _ui = nil,
+        _ui_open = true,
+        _ui_loaded = false,
+        _deferred = {},
+        _ui_scale = 1,
+        _refs = {},
+        _tabs = {},
+        _search_items = {},
+        _active_tab = nil,
+        _search_text = '',
+        _open_dropdown = nil,
+        _status_token = 0,
+        _edition = tostring(Library.Edition or 'ETHEREAL'),
+        _loader = nil,
+        _dragging = false,
+        _drag_start = nil,
+        _container_position = nil,
+        _choosing_keybind = false,
+        _registry = {},
+        _keybind_registry = {},
+        _applying_config = false,
+        _destroyed = false,
+        _tearing_down = false,
+        _autosave = (Library.Auto_Save ~= false) and (Library._config._library.autosave ~= false)
+    }, Library)
+
+    self:create_ui()
+
+    return self
+end
+
+-- Queue a widget's restore callback until `library:load()` has revealed the
+-- window. Restoring a saved/default state must re-arm the feature, but doing
+-- that during construction ran the script's own feature logic while the
+-- loading card was still up and before the interface had appeared at all --
+-- which read as the loader having been skipped. `load()` flushes this queue
+-- once the window is on screen. Anything triggered after loading (a live
+-- click, a named config load) runs immediately.
+function Library:defer(callback)
+    if type(callback) ~= 'function' then return end
+    if self._ui_loaded then
+        local ok, err = pcall(callback)
+        if not ok then
+            warn('[Stellar] deferred callback failed:', err)
+        end
+        return
+    end
+    table.insert(self._deferred, callback)
+end
+
+-- Run every callback queued during construction. Called by `library:load()`
+-- right after the window is revealed; safe to call more than once.
+function Library:flush_deferred()
+    local pending = self._deferred
+    if not pending or #pending == 0 then return end
+    self._deferred = {}
+    for _, callback in ipairs(pending) do
+        local ok, err = pcall(callback)
+        if not ok then
+            warn('[Stellar] deferred callback failed:', err)
+        end
+    end
+end
+
+function Library:flag_type(flag, flag_type)
+    -- Only a missing flag is "not saved". A saved `false` (or 0) is a real
+    -- value and must not be confused with an absent one, otherwise a toggle
+    -- that the player turned OFF silently reverts to its default on reload.
+    local value = self._config._flags[flag]
+    if value == nil then return false end
+    return typeof(value) == flag_type
+end
+
+--=====================================================================
+--  Auto-save + named configs
+--=====================================================================
+-- A single choke point for every persistence write. `Auto_Save = false`
+-- (or `library:set_autosave(false)`) stops the session file being written
+-- while the player experiments, without disabling named save/load.
+function Library:autosave()
+    if self._applying_config then return false end
+    -- Tearing down (close button) turns features OFF without rewriting the
+    -- player's saved config: next launch should restore what they had.
+    if self._tearing_down then return false end
+    if self._autosave == false then return false end
+    return Config:save(game.GameId, self._config)
+end
+
+function Library:set_autosave(enabled)
+    enabled = enabled ~= false
+    self._autosave = enabled
+    self._config._library.autosave = enabled
+    if enabled then self:autosave() end
+    return enabled
+end
+
+function Library:is_autosave()
+    return self._autosave ~= false
+end
+
+-- Every flagged widget registers an `apply(value)` callback here. It is
+-- what lets `load_config` push a saved profile back into the live UI
+-- (labels, switches, sliders, colour swatches) instead of only editing
+-- the flag table.
+--
+-- The optional `meta` table carries what the loader and teardown need:
+--   kind   — widget census ('module', 'toggle', 'slider', ...)
+--   widget — the manager instance, for callers that need the live object
+--   sync   — re-apply a saved value with NO callback (state re-paint only)
+--   off    — turn the widget off firing its callback (used by destroy())
+function Library:register(flag, apply, default, meta)
+    if not flag or type(apply) ~= 'function' then return end
+    meta = type(meta) == 'table' and meta or nil
+    table.insert(self._registry, {
+        flag = flag,
+        apply = apply,
+        default = default,
+        kind = meta and meta.kind or nil,
+        widget = meta and meta.widget or nil,
+        sync = meta and meta.sync or nil,
+        off = meta and meta.off or nil
+    })
+end
+
+function Library:register_keybind(flag, apply)
+    if not flag or type(apply) ~= 'function' then return end
+    table.insert(self._keybind_registry, { flag = flag, apply = apply })
+end
+
+-- The loader's "Loading Modules" stage runs this — it is real work, not a
+-- timer: every registered widget is re-synced from the saved flags (silent
+-- repaint, so callbacks are not queued twice), every stored keybind is
+-- (re)connected, and every module card is measured and refreshed. Returns
+-- `census, synced` — the widget census by kind and how many widgets were
+-- re-synced from the config.
+function Library:hydrate_modules(loader)
+    local census, synced, total = {}, 0, 0
+    self._applying_config = true
+    for _, entry in ipairs(self._registry or {}) do
+        local kind = entry.kind or 'widget'
+        census[kind] = (census[kind] or 0) + 1
+        total = total + 1
+        local value = self._config._flags[entry.flag]
+        if value ~= nil and type(entry.sync) == 'function' then
+            pcall(entry.sync, value)
+            synced = synced + 1
+        end
+    end
+    for _, entry in ipairs(self._keybind_registry or {}) do
+        pcall(entry.apply)
+    end
+    self._applying_config = false
+    for _, tab in ipairs(self._tabs or {}) do
+        for _, module in ipairs(tab._modules or {}) do
+            pcall(function() module:refresh(true) end)
+        end
+    end
+    return census, synced, total
+end
+
+function Library:get_configs()
+    return Config:list_named()
+end
+
+function Library:config_exists(name)
+    return Config:exists_named(name)
+end
+
+function Library:save_config(name)
+    name = tostring(name or ''):gsub('^%s+', ''):gsub('%s+$', '')
+    if name == '' then
+        self:status('Enter a config name first', 'warning')
+        return false
+    end
+    local ok = Config:save_named(name, self._config)
+    if ok then
+        self:status('Saved config "' .. name .. '"', 'success')
+    else
+        self:status('Could not save config', 'error')
+    end
+    return ok
+end
+
+-- Replace the live flag/keybind state with a saved profile and re-apply it
+-- to every registered widget. Widgets whose flag is absent from the profile
+-- fall back to their construction default.
+function Library:apply_config(data)
+    if type(data) ~= 'table' then return false end
+    local flags = type(data._flags) == 'table' and data._flags or {}
+    local keybinds = type(data._keybinds) == 'table' and data._keybinds or {}
+
+    local merged_flags = {}
+    for key, value in pairs(self._config._flags) do merged_flags[key] = value end
+    for key, value in pairs(flags) do merged_flags[key] = value end
+    for _, entry in ipairs(self._registry) do
+        if flags[entry.flag] == nil and entry.default ~= nil then
+            merged_flags[entry.flag] = entry.default
+        end
+    end
+
+    local merged_binds = {}
+    for key, value in pairs(self._config._keybinds) do merged_binds[key] = value end
+    for key, value in pairs(keybinds) do merged_binds[key] = value end
+    for _, entry in ipairs(self._keybind_registry) do
+        if keybinds[entry.flag] == nil then merged_binds[entry.flag] = nil end
+    end
+
+    self._config._flags = merged_flags
+    self._config._keybinds = merged_binds
+    -- Library-level preferences (e.g. the auto-save switch) are owned by the
+    -- session, not by a widget profile: loading a named config must not
+    -- silently flip a global preference. Profiles only carry flags/keybinds.
+
+    self._applying_config = true
+    for _, entry in ipairs(self._registry) do
+        local value = self._config._flags[entry.flag]
+        if value == nil then value = entry.default end
+        if value ~= nil then
+            local ok, err = pcall(entry.apply, value)
+            if not ok then
+                warn('[Stellar] failed to apply config flag "' .. tostring(entry.flag) .. '":', err)
+            end
+        end
+    end
+    for _, entry in ipairs(self._keybind_registry) do
+        local ok, err = pcall(entry.apply, self._config._keybinds[entry.flag])
+        if not ok then
+            warn('[Stellar] failed to apply keybind "' .. tostring(entry.flag) .. '":', err)
+        end
+    end
+    self._applying_config = false
+
+    self:autosave()
+    return true
+end
+
+function Library:load_config(name)
+    local data = Config:load_named(name)
+    if not data then
+        self:status('Config not found: ' .. tostring(name), 'error')
+        return false
+    end
+    local ok = self:apply_config(data)
+    if ok then self:status('Loaded config "' .. tostring(name) .. '"', 'success') end
+    return ok
+end
+
+function Library:delete_config(name)
+    local ok = Config:delete_named(name)
+    if ok then
+        self:status('Deleted config "' .. tostring(name) .. '"', 'warning')
+    else
+        self:status('Config not found: ' .. tostring(name), 'error')
+    end
+    return ok
+end
+
+function Library:remove_table_value(tbl, value)
+    for index = #tbl, 1, -1 do
+        if tbl[index] == value then
+            table.remove(tbl, index)
+        end
+    end
+end
+
+function Library:get_screen_scale()
+    local viewport = Workspace.CurrentCamera.ViewportSize.X
+    self._ui_scale = math.clamp(viewport / 1400, 0.62, 1.35)
+end
+
+function Library:get_device()
+    if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+        self._device = 'Mobile'
+    elseif UserInputService.GamepadEnabled and not UserInputService.KeyboardEnabled then
+        self._device = 'Console'
+    else
+        self._device = 'PC'
+    end
+end
+
+function Library:removed(action)
+    if self._ui then
+        self._ui.AncestryChanged:Once(action)
+    end
+end
+
+--=====================================================================
+--  Executor identity + execution report
+--=====================================================================
+-- The loader verifies the host *before* any UI is built: the executor name
+-- is read with `identifyexecutor()` (falling back to `getexecutorname()`),
+-- reported to the configured webhook (if any) and checked against
+-- `Library.Blocked_Executors`, so an unsupported host is stopped before the
+-- interface — and therefore the script's features — ever come up.
+function Library:detect_executor()
+    local sources = {}
+    if type(identifyexecutor) == 'function' then sources[#sources + 1] = identifyexecutor end
+    if type(getexecutorname) == 'function' then sources[#sources + 1] = getexecutorname end
+    for _, detect in ipairs(sources) do
+        local ok, result, detail = pcall(detect)
+        if ok and type(result) == 'string' and result ~= '' then
+            if type(detail) == 'string' and detail ~= '' and detail ~= result then
+                return result .. ' ' .. detail
+            end
+            return result
+        end
+    end
+    return 'Unknown'
+end
+
+-- Strip spaces/punctuation and collapse case so 'Xeno V4', 'xeno-v4' and
+-- 'XENOV4' all normalise to the same token before matching. This is what
+-- keeps a plain substring check from being defeated by cosmetic formatting
+-- differences between executor builds/versions.
+local function normalise_executor_name(name)
+    name = string.lower(tostring(name or ''))
+    name = name:gsub('[%p%s]+', '')
+    return name
+end
+
+function Library:is_executor_blocked(name)
+    local raw = string.lower(tostring(name or ''))
+    local normalised = normalise_executor_name(name)
+    for _, pattern in ipairs(Library.Blocked_Executors or {}) do
+        pattern = tostring(pattern)
+        if pattern ~= '' then
+            local raw_pattern = string.lower(pattern)
+            local norm_pattern = normalise_executor_name(pattern)
+            -- Check both the raw lowercase string and the normalised
+            -- (punctuation/space-stripped) form, so a blocklist entry of
+            -- 'xeno' still catches 'Xeno', 'xeno-v4', 'XENO V4', etc.
+            if (raw_pattern ~= '' and raw:find(raw_pattern, 1, true))
+                or (norm_pattern ~= '' and normalised:find(norm_pattern, 1, true)) then
+                return true, pattern
+            end
+        end
+    end
+    return false
+end
+
+-- POST helper that works across executors (`request`, `http_request`,
+-- `syn.request`, `fluxus.request`). Returns false when no http function
+-- exists, so callers skip the report instead of erroring.
+local function resolve_http()
+    if type(request) == 'function' then return request end
+    if type(http_request) == 'function' then return http_request end
+    if type(syn) == 'table' and type(syn.request) == 'function' then return syn.request end
+    if type(fluxus) == 'table' and type(fluxus.request) == 'function' then return fluxus.request end
+    return nil
+end
+
+function Library:post_webhook(url, payload)
+    local http = resolve_http()
+    if not http or type(url) ~= 'string' or url == '' then return false end
+    local body
+    local ok, err = pcall(function()
+        body = game:GetService('HttpService'):JSONEncode(payload)
+    end)
+    if not ok or type(body) ~= 'string' then
+        warn('[Stellar] could not encode webhook payload: ' .. tostring(err))
+        return false
+    end
+    local sent, post_err = pcall(http, {
+        Url = url,
+        Method = 'POST',
+        Headers = { ['Content-Type'] = 'application/json' },
+        Body = body
+    })
+    if not sent then
+        warn('[Stellar] webhook failed: ' .. tostring(post_err))
+        return false
+    end
+    return true
+end
+
+-- Report this execution (player, executor, join link) to the configured
+-- webhook. The payload layout mirrors the standard "Execution Detected"
+-- embed. Dispatch is asynchronous on purpose: a slow network can never stall
+-- the loader or block the interface build.
+function Library:send_execution_report(executor_name)
+    local hook = self.Webhook
+    if hook == nil then hook = Library.Webhook end
+    if type(hook) ~= 'table' or type(hook.url) ~= 'string' or hook.url == '' then
+        return false
+    end
+
+    local script_name = tostring(hook.script or 'Stellar UI')
+    local place_id, job_id, player_name, player_id, timestamp
+    pcall(function() place_id = game.PlaceId end)
+    pcall(function() job_id = game.JobId end)
+    pcall(function()
+        local player = game:GetService('Players').LocalPlayer
+        if player then
+            player_name = player.Name
+            player_id = player.UserId
+        end
+    end)
+    pcall(function() timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ') end)
+
+    task.spawn(function()
+        self:post_webhook(hook.url, {
+            embeds = {{
+                title = 'Execution Detected | Player Info',
+                color = 5763719,
+                description = 'Script: ' .. script_name,
+                fields = {
+                    { name = 'Username', value = tostring(player_name or 'Unknown'), inline = true },
+                    { name = 'User ID', value = tostring(player_id or 'Unknown'), inline = true },
+                    { name = 'Executor', value = tostring(executor_name or 'Unknown'), inline = true },
+                    { name = 'Join Script', value = '```lua\ngame:GetService("TeleportService"):TeleportToPlaceInstance('
+                        .. tostring(place_id or 0) .. ', "' .. tostring(job_id or '')
+                        .. '", game.Players.LocalPlayer)\n```', inline = false }
+                },
+                timestamp = timestamp
+            }}
+        })
+    end)
+    return true
+end
+
+-- Public notification entry point. Supports both the dot form
+-- (`Library.SendNotification{...}`) and the colon form used by most
+-- scripts (`library:SendNotification{...}`). When called with a colon the
+-- library instance arrives as the first argument, so unwrap it here.
+function Library.SendNotification(first, second)
+    local settings = second
+    if settings == nil then
+        local is_instance = type(first) == 'table'
+            and (first == Library or getmetatable(first) == Library)
+        settings = is_instance and nil or first
+    end
+    Notifications.push(settings)
+end
+Library.notify = Library.SendNotification
+
+--=====================================================================
+--  Theme API
+--=====================================================================
+function Library:get_theme()
+    return Theme_Name
+end
+
+function Library:get_themes()
+    local names = {}
+    for name in pairs(Theme_Presets) do
+        table.insert(names, name)
+    end
+    table.sort(names)
+    return names
+end
+
+function Library:set_theme(name_or_table)
+    local preset
+    if type(name_or_table) == 'string' then
+        preset = Theme_Presets[name_or_table]
+        if not preset then
+            warn('[Stellar] unknown theme "' .. tostring(name_or_table) .. '"')
+            return false
+        end
+        Theme_Name = name_or_table
+    elseif type(name_or_table) == 'table' then
+        preset = name_or_table
+        Theme_Name = 'Custom'
+    else
+        return false
+    end
+
+    for key, value in pairs(preset) do
+        Theme[key] = value
+    end
+    apply_theme()
+    self:status('Theme: ' .. tostring(Theme_Name), 'action')
+    return true
+end
+
+function Library:set_accent(color)
+    if typeof(color) ~= 'Color3' then return false end
+    Theme.Accent = color
+    Theme.Accent_2 = Color3.new(
+        math.min(color.R * 1.18, 1),
+        math.min(color.G * 1.18, 1),
+        math.min(color.B * 1.18, 1)
+    )
+    Theme.Accent_Soft = Color3.new(color.R * 0.24, color.G * 0.24, color.B * 0.3)
+    Theme_Name = 'Custom'
+    apply_theme()
+    return true
+end
+
+--=====================================================================
+--  Edition badge
+--  The chip beside the product name is a free-form build/version string:
+--      library:set_edition('ETHEREAL v2.1')
+--      library:set_edition('BETA')
+--      library:set_edition('ETHEREAL', '2.1')  -- -> "ETHEREAL 2.1"
+--  It resizes to fit whatever text it is given.
+--=====================================================================
+function Library:get_edition()
+    return self._edition or tostring(Library.Edition or 'ETHEREAL')
+end
+
+function Library:set_edition(text, version)
+    if text == nil then return false end
+    text = tostring(text)
+    if text == '' then text = 'ETHEREAL' end
+    if version ~= nil and tostring(version) ~= '' then
+        text = text .. ' ' .. tostring(version)
+    end
+    self._edition = text
+
+    local refs = self._refs
+    if refs and refs.EditionLabel and refs.EditionLabel.Parent then
+        refs.EditionLabel.Text = text
+        if refs.Edition and refs.Edition.Parent then
+            refs.Edition.Size = UDim2.fromOffset(edition_badge_width(text), 15)
+        end
+    end
+    self:status('Edition: ' .. text, 'action')
+    return true
+end
+
+--=====================================================================
+--  Live status (sidebar footer)
+--  Every interaction can call this. The footer shows the action for a
+--  couple of seconds, then settles back to "System ready".
+--=====================================================================
+local STATUS_DEFAULT = 'System ready'
+
+function Library:status(text, kind, duration)
+    -- Loading a profile re-applies every widget at once; don't let that
+    -- flood the footer with a status line per component.
+    if self._applying_config or self._destroyed then return end
+    local refs = self._refs
+    local dot = refs and refs.FooterDot
+    local label = refs and refs.FooterText
+    if not (dot and label) then return end
+
+    self._status_token = (self._status_token or 0) + 1
+    local token = self._status_token
+
+    local colors = {
+        info = Theme.Accent,
+        action = Theme.Accent,
+        success = Theme.Success,
+        warning = Theme.Warning,
+        error = Theme.Danger
+    }
+    local color = colors[kind or 'info'] or Theme.Accent
+
+    label.Text = tostring(text or STATUS_DEFAULT)
+    label.TextColor3 = color
+    label.Position = UDim2.fromOffset(22, 4)
+    tween(label, 0.22, { TextTransparency = 0, Position = UDim2.fromOffset(22, 0) }, Enum.EasingStyle.Back)
+    dot.BackgroundColor3 = color
+    dot.Size = UDim2.fromOffset(9, 9)
+    tween(dot, 0.25, { Size = UDim2.fromOffset(6, 6) }, Enum.EasingStyle.Back)
+
+    task.delay(duration or 2.4, function()
+        if token ~= self._status_token then return end
+        if not (dot and dot.Parent and label and label.Parent) then return end
+        label.Text = STATUS_DEFAULT
+        label.TextColor3 = Theme.Muted
+        dot.BackgroundColor3 = Theme.Success
+        dot.Size = UDim2.fromOffset(6, 6)
+    end)
+end
+
+--=====================================================================
+--  Window construction
+--=====================================================================
+function Library:create_ui()
+    local old = CoreGui:FindFirstChild('Stellar')
+    if old then old:Destroy() end
+
+    local Stellar = create('ScreenGui', {
+        Name = 'Stellar',
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    }, CoreGui)
+
+    -- Optional hairline drop shadow (off by default). When enabled it adds
+    -- only a couple of pixels of depth — never a big blurred halo.
+    local shadow
+    local shadow_spread = tonumber(Library.Shadow_Spread) or 4
+    local shadow_drop = tonumber(Library.Shadow_Drop) or 1
+    if Library.Shadow == true then
+        shadow = create('Frame', {
+            Name = 'Shadow',
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(0, 0),
+            BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = tonumber(Library.Shadow_Transparency) or 0.6,
+            BorderSizePixel = 0,
+            ZIndex = 1
+        }, Stellar)
+        corner(shadow, 18)
+    end
+
+    local Container = create('CanvasGroup', {
+        Name = 'Container',
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(0, 0),
+        BackgroundColor3 = Theme.Panel,
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        GroupTransparency = 1,
+        ZIndex = 2
+    }, Stellar)
+    corner(Container, 16)
+    local container_stroke = stroke(Container, Theme.Border, 1, 0.25)
+    bind(Container, 'BackgroundColor3', 'Panel')
+    bind(container_stroke, 'Color', 'Border')
+
+    local WIN_W, WIN_H = 720, 470
+    local TOPBAR_H = 50
+    local SIDEBAR_W = 170
+    local BODY_H = WIN_H - TOPBAR_H
+
+    local function sync_shadow()
+        if not shadow then return end
+        shadow.Position = UDim2.new(
+            Container.Position.X.Scale, Container.Position.X.Offset,
+            Container.Position.Y.Scale, Container.Position.Y.Offset + shadow_drop
+        )
+        shadow.Size = UDim2.fromOffset(
+            Container.Size.X.Offset + shadow_spread,
+            Container.Size.Y.Offset + shadow_spread
+        )
+    end
+    Container:GetPropertyChangedSignal('Size'):Connect(sync_shadow)
+    Container:GetPropertyChangedSignal('Position'):Connect(sync_shadow)
+    sync_shadow()
+
+    -- top accent hairline
+    local accent_line = create('Frame', {
+        Name = 'AccentLine',
+        Size = UDim2.new(1, 0, 0, 1),
+        Position = UDim2.new(0, 0, 0, 0),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 5
+    }, Container)
+    gradient(accent_line, ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(0.5, Theme.Accent_2),
+        ColorSequenceKeypoint.new(1, Theme.Accent)
+    }), 0, NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    }))
+    bind_fn(function()
+        accent_line.BackgroundColor3 = Theme.Accent
+    end)
+
+    --=================================================================
+    --  Top bar
+    --=================================================================
+    local TopBar = create('Frame', {
+        Name = 'TopBar',
+        Size = UDim2.new(1, 0, 0, TOPBAR_H),
+        BackgroundTransparency = 1,
+        ZIndex = 4
+    }, Container)
+
+    local Drag = create('TextButton', {
+        Name = 'Drag',
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 1
+    }, TopBar)
+
+    -- Top-left animated logo. Doubles as the open/minimize toggle.
+    local LogoMark = create('TextButton', {
+        Name = 'LogoMark',
+        Size = UDim2.fromOffset(30, 30),
+        Position = UDim2.fromOffset(16, 10),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 3
+    }, TopBar)
+    corner(LogoMark, 9)
+    -- Faded accent wash behind the animation instead of a solid blue square.
+    gradient(LogoMark, ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Theme.Accent),
+        ColorSequenceKeypoint.new(1, Theme.Accent_2)
+    }), 90, NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.8),
+        NumberSequenceKeypoint.new(0.55, 0.92),
+        NumberSequenceKeypoint.new(1, 1)
+    }))
+    local logo_stroke = stroke(LogoMark, Theme.Accent_2, 1, 0.5)
+    bind(logo_stroke, 'Color', 'Accent_2')
+    bind_fn(function()
+        if not LogoMark.Parent then return end
+        local fade = LogoMark:FindFirstChildOfClass('UIGradient')
+        if fade then
+            fade.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Theme.Accent),
+                ColorSequenceKeypoint.new(1, Theme.Accent_2)
+            })
+        end
+    end)
+
+    local LogoImage = create('ImageLabel', {
+        Name = 'Logo',
+        Size = UDim2.fromOffset(22, 22),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageColor3 = Color3.fromRGB(255, 255, 255),
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = 4
+    }, LogoMark)
+    local logo_scale = create('UIScale', { Scale = 1 }, LogoImage)
+    Util:apply_logo(LogoImage, {
+        animation = Library.Logo_Animation,
+        image = Library.Logo
+    })
+
+    LogoMark.MouseEnter:Connect(function()
+        tween(logo_stroke, 0.18, { Transparency = 0 })
+        tween(logo_scale, 0.18, { Scale = 1.12 })
+    end)
+    LogoMark.MouseLeave:Connect(function()
+        tween(logo_stroke, 0.18, { Transparency = 0.5 })
+        tween(logo_scale, 0.18, { Scale = 1 })
+    end)
+
+    local Product = create('TextLabel', {
+        Name = 'Product',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = 'Stellar',
+        -- Hug the text so the wordmark gradient spans the glyphs exactly; a
+        -- fixed-width box made the highlight spend most of its sweep off the
+        -- letters, which is why it barely read as a moving shine.
+        Size = UDim2.new(0, 0, 0, 16),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Position = UDim2.fromOffset(56, 10),
+        ZIndex = 3
+    }, TopBar)
+    -- Same animated wordmark as the loader, so the product name is consistent
+    -- across the window chrome and the loading card.
+    Util:animate_wordmark(Product, { period = 2.8, pause = 1.1 })
+
+    local edition_text = tostring(Library.Edition or 'ETHEREAL')
+    local Edition = create('Frame', {
+        Name = 'Edition',
+        Size = UDim2.fromOffset(edition_badge_width(edition_text), 15),
+        Position = UDim2.fromOffset(56, 27),
+        BackgroundColor3 = Theme.Accent_Soft,
+        BorderSizePixel = 0,
+        ZIndex = 3
+    }, TopBar)
+    corner(Edition, 4)
+    bind(Edition, 'BackgroundColor3', 'Accent_Soft')
+
+    local EditionLabel = create('TextLabel', {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme.Accent,
+        TextSize = 8,
+        Text = edition_text,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        ZIndex = 4
+    }, Edition)
+    bind(EditionLabel, 'TextColor3', 'Accent')
+
+    -- window controls (the top-left logo handles open/minimize now)
+    local Controls = create('Frame', {
+        Name = 'Controls',
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -14, 0.5, 0),
+        Size = UDim2.fromOffset(26, 26),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, TopBar)
+
+    local function make_control(glyph, order)
+        local button = create('TextButton', {
+            Name = glyph,
+            Size = UDim2.fromOffset(26, 26),
+            Position = UDim2.fromOffset(order * 32, 0),
+            BackgroundColor3 = Theme.Panel_3,
+            BackgroundTransparency = 0.35,
+            BorderSizePixel = 0,
+            FontFace = font(Enum.FontWeight.SemiBold),
+            TextColor3 = Theme.Muted,
+            TextSize = 15,
+            Text = glyph,
+            AutoButtonColor = false,
+            ZIndex = 3
+        }, Controls)
+        corner(button, 8)
+        bind(button, 'BackgroundColor3', 'Panel_3')
+        bind(button, 'TextColor3', 'Muted')
+        button.MouseEnter:Connect(function()
+            tween(button, 0.18, { BackgroundTransparency = 0, TextColor3 = Theme.Text })
+        end)
+        button.MouseLeave:Connect(function()
+            tween(button, 0.18, { BackgroundTransparency = 0.35, TextColor3 = Theme.Muted })
+        end)
+        return button
+    end
+
+    local Close = make_control('×', 0)
+    Tooltip.attach(Close, 'Close interface')
+    Tooltip.attach(LogoMark, 'Minimize / open')
+
+    -- search ---------------------------------------------------------------
+    -- An Allusive-style expanding pill. Collapsed it is a 30x30 circle with
+    -- just the magnifier; clicking it (or the pill itself) unfolds the field
+    -- with a Quint ease, fades the placeholder in and captures focus. It
+    -- collapses again when focus is lost while empty.
+    local SEARCH_W, SEARCH_H = 196, 30
+    local SearchBox = create('TextButton', {
+        Name = 'Search',
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -52, 0.5, 0),
+        Size = UDim2.fromOffset(SEARCH_H, SEARCH_H),
+        BackgroundColor3 = Theme.Panel_2,
+        BorderSizePixel = 0,
+        Text = '',
+        AutoButtonColor = false,
+        ClipsDescendants = true,
+        ZIndex = 3
+    }, TopBar)
+    -- A scale corner radius renders a perfect circle at 30px and a pill once
+    -- the field expands, with no extra work.
+    corner(SearchBox, 1, 1)
+    local search_stroke = stroke(SearchBox, Theme.Border, 1, 0.4)
+    bind(SearchBox, 'BackgroundColor3', 'Panel_2')
+    bind(search_stroke, 'Color', 'Border')
+
+    local search_icon_holder = create('Frame', {
+        Name = 'IconHolder',
+        Size = UDim2.fromOffset(14, 14),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ZIndex = 4
+    }, SearchBox)
+    local search_icon = draw_magnifier(search_icon_holder, Theme.Dim, 14)
+    bind_fn(function()
+        if not search_icon.Parent then return end
+        for _, child in ipairs(search_icon:GetDescendants()) do
+            if child:IsA('Frame') and child.BackgroundTransparency == 0 then
+                child.BackgroundColor3 = Theme.Dim
+            end
+            if child:IsA('UIStroke') then
+                child.Color = Theme.Dim
+            end
+        end
+    end)
+
+    -- The placeholder is a separate label so its arrival can be faded; a
+    -- TextBox placeholder cannot be tweened.
+    local search_placeholder = create('TextLabel', {
+        Name = 'Placeholder',
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Dim,
+        TextSize = 11,
+        Text = 'Search features...',
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTransparency = 1,
+        Size = UDim2.new(1, -44, 1, 0),
+        Position = UDim2.fromOffset(30, 0),
+        ZIndex = 4
+    }, SearchBox)
+    bind(search_placeholder, 'TextColor3', 'Dim')
+
+    local SearchInput = create('TextBox', {
+        Name = 'Input',
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Text,
+        TextSize = 11,
+        Text = '',
+        TextTransparency = 1,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ClearTextOnFocus = false,
+        PlaceholderText = '',
+        Size = UDim2.new(1, -42, 1, 0),
+        Position = UDim2.fromOffset(29, 0),
+        ZIndex = 5
+    }, SearchBox)
+    bind(SearchInput, 'TextColor3', 'Text')
+
+    local search_expanded = false
+    -- While collapsed the input/placeholder are hidden: ClipsDescendants only
+    -- clips *rendering*, not input, so a visible-but-clipped TextBox would
+    -- still swallow clicks in the top bar next to the pill.
+    SearchInput.Visible = false
+    search_placeholder.Visible = false
+
+    local function expand_search()
+        if search_expanded then
+            pcall(function() SearchInput:CaptureFocus() end)
+            return
+        end
+        search_expanded = true
+        SearchInput.Visible = true
+        search_placeholder.Visible = true
+        tween(SearchBox, 0.38, { Size = UDim2.fromOffset(SEARCH_W, SEARCH_H) })
+        tween(search_icon_holder, 0.3, { Position = UDim2.new(0, 21, 0.5, 0) })
+        tween(search_placeholder, 0.28, { TextTransparency = SearchInput.Text == '' and 0 or 1 })
+        tween(SearchInput, 0.2, { TextTransparency = 0 })
+        tween(search_stroke, 0.25, { Color = Theme.Accent, Transparency = 0.15 })
+        task.delay(0.15, function()
+            if search_expanded and SearchInput and SearchInput.Parent then
+                pcall(function() SearchInput:CaptureFocus() end)
+            end
+        end)
+    end
+
+    local function collapse_search()
+        if not search_expanded then return end
+        if SearchInput.Text ~= '' then return end
+        search_expanded = false
+        tween(SearchBox, 0.38, { Size = UDim2.fromOffset(SEARCH_H, SEARCH_H) })
+        tween(search_icon_holder, 0.3, { Position = UDim2.fromScale(0.5, 0.5) })
+        tween(search_placeholder, 0.2, { TextTransparency = 1 })
+        tween(SearchInput, 0.2, { TextTransparency = 1 })
+        tween(search_stroke, 0.25, { Color = Theme.Border, Transparency = 0.4 })
+        task.delay(0.2, function()
+            if not search_expanded and SearchInput and SearchInput.Parent then
+                SearchInput.Visible = false
+                search_placeholder.Visible = false
+            end
+        end)
+    end
+
+    SearchBox.MouseButton1Click:Connect(expand_search)
+    SearchInput.Focused:Connect(function()
+        tween(search_stroke, 0.2, { Color = Theme.Accent, Transparency = 0.1 })
+    end)
+    SearchInput.FocusLost:Connect(function()
+        -- keep the field open while it holds a query, collapse when empty
+        task.delay(0.05, function()
+            if SearchInput and SearchInput.Parent and SearchInput.Text == '' then
+                collapse_search()
+            elseif search_stroke and search_stroke.Parent then
+                tween(search_stroke, 0.2, { Color = Theme.Accent, Transparency = 0.3 })
+            end
+        end)
+    end)
+
+    --=================================================================
+    --  Body
+    --=================================================================
+    local Body = create('Frame', {
+        Name = 'Body',
+        Size = UDim2.new(1, 0, 1, -TOPBAR_H),
+        Position = UDim2.fromOffset(0, TOPBAR_H),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, Container)
+
+    -- sidebar ------------------------------------------------------
+    local Sidebar = create('Frame', {
+        Name = 'Sidebar',
+        Size = UDim2.fromOffset(SIDEBAR_W, BODY_H),
+        BackgroundColor3 = Theme.Panel,
+        BackgroundTransparency = 0.45,
+        BorderSizePixel = 0,
+        ZIndex = 3
+    }, Body)
+    bind(Sidebar, 'BackgroundColor3', 'Panel')
+
+    local sidebar_line = create('Frame', {
+        Size = UDim2.new(0, 1, 1, -24),
+        Position = UDim2.new(1, -1, 0, 12),
+        BackgroundColor3 = Theme.Border,
+        BackgroundTransparency = 0.35,
+        BorderSizePixel = 0
+    }, Sidebar)
+    bind(sidebar_line, 'BackgroundColor3', 'Border')
+
+    -- user card
+    local UserCard = create('Frame', {
+        Name = 'UserCard',
+        Size = UDim2.new(1, -24, 0, 54),
+        Position = UDim2.fromOffset(12, 14),
+        BackgroundColor3 = Theme.Panel_2,
+        BorderSizePixel = 0,
+        ZIndex = 3
+    }, Sidebar)
+    corner(UserCard, 10)
+    local user_stroke = stroke(UserCard, Theme.Border, 1, 0.5)
+    bind(UserCard, 'BackgroundColor3', 'Panel_2')
+    bind(user_stroke, 'Color', 'Border')
+
+    local Avatar = create('Frame', {
+        Name = 'Avatar',
+        Size = UDim2.fromOffset(34, 34),
+        Position = UDim2.fromOffset(10, 10),
+        BackgroundColor3 = Theme.Panel_4,
+        BorderSizePixel = 0,
+        ZIndex = 4
+    }, UserCard)
+    corner(Avatar, 1, 1)
+    bind(Avatar, 'BackgroundColor3', 'Panel_4')
+
+    local AvatarImage = create('ImageLabel', {
+        Name = 'Image',
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Image = '',
+        ZIndex = 5
+    }, Avatar)
+    corner(AvatarImage, 1, 1)
+
+    task.spawn(function()
+        if LocalPlayer then
+            local ok, thumb = pcall(function()
+                return Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+            end)
+            if ok and thumb then AvatarImage.Image = thumb end
+        end
+    end)
+
+    local UserName = create('TextLabel', {
+        Name = 'Name',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = LocalPlayer and LocalPlayer.DisplayName or 'Stellar User',
+        Size = UDim2.new(1, -58, 0, 14),
+        Position = UDim2.fromOffset(52, 12),
+        ZIndex = 4
+    }, UserCard)
+    bind(UserName, 'TextColor3', 'Text')
+
+    local UserSub = create('TextLabel', {
+        Name = 'Sub',
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Dim,
+        TextSize = 9,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = '@' .. (LocalPlayer and LocalPlayer.Name or 'guest'),
+        Size = UDim2.new(1, -58, 0, 12),
+        Position = UDim2.fromOffset(52, 27),
+        ZIndex = 4
+    }, UserCard)
+    bind(UserSub, 'TextColor3', 'Dim')
+
+    local OnlineDot = create('Frame', {
+        Name = 'Dot',
+        Size = UDim2.fromOffset(7, 7),
+        Position = UDim2.new(1, -12, 1, -12),
+        AnchorPoint = Vector2.new(1, 1),
+        BackgroundColor3 = Theme.Success,
+        BorderSizePixel = 0,
+        ZIndex = 5
+    }, UserCard)
+    corner(OnlineDot, 1, 1)
+    bind(OnlineDot, 'BackgroundColor3', 'Success')
+
+    local NavLabel = create('TextLabel', {
+        Name = 'NavLabel',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme.Dim,
+        TextSize = 8,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = 'NAVIGATION',
+        Size = UDim2.new(1, -24, 0, 10),
+        Position = UDim2.fromOffset(14, 80),
+        ZIndex = 3
+    }, Sidebar)
+    bind(NavLabel, 'TextColor3', 'Dim')
+
+    local Tabs = create('ScrollingFrame', {
+        Name = 'Tabs',
+        Size = UDim2.new(1, -16, 1, -142),
+        Position = UDim2.fromOffset(8, 94),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 0,
+        ScrollBarImageTransparency = 1,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Selectable = false,
+        ZIndex = 3
+    }, Sidebar)
+    list_layout(Tabs, { Padding = UDim.new(0, 4) })
+
+    local SidebarFooter = create('Frame', {
+        Name = 'Footer',
+        Size = UDim2.new(1, -24, 0, 30),
+        Position = UDim2.new(0, 12, 1, -42),
+        BackgroundColor3 = Theme.Panel_2,
+        BackgroundTransparency = 0.2,
+        BorderSizePixel = 0,
+        ZIndex = 3
+    }, Sidebar)
+    corner(SidebarFooter, 8)
+    bind(SidebarFooter, 'BackgroundColor3', 'Panel_2')
+
+    local FooterDot = create('Frame', {
+        Size = UDim2.fromOffset(6, 6),
+        Position = UDim2.fromOffset(10, 12),
+        BackgroundColor3 = Theme.Success,
+        BorderSizePixel = 0,
+        ZIndex = 4
+    }, SidebarFooter)
+    corner(FooterDot, 1, 1)
+    bind(FooterDot, 'BackgroundColor3', 'Success')
+
+    create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Medium),
+        TextColor3 = Theme.Muted,
+        TextSize = 9,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = 'System ready',
+        Size = UDim2.new(1, -60, 1, 0),
+        Position = UDim2.fromOffset(22, 0),
+        ZIndex = 4
+    }, SidebarFooter)
+    local FooterText = SidebarFooter:FindFirstChildWhichIsA('TextLabel')
+    bind(FooterText, 'TextColor3', 'Muted')
+
+    local HintKey = create('TextLabel', {
+        Name = 'Hint',
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -8, 0.5, 0),
+        Size = UDim2.fromOffset(38, 14),
+        BackgroundColor3 = Theme.Panel_4,
+        BackgroundTransparency = 0.1,
+        BorderSizePixel = 0,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme.Dim,
+        TextSize = 8,
+        Text = 'CTRL',
+        ZIndex = 4
+    }, SidebarFooter)
+    corner(HintKey, 4)
+    bind(HintKey, 'BackgroundColor3', 'Panel_4')
+    bind(HintKey, 'TextColor3', 'Dim')
+    Tooltip.attach(HintKey, 'Toggle interface')
+
+    -- content ------------------------------------------------------
+    local Content = create('Frame', {
+        Name = 'Content',
+        Size = UDim2.new(1, -SIDEBAR_W, 1, 0),
+        Position = UDim2.fromOffset(SIDEBAR_W, 0),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, Body)
+
+    local TabTitle = create('TextLabel', {
+        Name = 'TabTitle',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme.Text,
+        TextSize = 17,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = 'Welcome',
+        Size = UDim2.new(1, -40, 0, 20),
+        Position = UDim2.fromOffset(20, 16),
+        ZIndex = 3
+    }, Content)
+    bind(TabTitle, 'TextColor3', 'Text')
+
+    local TabSubtitle = create('TextLabel', {
+        Name = 'TabSubtitle',
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Dim,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = 'Stellar • Ethereal Edition',
+        Size = UDim2.new(1, -40, 0, 14),
+        Position = UDim2.fromOffset(20, 36),
+        ZIndex = 3
+    }, Content)
+    bind(TabSubtitle, 'TextColor3', 'Dim')
+
+    local header_line = create('Frame', {
+        Name = 'HeaderLine',
+        Size = UDim2.new(1, -40, 0, 1),
+        Position = UDim2.fromOffset(20, 58),
+        BackgroundColor3 = Theme.Border,
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        ZIndex = 3
+    }, Content)
+    bind(header_line, 'BackgroundColor3', 'Border')
+
+    local Columns = create('Frame', {
+        Name = 'Columns',
+        Size = UDim2.new(1, -40, 1, -74),
+        Position = UDim2.fromOffset(20, 72),
+        BackgroundTransparency = 1,
+        ZIndex = 3
+    }, Content)
+
+    local COL_W = 248
+
+    -- Each tab builds its own pair of scrolling columns inside `Columns`,
+    -- so the base container only hosts the empty state until a tab exists.
+
+    -- empty state
+    local EmptyState = create('Frame', {
+        Name = 'EmptyState',
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Visible = true,
+        ZIndex = 3
+    }, Columns)
+    local empty_label = create('TextLabel', {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.42),
+        Size = UDim2.fromOffset(320, 40),
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Dim,
+        TextSize = 11,
+        TextWrapped = true,
+        Text = 'No tabs yet.\nCreate one with library:create_tab("Main", "rbxassetid://...")'
+    }, EmptyState)
+    bind(empty_label, 'TextColor3', 'Dim')
+    --=================================================================
+    --  Store refs
+    --=================================================================
+    self._ui = Stellar
+    self._refs = {
+        Stellar = Stellar,
+        Container = Container,
+        TopBar = TopBar,
+        Drag = Drag,
+        Controls = Controls,
+        SearchBox = SearchBox,
+        SearchInput = SearchInput,
+        Body = Body,
+        Sidebar = Sidebar,
+        Tabs = Tabs,
+        Content = Content,
+        TabTitle = TabTitle,
+        TabSubtitle = TabSubtitle,
+        Columns = Columns,
+        EmptyState = EmptyState,
+        EmptyLabel = empty_label,
+        FooterDot = FooterDot,
+        FooterText = FooterText,
+        LogoMark = LogoMark,
+        LogoImage = LogoImage,
+        Product = Product,
+        Edition = Edition,
+        EditionLabel = EditionLabel,
+        Close = Close,
+        WIN_W = WIN_W,
+        WIN_H = WIN_H
+    }
+
+    --=================================================================
+    --  Search behaviour
+    --=================================================================
+    SearchInput:GetPropertyChangedSignal('Text'):Connect(function()
+        -- typed text replaces the faded placeholder label
+        if search_placeholder and search_placeholder.Parent then
+            search_placeholder.TextTransparency = SearchInput.Text == '' and 0 or 1
+        end
+        self:set_search(SearchInput.Text)
+    end)
+
+    --=================================================================
+    --  Dragging
+    --=================================================================
+    local function on_drag(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            self._dragging = true
+            self._drag_start = input.Position
+            self._container_position = Container.Position
+
+            Connections['container_input_ended'] = input.Changed:Connect(function()
+                if input.UserInputState ~= Enum.UserInputState.End then return end
+                Connections:disconnect('container_input_ended')
+                self._dragging = false
+            end)
+        end
+    end
+
+    local function drag(input)
+        if not self._dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - self._drag_start
+            local position = UDim2.new(
+                self._container_position.X.Scale,
+                self._container_position.X.Offset + delta.X,
+                self._container_position.Y.Scale,
+                self._container_position.Y.Offset + delta.Y
+            )
+            tween(Container, 0.18, { Position = position }, Enum.EasingStyle.Linear)
+        end
+    end
+
+    Connections['container_input_began'] = Drag.InputBegan:Connect(on_drag)
+    Connections['input_changed'] = UserInputService.InputChanged:Connect(drag)
+
+    --=================================================================
+    --  Window controls
+    --=================================================================
+    -- The animated logo in the top-left opens/minimizes the window.
+    LogoMark.MouseButton1Click:Connect(function()
+        self._ui_open = not self._ui_open
+        self:change_visiblity(self._ui_open)
+    end)
+
+    Close.MouseButton1Click:Connect(function()
+        -- The × fully tears the interface down. Use the top-left logo (or
+        -- Left CTRL) when you only want to minimize.
+        self:destroy()
+    end)
+
+    Connections['library_visibility'] = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.KeyCode ~= Enum.KeyCode.LeftControl then return end
+        self._ui_open = not self._ui_open
+        self:change_visiblity(self._ui_open)
+    end)
+
+    self:removed(function()
+        self._ui = nil
+        Connections:disconnect_all()
+    end)
+
+    --=================================================================
+    --  Lifecycle helpers
+    --=================================================================
+    function self:Update1Run(alpha)
+        if alpha == 'nil' or alpha == nil then
+            Container.BackgroundTransparency = 0.05
+        else
+            pcall(function()
+                Container.BackgroundTransparency = tonumber(alpha)
+            end)
+        end
+    end
+
+    function self:UIVisiblity()
+        Stellar.Enabled = not Stellar.Enabled
+    end
+
+    -- The window's arrival/scale pop. Kept as its own UIScale so the mobile
+    -- device scale (a separate instance) is never overwritten; the two
+    -- multiply, and this one always settles at 1.
+    local function window_scale()
+        local scale = Container:FindFirstChild('StellarWindowScale')
+        if not scale then
+            scale = create('UIScale', { Name = 'StellarWindowScale', Scale = 1 }, Container)
+        end
+        return scale
+    end
+
+    function self:change_visiblity(state)
+        -- Collapse any open dropdown accordion whenever the interface is
+        -- minimized or reopened, so the card is not left half-expanded.
+        if self._open_dropdown then
+            self._open_dropdown:unfold_settings()
+        end
+        if state then
+            Body.Visible = true
+            TopBar.Search.Visible = true
+            TopBar.Controls.Visible = true
+            -- Allusive-style reopen: the window rises back into place and the
+            -- scale springs from slightly small to rest.
+            Container.Position = UDim2.new(0.5, 0, 0.5, 14)
+            tween(Container, 0.45, { Size = UDim2.fromOffset(WIN_W, WIN_H), Position = UDim2.new(0.5, 0, 0.5, 0) })
+            tween(Container, 0.4, { GroupTransparency = 0 })
+            pop_scale(Container, 0.97, 1, 0.4, Enum.EasingStyle.Back)
+        else
+            -- a minimized window collapses the search pill too, so reopening
+            -- starts from the tidy circular state
+            collapse_search()
+            tween(Container, 0.4, { Size = UDim2.fromOffset(148, TOPBAR_H) })
+            pop_scale(Container, 1, 0.96, 0.3, Enum.EasingStyle.Quint)
+            task.delay(0.18, function()
+                if not self._ui_open then
+                    Body.Visible = false
+                    TopBar.Search.Visible = false
+                    TopBar.Controls.Visible = false
+                end
+            end)
+        end
+    end
+
+    function self:load()
+        -- Hold the reveal until any active loader has finished. Without this
+        -- the window faded in behind the loading card while it was still
+        -- running, which looked like the loader had been skipped.
+        if self._loader then
+            self._loader:wait(tonumber(Library.Loader_Timeout))
+            self._loader = nil
+        end
+
+        local images = {}
+        for _, object in ipairs(Stellar:GetDescendants()) do
+            if object:IsA('ImageLabel') and object.Image ~= '' then
+                table.insert(images, object)
+            end
+        end
+        pcall(function() ContentProvider:PreloadAsync(images) end)
+
+        self:get_device()
+        local ui_scale = create('UIScale', {}, Container)
+
+        if self._device == 'Mobile' then
+            self:get_screen_scale()
+            ui_scale.Scale = self._ui_scale
+            Connections['ui_scale'] = Workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(function()
+                self:get_screen_scale()
+                ui_scale.Scale = self._ui_scale
+            end)
+        end
+
+        tween(Container, 0.5, { Size = UDim2.fromOffset(WIN_W, WIN_H), GroupTransparency = 0 })
+        -- Allusive-style arrival: the window starts slightly small and low,
+        -- then springs up into place as it fades in.
+        local arrive_scale = window_scale()
+        arrive_scale.Scale = 0.92
+        Container.Position = UDim2.new(0.5, 0, 0.5, 18)
+        tween(arrive_scale, 0.55, { Scale = 1 }, Enum.EasingStyle.Back)
+        tween(Container, 0.5, { Position = UDim2.new(0.5, 0, 0.5, 0) })
+        if self.Acrylic == true then
+            pcall(function() AcrylicBlur.new(Container) end)
+        end
+        self._ui_loaded = true
+        -- The window is now being revealed, so it is safe to re-arm every
+        -- module/feature/toggle whose saved state was restored during
+        -- construction. Deferring these kept the script's feature logic from
+        -- running behind the loading card before the UI appeared.
+        self:flush_deferred()
+    end
+
+    return self
+end
+
+--=====================================================================
+--  Search / filtering
+--=====================================================================
+function Library:set_search(text)
+    self._search_text = tostring(text or ''):lower()
+    local query = self._search_text
+    local active = self._active_tab
+    local matches_active = false
+
+    for _, item in ipairs(self._search_items) do
+        local frame = item.frame
+        if frame and frame.Parent then
+            local visible
+            if query == '' then
+                visible = true
+            else
+                local haystack = (tostring(item.title or '') .. ' ' .. tostring(item.description or '') .. ' ' .. tostring(item.keywords or '')):lower()
+                visible = string.find(haystack, query, 1, true) ~= nil
+            end
+            -- cards that come back from a filter pop in instead of snapping
+            if visible and not frame.Visible then
+                frame.Visible = true
+                pop_scale(frame, 0.96, 1, 0.24)
+            else
+                frame.Visible = visible
+            end
+            if frame.Visible and item.tab == active then
+                matches_active = true
+            end
+        end
+    end
+
+    if active then
+        if query ~= '' and not matches_active then
+            self._refs.EmptyLabel.Text = 'No results for "' .. tostring(text) .. '"'
+            self._refs.EmptyState.Visible = true
+        else
+            self._refs.EmptyState.Visible = false
+        end
+    end
+end
+
+--=====================================================================
+--  Card geometry
+--=====================================================================
+local CARD_W = 248
+local CARD_PAD_X = 12
+local CARD_GAP = 8
+
+--=====================================================================
+--  Tab manager
+--=====================================================================
+local TabManager = {}
+TabManager.__index = TabManager
+
+--=====================================================================
+--  Module manager
+--=====================================================================
+local ModuleManager = {}
+ModuleManager.__index = ModuleManager
+
+-- Keybind chip helper -------------------------------------------------
+local function make_keybind_chip(parent, flag, library, on_change, tooltip_text)
+    local chip = create('TextButton', {
+        Name = 'Keybind',
+        Size = UDim2.fromOffset(40, 18),
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 0.15,
+        BorderSizePixel = 0,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 6
+    }, parent)
+    corner(chip, 5)
+    local chip_stroke = stroke(chip, Theme.Border, 1, 0.35)
+    bind(chip, 'BackgroundColor3', 'Panel_3')
+    bind(chip_stroke, 'Color', 'Border')
+
+    local label = create('TextLabel', {
+        Name = 'Label',
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Dim,
+        TextSize = 9,
+        Text = '—',
+        ZIndex = 7
+    }, chip)
+    bind(label, 'TextColor3', 'Dim')
+
+    local function set_text(key)
+        if key == nil or key == 'Unknown' or key == '' then
+            label.Text = '—'
+            label.TextColor3 = Theme.Dim
+        else
+            label.Text = tostring(key):gsub('Enum.KeyCode.', '')
+            label.TextColor3 = Theme.Accent
+        end
+    end
+
+    set_text(library._config._keybinds[flag])
+
+    local function finish(key)
+        library._config._keybinds[flag] = key
+        library:autosave()
+        set_text(key)
+        if on_change then on_change(key) end
+        if key == nil then
+            library:status('Cleared keybind', 'warning')
+        else
+            library:status('Bound ' .. tostring(key):gsub('Enum.KeyCode.', ''), 'action')
+        end
+    end
+
+    chip.MouseButton1Click:Connect(function()
+        if library._choosing_keybind then return end
+        library._choosing_keybind = true
+        label.Text = '...'
+        label.TextColor3 = Theme.Accent
+        tween(chip_stroke, 0.2, { Color = Theme.Accent, Transparency = 0 })
+        tween(chip, 0.2, { BackgroundTransparency = 0 })
+        -- while listening the chip breathes, so it is obvious the UI is
+        -- waiting for a key rather than ignoring the click
+        local breathe = looping_tween(chip, 0.7, { BackgroundTransparency = 0.45 },
+            Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, true)
+        pop_scale(chip, 0.9, 1, 0.22)
+
+        local connection
+        connection = UserInputService.InputBegan:Connect(function(input, processed)
+            if processed then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            if input.KeyCode == Enum.KeyCode.Unknown then return end
+
+            if connection then connection:Disconnect() end
+            library._choosing_keybind = false
+            if breathe then pcall(function() breathe:Cancel() end) end
+            chip.BackgroundTransparency = 0.15
+            tween(chip_stroke, 0.2, { Color = Theme.Border, Transparency = 0.35 })
+            tween(chip, 0.2, { BackgroundTransparency = 0.15 })
+            pop_scale(chip, 1.12, 1, 0.24)
+
+            if input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Delete then
+                finish(nil)
+            else
+                finish(tostring(input.KeyCode))
+            end
+        end)
+    end)
+
+    chip.MouseButton2Click:Connect(function()
+        finish(nil)
+    end)
+
+    if tooltip_text ~= false then
+        Tooltip.attach(chip, tooltip_text or 'Click to bind · Right-click to clear')
+    end
+
+    -- Let `library:load_config` refresh the chip label for a loaded profile.
+    library:register_keybind(flag, set_text)
+
+    return { chip = chip, label = label, set_text = set_text, finish = finish }
+end
+
+-- Module construction -------------------------------------------------
+local function build_module(parent, settings, library, tab, opts)
+    opts = opts or {}
+    local has_toggle = not opts.paragraph
+    local has_description = settings.description ~= nil and settings.description ~= ''
+    local header_h = has_description and 58 or 48
+
+    local instance = setmetatable({
+        _settings = settings,
+        _library = library,
+        _tab = tab,
+        _state = false,
+        _has_toggle = has_toggle,
+        _header_h = header_h,
+        _body_height = 0,
+        _paragraph = opts.paragraph == true
+    }, ModuleManager)
+
+    local Module = create('Frame', {
+        Name = 'Module',
+        Size = UDim2.new(0, CARD_W, 0, header_h),
+        BackgroundColor3 = Theme.Panel_2,
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 4
+    }, parent)
+    corner(Module, 11)
+    local module_stroke = stroke(Module, Theme.Border, 1, 0.35)
+    bind(Module, 'BackgroundColor3', 'Panel_2')
+    bind(module_stroke, 'Color', 'Border')
+
+    local Header = create('TextButton', {
+        Name = 'Header',
+        Size = UDim2.new(1, 0, 0, header_h),
+        BackgroundTransparency = 1,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 5
+    }, Module)
+
+    -- accent rail (lights up while the module is enabled)
+    local AccentRail = create('Frame', {
+        Name = 'AccentRail',
+        Size = UDim2.new(0, 3, 0, 0),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        Visible = false,
+        ZIndex = 6
+    }, Module)
+    corner(AccentRail, 1, 1)
+    accent_gradient(AccentRail, 90)
+
+    local IconBox = create('Frame', {
+        Name = 'Icon',
+        Size = UDim2.fromOffset(30, 30),
+        Position = UDim2.fromOffset(14, math.floor((header_h - 30) / 2)),
+        BackgroundColor3 = Theme.Panel_3,
+        BorderSizePixel = 0,
+        ZIndex = 6
+    }, Header)
+    corner(IconBox, 8)
+    local icon_stroke = stroke(IconBox, Theme.Border, 1, 0.4)
+    bind(IconBox, 'BackgroundColor3', 'Panel_3')
+    bind(icon_stroke, 'Color', 'Border')
+
+    local icon_id = Util:resolve_asset_id(settings.icon)
+    if icon_id then
+        local image = create('ImageLabel', {
+            Size = UDim2.fromOffset(16, 16),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundTransparency = 1,
+            Image = icon_id,
+            ImageColor3 = Theme.Muted,
+            ZIndex = 7
+        }, IconBox)
+        bind(image, 'ImageColor3', 'Muted')
+        instance._status_icon = image
+    else
+        -- On/off status dot instead of a decorative glyph: it glows accent
+        -- blue while the module is enabled, fades to grey while it is off,
+        -- and pulses when the state flips (see instance:paint_status).
+        local dot = create('Frame', {
+            Name = 'StatusDot',
+            Size = UDim2.fromOffset(9, 9),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundColor3 = Theme.Muted,
+            BackgroundTransparency = 0.45,
+            BorderSizePixel = 0,
+            ZIndex = 7
+        }, IconBox)
+        corner(dot, 1, 1)
+        local dot_stroke = stroke(dot, Theme.Accent, 1, 1)
+        instance._status_dot = dot
+        instance._status_dot_stroke = dot_stroke
+    end
+
+    local Title = create('TextLabel', {
+        Name = 'Title',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = settings.title or 'Module',
+        Size = UDim2.new(1, -156, 0, 16),
+        Position = UDim2.fromOffset(54, has_description and 12 or math.floor((header_h - 16) / 2)),
+        ZIndex = 6
+    }, Header)
+    bind(Title, 'TextColor3', 'Text')
+
+    local Description
+    if has_description then
+        Description = create('TextLabel', {
+            Name = 'Description',
+            BackgroundTransparency = 1,
+            FontFace = body_font(Enum.FontWeight.Regular),
+            TextColor3 = Theme.Dim,
+            TextSize = 9,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            Text = settings.description,
+            Size = UDim2.new(1, -156, 0, 12),
+            Position = UDim2.fromOffset(54, 30),
+            ZIndex = 6
+        }, Header)
+        bind(Description, 'TextColor3', 'Dim')
+    end
+
+    -- keybind + toggle
+    local keybind
+    if has_toggle and settings.flag then
+        keybind = make_keybind_chip(Header, settings.flag, library, function()
+            instance:connect_keybind()
+        end)
+        keybind.chip.Position = UDim2.new(1, -12 - 38 - 8 - 40, 0.5, 0)
+        keybind.chip.AnchorPoint = Vector2.new(0, 0.5)
+    end
+
+    local Toggle, Knob
+    if has_toggle then
+        Toggle = create('Frame', {
+            Name = 'Toggle',
+            Size = UDim2.fromOffset(38, 20),
+            Position = UDim2.new(1, -12 - 38, 0.5, 0),
+            AnchorPoint = Vector2.new(0, 0.5),
+            BackgroundColor3 = Theme.NotEnabled,
+            BorderSizePixel = 0,
+            ZIndex = 6
+        }, Header)
+        corner(Toggle, 1, 1)
+        local toggle_stroke = stroke(Toggle, Theme.Border, 1, 0.5)
+        bind(Toggle, 'BackgroundColor3', 'NotEnabled')
+        bind(toggle_stroke, 'Color', 'Border')
+
+        Knob = create('Frame', {
+            Name = 'Knob',
+            Size = UDim2.fromOffset(14, 14),
+            Position = UDim2.fromOffset(3, 3),
+            BackgroundColor3 = Theme.Dim,
+            BorderSizePixel = 0,
+            ZIndex = 7
+        }, Toggle)
+        corner(Knob, 1, 1)
+        bind(Knob, 'BackgroundColor3', 'Dim')
+    end
+
+    local Divider = create('Frame', {
+        Name = 'Divider',
+        Size = UDim2.new(1, -24, 0, 1),
+        Position = UDim2.fromOffset(12, header_h - 1),
+        BackgroundColor3 = Theme.Border,
+        BackgroundTransparency = 0.55,
+        BorderSizePixel = 0,
+        Visible = false,
+        ZIndex = 6
+    }, Module)
+    bind(Divider, 'BackgroundColor3', 'Border')
+
+    local Body = create('Frame', {
+        Name = 'Body',
+        Size = UDim2.new(1, 0, 0, 0),
+        Position = UDim2.fromOffset(0, header_h),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        ZIndex = 5
+    }, Module)
+    list_layout(Body, { Padding = UDim.new(0, CARD_GAP) })
+    padding(Body, 2, CARD_PAD_X, 12, CARD_PAD_X)
+
+    instance._module = Module
+    instance._header = Header
+    instance._body = Body
+    instance._title = Title
+    instance._description = Description
+    instance._toggle = Toggle
+    instance._knob = Knob
+    instance._keybind = keybind
+    instance._accent_rail = AccentRail
+    instance._divider = Divider
+    instance._module_stroke = module_stroke
+
+    -- Shared on/off paint for the module's status marker. Modules without a
+    -- custom icon show the status dot (blue → grey/faded); modules with one
+    -- get the icon tinted with the same language. `instant` skips the pulse
+    -- (used by theme repaints).
+    function instance:paint_status(state, instant)
+        local on_color, off_color = Theme.Accent, Theme.Muted
+        local dot = self._status_dot
+        if dot and dot.Parent then
+            local target = state and on_color or off_color
+            local transparency = state and 0 or 0.45
+            local ring = state and 0.55 or 1
+            if instant then
+                dot.BackgroundColor3 = target
+                dot.BackgroundTransparency = transparency
+                dot.Size = UDim2.fromOffset(9, 9)
+                if self._status_dot_stroke then
+                    self._status_dot_stroke.Color = on_color
+                    self._status_dot_stroke.Transparency = ring
+                end
+            else
+                tween(dot, 0.28, { BackgroundColor3 = target, BackgroundTransparency = transparency })
+                if self._status_dot_stroke then
+                    tween(self._status_dot_stroke, 0.28, { Color = on_color, Transparency = ring })
+                end
+                -- A quick breath so the change is felt, not just seen.
+                local pulse = state and 12 or 7
+                tween(dot, 0.16, { Size = UDim2.fromOffset(pulse, pulse) }, Enum.EasingStyle.Back)
+                task.delay(0.18, function()
+                    if dot.Parent and ((state and self._state) or (not state and not self._state)) then
+                        tween(dot, 0.24, { Size = UDim2.fromOffset(9, 9) }, Enum.EasingStyle.Back)
+                    end
+                end)
+            end
+        end
+        local image = self._status_icon
+        if image and image.Parent then
+            if instant then
+                image.ImageColor3 = state and on_color or off_color
+                image.ImageTransparency = state and 0 or 0.4
+            else
+                tween(image, 0.28, {
+                    ImageColor3 = state and on_color or off_color,
+                    ImageTransparency = state and 0 or 0.4
+                })
+                -- a small arrival pop so the flip is felt, not just seen
+                pop_scale(image, state and 0.7 or 1.15, 1, 0.26)
+            end
+        end
+    end
+
+    -- keep the on/off look correct when the palette changes at runtime
+    bind_fn(function()
+        if not Module.Parent then return end
+        if instance._state then
+            Module.BackgroundColor3 = Theme.Panel_3
+            module_stroke.Color = Theme.Accent
+            module_stroke.Transparency = 0.7
+            if Toggle then Toggle.BackgroundColor3 = Theme.Accent end
+            if Knob then Knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255) end
+            if instance._status_dot then
+                instance._status_dot.BackgroundColor3 = Theme.Accent
+                instance._status_dot.BackgroundTransparency = 0
+                if instance._status_dot_stroke then
+                    instance._status_dot_stroke.Color = Theme.Accent
+                    instance._status_dot_stroke.Transparency = 0.55
+                end
+            end
+            if instance._status_icon then
+                instance._status_icon.ImageColor3 = Theme.Accent
+                instance._status_icon.ImageTransparency = 0
+            end
+        else
+            Module.BackgroundColor3 = Theme.Panel_2
+            module_stroke.Color = Theme.Border
+            module_stroke.Transparency = 0.35
+            if Toggle then Toggle.BackgroundColor3 = Theme.NotEnabled end
+            if Knob then Knob.BackgroundColor3 = Theme.Dim end
+            if instance._status_dot then
+                instance._status_dot.BackgroundColor3 = Theme.Muted
+                instance._status_dot.BackgroundTransparency = 0.45
+                if instance._status_dot_stroke then
+                    instance._status_dot_stroke.Transparency = 1
+                end
+            end
+            if instance._status_icon then
+                instance._status_icon.ImageColor3 = Theme.Muted
+                instance._status_icon.ImageTransparency = 0.4
+            end
+        end
+    end)
+
+    -- The whole header is the hit target: clicking anywhere on the card's
+    -- top row (including the switch) flips the module on or off. The keybind
+    -- chip is a child button, so its clicks never reach the header.
+    if has_toggle then
+        Header.MouseButton1Click:Connect(function()
+            instance:change_state(not instance._state)
+        end)
+
+        Header.MouseEnter:Connect(function()
+            -- hover lifts the card: a brighter hairline and a small icon pop
+            tween(module_stroke, 0.2, { Transparency = instance._state and 0.45 or 0.12 })
+            pop_scale(IconBox, 1, 1.08, 0.18)
+            if not instance._state then
+                tween(Module, 0.2, { BackgroundColor3 = Theme.Panel_3 })
+            end
+        end)
+        Header.MouseLeave:Connect(function()
+            tween(module_stroke, 0.2, { Transparency = instance._state and 0.7 or 0.35 })
+            pop_scale(IconBox, 1.08, 1, 0.22)
+            if not instance._state then
+                tween(Module, 0.2, { BackgroundColor3 = Theme.Panel_2 })
+            end
+        end)
+    end
+
+    -- Config apply hooks: the module switch, and re-arming its keybind.
+    if has_toggle and settings.flag then
+        local default = type(settings.default) == 'boolean' and settings.default or false
+        library:register(settings.flag, function(value)
+            instance:change_state(value and true or false, true, false)
+        end, default, {
+            kind = 'module',
+            widget = instance,
+            sync = function(value)
+                -- silent: repaint only, the callback was queued at build
+                instance:change_state(value and true or false, true, true)
+            end,
+            off = function()
+                -- fires the callback with `false` so the feature stops
+                if instance._state then instance:change_state(false) end
+            end
+        })
+    end
+    if settings.flag then
+        library:register_keybind(settings.flag, function() instance:connect_keybind() end)
+    end
+
+    return instance
+end
+
+-- Recompute the body height from its children and resize the card.
+function ModuleManager:refresh(instant)
+    local total = 14 -- top + bottom padding
+    local count = 0
+    for _, child in ipairs(self._body:GetChildren()) do
+        if child:IsA('GuiObject') and child.Visible then
+            total = total + child.Size.Y.Offset
+            count = count + 1
+        end
+    end
+    total = total + math.max(0, count - 1) * CARD_GAP
+    self._body_height = total
+    self._body.Size = UDim2.new(1, 0, 0, total)
+
+    if self._state then
+        local target = UDim2.new(0, CARD_W, 0, self._header_h + total)
+        if instant then
+            self._module.Size = target
+        else
+            tween(self._module, 0.38, { Size = target })
+        end
+    end
+end
+
+function ModuleManager:change_state(state, initial, silent)
+    if not self._has_toggle then return end
+    local library = self._library
+    -- A destroyed UI must not keep accepting toggles (the close button fired
+    -- every feature off before this guard went live).
+    if library and library._destroyed and not library._tearing_down then return end
+    self._state = state
+
+    -- The status dot (or custom icon) follows the same on/off language.
+    self:paint_status(state, initial == true)
+
+    if self._toggle then
+        -- the knob squashes as it travels: a small mechanical detail that
+        -- makes the switch feel like a real control (skipped on restore)
+        if not initial and self._knob and self._knob.Parent then
+            tween(self._knob, 0.1, { Size = UDim2.fromOffset(11, 11) })
+            task.delay(0.1, function()
+                if self._knob and self._knob.Parent then
+                    tween(self._knob, 0.24, { Size = UDim2.fromOffset(14, 14) }, Enum.EasingStyle.Back)
+                end
+            end)
+        end
+        if state then
+            tween(self._module, 0.4, { Size = UDim2.new(0, CARD_W, 0, self._header_h + self._body_height) })
+            tween(self._toggle, 0.28, { BackgroundColor3 = Theme.Accent })
+            tween(self._knob, 0.34, {
+                Position = UDim2.fromOffset(21, 3),
+                BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            }, Enum.EasingStyle.Back)
+            tween(self._module, 0.3, { BackgroundColor3 = Theme.Panel_3 })
+            tween(self._module_stroke, 0.3, { Color = Theme.Accent, Transparency = 0.7 })
+            self._accent_rail.Visible = true
+            self._accent_rail.Size = UDim2.new(0, 3, 0, 0)
+            tween(self._accent_rail, 0.4, { Size = UDim2.new(0, 3, 0, self._header_h - 16) }, Enum.EasingStyle.Back)
+        else
+            tween(self._module, 0.4, { Size = UDim2.new(0, CARD_W, 0, self._header_h) })
+            tween(self._toggle, 0.28, { BackgroundColor3 = Theme.NotEnabled })
+            tween(self._knob, 0.34, {
+                Position = UDim2.fromOffset(3, 3),
+                BackgroundColor3 = Theme.Dim
+            }, Enum.EasingStyle.Back)
+            tween(self._module, 0.3, { BackgroundColor3 = Theme.Panel_2 })
+            tween(self._module_stroke, 0.3, { Color = Theme.Border, Transparency = 0.35 })
+            tween(self._accent_rail, 0.25, { Size = UDim2.new(0, 3, 0, 0) })
+            task.delay(0.25, function()
+                if not self._state then
+                    self._accent_rail.Visible = false
+                end
+            end)
+        end
+    end
+
+    self._divider.Visible = state
+
+    local flag = self._settings.flag
+    -- While the teardown pass turns features off, the saved flags are left
+    -- untouched: the player's config keeps the state they had, so the next
+    -- session restores it instead of everything coming back disabled.
+    if flag and not (library and library._tearing_down) then
+        self._library._config._flags[flag] = state
+        if not initial and not silent then
+            self._library:autosave()
+        end
+    end
+
+    -- Fire the callback on a construction/restore pass too. A module that was
+    -- saved ON must re-arm its feature, not merely paint an "on" switch; the
+    -- original Stellar library ran the callback while restoring. The callback
+    -- is *queued* rather than run immediately, so the script's feature logic
+    -- waits until `library:load()` has revealed the window instead of running
+    -- behind the loading card. Live clicks still fire immediately.
+    if self._settings.callback and not silent then
+        if initial then
+            local callback = self._settings.callback
+            self._library:defer(function() callback(state) end)
+        else
+            self._settings.callback(state)
+        end
+    end
+
+    if not initial and not silent and not (library and library._tearing_down) then
+        self._library:status(
+            (state and 'Enabled ' or 'Disabled ') .. tostring(self._settings.title or 'module'),
+            state and 'success' or 'warning'
+        )
+    end
+end
+
+function ModuleManager:get_state()
+    return self._state
+end
+
+-- Compatibility shim: the original Stellar library exposed the module's
+-- callback through the module object, so scripts could re-run it on demand
+-- (e.g. `no_render_module:callback(false)` during an unload routine).
+-- Re-invoke the stored callback without touching the toggle state.
+function ModuleManager:callback(state)
+    if self._settings and self._settings.callback then
+        self._settings.callback(state)
+    end
+end
+
+function ModuleManager:connect_keybind()
+    local flag = self._settings.flag
+    if not flag then return end
+
+    if Connections['keybind_press_' .. flag] then
+        Connections:disconnect('keybind_press_' .. flag)
+    end
+
+    local stored = self._library._config._keybinds[flag]
+    if not stored then return end
+
+    Connections['keybind_press_' .. flag] = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if tostring(input.KeyCode) == stored then
+            self:change_state(not self._state)
+        end
+    end)
+end
+
+function ModuleManager:scale_keybind(empty)
+    if not self._keybind then return end
+    local chip = self._keybind.chip
+    local target = empty and UDim2.fromOffset(40, 18) or UDim2.fromOffset(44, 18)
+    tween(chip, 0.16, { Size = target }, Enum.EasingStyle.Back)
+    task.delay(0.18, function()
+        tween(chip, 0.16, { Size = UDim2.fromOffset(40, 18) })
+    end)
+end
+
+--=====================================================================
+--  Tab construction
+--=====================================================================
+function Library:create_tab(title, icon)
+    local refs = self._refs
+    local Tabs = refs.Tabs
+    local Columns = refs.Columns
+
+    local tab = setmetatable({
+        _library = self,
+        _title = title,
+        _icon = icon,
+        _modules = {}
+    }, TabManager)
+
+    local TabButton = create('TextButton', {
+        Name = 'Tab',
+        Size = UDim2.new(1, 0, 0, 34),
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 4
+    }, Tabs)
+    corner(TabButton, 8)
+
+    local active_pill = create('Frame', {
+        Name = 'Pill',
+        Size = UDim2.new(0, 3, 0, 0),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 6
+    }, TabButton)
+    corner(active_pill, 1, 1)
+    accent_gradient(active_pill, 90)
+
+    local icon_id = Util:resolve_asset_id(icon)
+    local icon_holder = create('Frame', {
+        Name = 'Icon',
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.fromOffset(14, 9),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, TabButton)
+
+    local icon_image
+    if icon_id then
+        icon_image = create('ImageLabel', {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            Image = icon_id,
+            ImageColor3 = Theme.Dim,
+            ZIndex = 6
+        }, icon_holder)
+        bind(icon_image, 'ImageColor3', 'Dim')
+    else
+        icon_image = create('Frame', {
+            Size = UDim2.fromOffset(9, 9),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Rotation = 45,
+            BackgroundColor3 = Theme.Dim,
+            BorderSizePixel = 0,
+            ZIndex = 6
+        }, icon_holder)
+        corner(icon_image, 2)
+        bind(icon_image, 'BackgroundColor3', 'Dim')
+    end
+
+    local TabLabel = create('TextLabel', {
+        Name = 'Label',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Dim,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = title or 'Tab',
+        Size = UDim2.new(1, -52, 1, 0),
+        Position = UDim2.fromOffset(38, 0),
+        ZIndex = 5
+    }, TabButton)
+    bind(TabLabel, 'TextColor3', 'Dim')
+
+    -- per-tab content sections
+    local Sections = create('Frame', {
+        Name = 'Sections',
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Visible = false,
+        ZIndex = 3
+    }, Columns)
+
+    local function make_column(name, x)
+        local section = create('ScrollingFrame', {
+            Name = name,
+            Size = UDim2.new(0, CARD_W, 1, 0),
+            Position = UDim2.fromOffset(x, 0),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ScrollBarThickness = 0,
+            ScrollBarImageTransparency = 1,
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            Selectable = false,
+            ZIndex = 3
+        }, Sections)
+        list_layout(section, { Padding = UDim.new(0, 10) })
+        return section
+    end
+
+    local LeftSection = make_column('LeftSection', 0)
+    local RightSection = make_column('RightSection', CARD_W + 14)
+
+    tab._button = TabButton
+    tab._pill = active_pill
+    tab._label = TabLabel
+    tab._icon = icon_image
+    tab._sections = Sections
+    tab._left = LeftSection
+    tab._right = RightSection
+
+    table.insert(self._tabs, tab)
+
+    local function activate(silent)
+        for _, other in ipairs(self._tabs) do
+            local is_active = other == tab
+            other._sections.Visible = is_active
+            if is_active then
+                tween(other._button, 0.28, { BackgroundTransparency = 0.25, BackgroundColor3 = Theme.Panel_3 })
+                tween(other._label, 0.28, { TextColor3 = Theme.Text })
+                tween(other._pill, 0.34, { Size = UDim2.new(0, 3, 0, 18) }, Enum.EasingStyle.Back)
+                if other._icon and other._icon:IsA('ImageLabel') then
+                    tween(other._icon, 0.28, { ImageColor3 = Theme.Accent })
+                elseif other._icon then
+                    tween(other._icon, 0.28, { BackgroundColor3 = Theme.Accent })
+                end
+                -- Allusive-style arrival: the incoming section slides in from
+                -- the right while scaling up to rest, so switching tabs feels
+                -- like the content travels rather than teleports.
+                if silent then
+                    other._sections.Position = UDim2.fromOffset(0, 0)
+                else
+                    other._sections.Position = UDim2.fromOffset(16, 0)
+                    pop_scale(other._sections, 0.97, 1, 0.32, Enum.EasingStyle.Quint)
+                    tween(other._sections, 0.32, { Position = UDim2.fromOffset(0, 0) })
+                end
+            else
+                tween(other._button, 0.28, { BackgroundTransparency = 1 })
+                tween(other._label, 0.28, { TextColor3 = Theme.Dim })
+                tween(other._pill, 0.25, { Size = UDim2.new(0, 3, 0, 0) })
+                if other._icon and other._icon:IsA('ImageLabel') then
+                    tween(other._icon, 0.28, { ImageColor3 = Theme.Dim })
+                elseif other._icon then
+                    tween(other._icon, 0.28, { BackgroundColor3 = Theme.Dim })
+                end
+            end
+        end
+
+        self._active_tab = tab
+        -- the header crossfades to the new tab's title instead of snapping
+        local new_title = title or 'Tab'
+        local new_subtitle = tostring(#tab._modules) .. ' feature' .. (#tab._modules == 1 and '' or 's') .. ' available'
+        if silent then
+            refs.TabTitle.Text = new_title
+            refs.TabSubtitle.Text = new_subtitle
+        else
+            tween(refs.TabTitle, 0.12, { TextTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+            tween(refs.TabSubtitle, 0.12, { TextTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+            task.delay(0.13, function()
+                if not refs.TabTitle.Parent then return end
+                refs.TabTitle.Text = new_title
+                refs.TabSubtitle.Text = new_subtitle
+                tween(refs.TabTitle, 0.22, { TextTransparency = 0 })
+                tween(refs.TabSubtitle, 0.22, { TextTransparency = 0 })
+            end)
+        end
+        refs.EmptyState.Visible = false
+        if not silent then
+            self:status('Opened ' .. tostring(title or 'tab'), 'action')
+        end
+    end
+
+    tab._activate = activate
+    TabButton.MouseButton1Click:Connect(activate)
+
+    TabButton.MouseEnter:Connect(function()
+        if self._active_tab ~= tab then
+            tween(TabButton, 0.2, { BackgroundTransparency = 0.65, BackgroundColor3 = Theme.Panel_3 })
+            tween(TabLabel, 0.2, { TextColor3 = Theme.Muted })
+            -- the row nudges toward the cursor, hinting it is interactive
+            tween(icon_holder, 0.2, { Position = UDim2.fromOffset(17, 9) })
+        end
+    end)
+    TabButton.MouseLeave:Connect(function()
+        if self._active_tab ~= tab then
+            tween(TabButton, 0.2, { BackgroundTransparency = 1 })
+            tween(TabLabel, 0.2, { TextColor3 = Theme.Dim })
+            tween(icon_holder, 0.2, { Position = UDim2.fromOffset(14, 9) })
+        end
+    end)
+
+    if self._active_tab == nil then
+        activate(true)
+    end
+
+    -- keep tab tinting correct through palette swaps
+    bind_fn(function()
+        if not TabButton.Parent then return end
+        local is_active = self._active_tab == tab
+        if is_active then
+            TabButton.BackgroundColor3 = Theme.Panel_3
+            TabLabel.TextColor3 = Theme.Text
+            if icon_image:IsA('ImageLabel') then
+                icon_image.ImageColor3 = Theme.Accent
+            else
+                icon_image.BackgroundColor3 = Theme.Accent
+            end
+        else
+            TabButton.BackgroundColor3 = Theme.Panel_3
+            TabLabel.TextColor3 = Theme.Dim
+            if icon_image:IsA('ImageLabel') then
+                icon_image.ImageColor3 = Theme.Dim
+            else
+                icon_image.BackgroundColor3 = Theme.Dim
+            end
+        end
+    end)
+
+    return tab
+end
+
+--=====================================================================
+--  Tab component factories
+--=====================================================================
+function TabManager:create_module(settings)
+    settings = settings or {}
+    local parent = settings.section == 'right' and self._right or self._left
+    local module = build_module(parent, settings, self._library, self, {})
+
+    table.insert(self._modules, module)
+    if self._library._active_tab == self then
+        self._library._refs.TabSubtitle.Text = tostring(#self._modules) .. ' feature' .. (#self._modules == 1 and '' or 's') .. ' available'
+    end
+
+    table.insert(self._library._search_items, {
+        frame = module._module,
+        title = settings.title,
+        description = settings.description,
+        tab = self
+    })
+
+    if settings.flag or settings.default ~= nil then
+        if settings.flag and self._library:flag_type(settings.flag, 'boolean') then
+            -- `silent = false` so the callback fires and the feature re-arms;
+            -- `initial = true` keeps autosave and the status footer quiet.
+            module:change_state(self._library._config._flags[settings.flag], true, false)
+        elseif settings.default ~= nil then
+            module:change_state(settings.default, true, false)
+        else
+            module:change_state(false, true, true)
+        end
+    end
+    if settings.flag then
+        module:connect_keybind()
+    end
+
+    return module
+end
+
+function TabManager:moduleparagraph(settings)
+    settings = settings or {}
+    settings.section = settings.section or 'left'
+    local parent = settings.section == 'right' and self._right or self._left
+    local module = build_module(parent, settings, self._library, self, { paragraph = true })
+    table.insert(self._modules, module)
+    table.insert(self._library._search_items, {
+        frame = module._module,
+        title = settings.title,
+        description = settings.description,
+        tab = self
+    })
+    return module
+end
+
+function TabManager:create_image(settings)
+    settings = settings or {}
+    local parent = settings.section == 'right' and self._right or self._left
+    local height = tonumber(settings.height) or 150
+
+    local card = create('Frame', {
+        Name = 'ImageModule',
+        Size = UDim2.new(0, CARD_W, 0, height),
+        BackgroundColor3 = Theme.Panel_2,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 4
+    }, parent)
+    corner(card, 11)
+    local card_stroke = stroke(card, Theme.Border, 1, 0.35)
+    bind(card, 'BackgroundColor3', 'Panel_2')
+    bind(card_stroke, 'Color', 'Border')
+
+    local image_id = Util:resolve_asset_id(settings.image)
+    local image = create('ImageLabel', {
+        Name = 'Image',
+        Size = UDim2.new(1, -16, 1, -16),
+        Position = UDim2.fromOffset(8, 8),
+        BackgroundTransparency = 1,
+        Image = image_id or '',
+        ImageTransparency = image_id and (settings.transparency or 0) or 1,
+        ScaleType = settings.scale_type or Enum.ScaleType.Crop,
+        ZIndex = 5
+    }, card)
+    corner(image, 8)
+
+    -- Graceful placeholder while there is no image (or if the asset fails).
+    local placeholder = create('Frame', {
+        Name = 'Placeholder',
+        Size = image.Size,
+        Position = image.Position,
+        BackgroundColor3 = Theme.Panel_3,
+        BorderSizePixel = 0,
+        Visible = image_id == nil,
+        ZIndex = 5
+    }, card)
+    corner(placeholder, 8)
+    bind(placeholder, 'BackgroundColor3', 'Panel_3')
+
+    local placeholder_label = create('TextLabel', {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Dim,
+        TextSize = 10,
+        Text = settings.placeholder or 'No image',
+        ZIndex = 6
+    }, placeholder)
+    bind(placeholder_label, 'TextColor3', 'Dim')
+
+    if image_id then
+        pcall(function()
+            ContentProvider:PreloadAsync({ image }, function(_, status)
+                if status ~= Enum.AssetFetchStatus.Success then
+                    placeholder.Visible = true
+                end
+            end)
+        end)
+    end
+
+    if settings.title then
+        local caption = create('Frame', {
+            Name = 'Caption',
+            Size = UDim2.new(1, -16, 0, 26),
+            Position = UDim2.new(0, 8, 1, -34),
+            BackgroundColor3 = Theme.Panel,
+            BackgroundTransparency = 0.12,
+            BorderSizePixel = 0,
+            ZIndex = 6
+        }, card)
+        corner(caption, 7)
+        bind(caption, 'BackgroundColor3', 'Panel')
+
+        local caption_label = create('TextLabel', {
+            Size = UDim2.new(1, -16, 1, 0),
+            Position = UDim2.fromOffset(8, 0),
+            BackgroundTransparency = 1,
+            FontFace = font(Enum.FontWeight.SemiBold),
+            TextColor3 = Theme.Text,
+            TextSize = 10,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            Text = settings.title,
+            ZIndex = 7
+        }, caption)
+        bind(caption_label, 'TextColor3', 'Text')
+    end
+
+    table.insert(self._library._search_items, {
+        frame = card,
+        title = settings.title or 'Image',
+        description = settings.description,
+        tab = self
+    })
+    return card
+end
+
+--=====================================================================
+--  Field helpers
+--=====================================================================
+local BODY_W = CARD_W - CARD_PAD_X * 2
+
+local _uid = 0
+local function uid()
+    _uid = _uid + 1
+    return _uid
+end
+
+local function field_label(parent, text, size)
+    local label = create('TextLabel', {
+        Name = 'Label',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Muted,
+        TextSize = size or 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = text or '',
+        Size = UDim2.new(1, -60, 0, 13),
+        ZIndex = 6
+    }, parent)
+    bind(label, 'TextColor3', 'Muted')
+    return label
+end
+
+--=====================================================================
+--  Paragraph / text
+--=====================================================================
+function ModuleManager:create_paragraph(settings)
+    settings = settings or {}
+    local title_text = settings.title
+    local body_text = settings.text or settings.richtext or ''
+    local rich = settings.rich == true
+
+    local title_h = title_text and 15 or 0
+    local body_h = math.max(14, measure_text(body_text, BODY_W - 18, 10))
+    local height = 10 + title_h + (title_text and 5 or 0) + body_h + 10
+
+    local frame = create('Frame', {
+        Name = 'Paragraph',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 0.15,
+        BorderSizePixel = 0,
+        ZIndex = 5
+    }, self._body)
+    corner(frame, 8)
+    local frame_stroke = stroke(frame, Theme.Border, 1, 0.5)
+    bind(frame, 'BackgroundColor3', 'Panel_3')
+    bind(frame_stroke, 'Color', 'Border')
+
+    if title_text then
+        local title = create('TextLabel', {
+            BackgroundTransparency = 1,
+            FontFace = font(Enum.FontWeight.SemiBold),
+            TextColor3 = Theme.Text,
+            TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Text = title_text,
+            Size = UDim2.new(1, -18, 0, 15),
+            Position = UDim2.fromOffset(9, 9),
+            ZIndex = 6
+        }, frame)
+        bind(title, 'TextColor3', 'Text')
+    end
+
+    local body = create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Muted,
+        TextSize = 10,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        RichText = rich,
+        Text = body_text,
+        Size = UDim2.new(1, -18, 0, body_h),
+        Position = UDim2.fromOffset(9, 9 + title_h + (title_text and 5 or 0)),
+        ZIndex = 6
+    }, frame)
+    bind(body, 'TextColor3', 'Muted')
+
+    self:refresh()
+    return { _frame = frame }
+end
+
+function ModuleManager:create_text(settings)
+    settings = settings or {}
+    local rich = settings.rich == true
+    local text_value = settings.text or settings.richtext or ''
+    local height = math.max(28, measure_text(text_value, BODY_W - 18, 10) + 18)
+
+    local frame = create('Frame', {
+        Name = 'Text',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 0.15,
+        BorderSizePixel = 0,
+        ZIndex = 5
+    }, self._body)
+    corner(frame, 8)
+    local frame_stroke = stroke(frame, Theme.Border, 1, 0.5)
+    bind(frame, 'BackgroundColor3', 'Panel_3')
+    bind(frame_stroke, 'Color', 'Border')
+
+    local body = create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Muted,
+        TextSize = 10,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        RichText = rich,
+        Text = text_value,
+        Size = UDim2.new(1, -18, 0, height - 18),
+        Position = UDim2.fromOffset(9, 9),
+        ZIndex = 6
+    }, frame)
+    bind(body, 'TextColor3', 'Muted')
+
+    local manager = { _frame = frame }
+    local module = self
+
+    function manager:Set(new_settings)
+        new_settings = new_settings or {}
+        local new_rich = new_settings.rich == true
+        local new_text = new_settings.text or new_settings.richtext or ''
+        body.RichText = new_rich
+        body.Text = new_text
+        local new_height = math.max(28, measure_text(new_text, BODY_W - 18, 10) + 18)
+        frame.Size = UDim2.new(0, BODY_W, 0, new_height)
+        body.Size = UDim2.new(1, -18, 0, new_height - 18)
+        module:refresh()
+    end
+
+    self:refresh()
+    return manager
+end
+
+--=====================================================================
+--  Textbox
+--=====================================================================
+function ModuleManager:create_textbox(settings)
+    settings = settings or {}
+    local manager = { _text = '', _library = self._library }
+    local height = 47
+
+    local frame = create('Frame', {
+        Name = 'TextboxRow',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, self._body)
+
+    field_label(frame, settings.title or 'Input', 10).Position = UDim2.fromOffset(0, 0)
+
+    -- Resolve the starting text once: a saved string wins (even an empty
+    -- one), then the caller's `text`, then ''. Using `or` here would treat a
+    -- deliberately-cleared field as "unset" and put the default back.
+    local initial_text = settings.text or ''
+    if settings.flag then
+        local stored = self._library._config._flags[settings.flag]
+        if type(stored) == 'string' then initial_text = stored end
+    end
+    manager._text = initial_text
+
+    local box = create('TextBox', {
+        Name = 'Textbox',
+        Size = UDim2.new(1, 0, 0, 28),
+        Position = UDim2.fromOffset(0, 17),
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Text,
+        PlaceholderColor3 = Theme.Dim,
+        PlaceholderText = settings.placeholder or 'Enter text...',
+        TextSize = 10,
+        Text = initial_text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ClearTextOnFocus = false,
+        ZIndex = 6
+    }, frame)
+    corner(box, 7)
+    padding(box, 0, 9, 0, 9)
+    local box_stroke = stroke(box, Theme.Border, 1, 0.4)
+    bind(box, 'BackgroundColor3', 'Panel_3')
+    bind(box, 'TextColor3', 'Text')
+    bind(box, 'PlaceholderColor3', 'Dim')
+    bind(box_stroke, 'Color', 'Border')
+
+    box.Focused:Connect(function()
+        tween(box_stroke, 0.2, { Color = Theme.Accent, Transparency = 0.1 })
+        tween(box, 0.2, { BackgroundColor3 = Theme.Panel_4 })
+    end)
+    box.FocusLost:Connect(function()
+        tween(box_stroke, 0.2, { Color = Theme.Border, Transparency = 0.4 })
+        tween(box, 0.2, { BackgroundColor3 = Theme.Panel_3 })
+        manager:update_text(box.Text)
+    end)
+
+    function manager:update_text(text, silent)
+        text = text == nil and '' or tostring(text)
+        self._text = text
+        if box.Text ~= text then box.Text = text end
+        if settings.flag then
+            self._library._config._flags[settings.flag] = text
+            if not silent then self._library:autosave() end
+        end
+        -- Fire on restore too so a saved value is re-applied to the script.
+        -- The construction restore (`silent`) is queued until the window is
+        -- revealed; typing/submitting fires immediately.
+        if settings.callback then
+            if silent then
+                local callback = settings.callback
+                self._library:defer(function() callback(text) end)
+            else
+                settings.callback(text)
+            end
+        end
+        if not silent then
+            self._library:status(
+                (settings.title or 'Input') .. ': ' .. (text ~= '' and tostring(text) or 'empty'),
+                'info'
+            )
+        end
+    end
+
+    function manager:get_text()
+        return manager._text
+    end
+
+    if settings.flag then
+        self._library:register(settings.flag, function(value)
+            manager:update_text(value, true)
+        end, initial_text, { kind = 'textbox', widget = manager })
+    end
+
+    -- Re-apply a saved/default value on construction (quiet: no autosave or
+    -- status) so a script that reads the field gets the restored text.
+    manager:update_text(initial_text, true)
+
+    self:refresh()
+    return manager
+end
+
+--=====================================================================
+--  Checkbox / toggle row
+--=====================================================================
+function ModuleManager:create_checkbox(settings)
+    settings = settings or {}
+    local manager = { _state = false, _library = self._library }
+    local height = 24
+
+    local row = create('TextButton', {
+        Name = 'CheckboxRow',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundTransparency = 1,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 5
+    }, self._body)
+
+    local title = create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = settings.title or 'Toggle',
+        Size = UDim2.new(1, -60, 1, 0),
+        ZIndex = 6
+    }, row)
+    bind(title, 'TextColor3', 'Text')
+
+    local box = create('Frame', {
+        Name = 'Box',
+        Size = UDim2.fromOffset(18, 18),
+        Position = UDim2.new(1, -18, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundColor3 = Theme.Panel_3,
+        BorderSizePixel = 0,
+        ZIndex = 6
+    }, row)
+    corner(box, 5)
+    local box_stroke = stroke(box, Theme.Border, 1, 0.3)
+    bind(box, 'BackgroundColor3', 'Panel_3')
+    bind(box_stroke, 'Color', 'Border')
+
+    local check_holder = create('Frame', {
+        Size = UDim2.fromOffset(0, 0),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ZIndex = 7
+    }, box)
+    local check = draw_check(check_holder, Color3.fromRGB(255, 255, 255), 1.7)
+
+    local keybind_chip
+    if settings.flag and settings.keybind ~= false then
+        keybind_chip = make_keybind_chip(row, settings.flag, self._library, function(key)
+            if settings.keybind_callback then settings.keybind_callback(key) end
+        end)
+        keybind_chip.chip.Position = UDim2.new(1, -26 - 8 - 40, 0.5, 0)
+        keybind_chip.chip.AnchorPoint = Vector2.new(0, 0.5)
+        title.Size = UDim2.new(1, -132, 1, 0)
+    end
+
+    function manager:change_state(state, initial, silent)
+        local library = self._library
+        if library and library._destroyed and not library._tearing_down then return end
+        self._state = state
+        if state then
+            tween(box, 0.22, { BackgroundColor3 = Theme.Accent })
+            tween(box_stroke, 0.22, { Color = Theme.Accent, Transparency = 0 })
+            check_holder.Size = UDim2.fromOffset(12, 12)
+            check.Visible = true
+        else
+            tween(box, 0.22, { BackgroundColor3 = Theme.Panel_3 })
+            tween(box_stroke, 0.22, { Color = Theme.Border, Transparency = 0.3 })
+            check_holder.Size = UDim2.fromOffset(0, 0)
+            check.Visible = false
+        end
+
+        if settings.flag and not (self._library and self._library._tearing_down) then
+            self._library._config._flags[settings.flag] = state
+            -- `initial`/`silent` mark a restore/apply pass; don't rewrite the
+            -- file for every widget while a config is being rebuilt.
+            if not initial and not silent then self._library:autosave() end
+        end
+        -- A restored toggle must run its callback so the feature re-arms.
+        -- Queue it until the window is revealed (see `Library:defer`); a live
+        -- click still fires immediately.
+        if not silent and settings.callback then
+            if initial then
+                local callback = settings.callback
+                self._library:defer(function() callback(state) end)
+            else
+                settings.callback(state)
+            end
+        end
+        if not initial and not silent then
+            self._library:status(
+                (state and 'Enabled ' or 'Disabled ') .. tostring(settings.title or 'toggle'),
+                state and 'success' or 'warning'
+            )
+        end
+    end
+
+    function manager:get_state()
+        return self._state
+    end
+
+    row.MouseButton1Click:Connect(function()
+        manager:change_state(not manager._state)
+    end)
+
+    if settings.flag then
+        local flag = settings.flag
+        Connections['checkbox_key_' .. flag] = UserInputService.InputBegan:Connect(function(input, processed)
+            if processed then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            local stored = self._library._config._keybinds[flag]
+            if stored and tostring(input.KeyCode) == stored then
+                manager:change_state(not manager._state)
+            end
+        end)
+
+        if self._library:flag_type(flag, 'boolean') then
+            manager:change_state(self._library._config._flags[flag], true, false)
+        elseif settings.default ~= nil then
+            manager:change_state(settings.default, true, false)
+        end
+
+        -- Let `library:load_config` push a saved profile back into this row.
+        local default = type(settings.default) == 'boolean' and settings.default or false
+        self._library:register(flag, function(value)
+            manager:change_state(value and true or false, true, false)
+        end, default, {
+            kind = 'toggle',
+            widget = manager,
+            sync = function(value)
+                manager:change_state(value and true or false, true, true)
+            end,
+            off = function()
+                if manager._state then manager:change_state(false) end
+            end
+        })
+    end
+
+    bind_fn(function()
+        if not box.Parent then return end
+        if manager._state then
+            box.BackgroundColor3 = Theme.Accent
+            box_stroke.Color = Theme.Accent
+        else
+            box.BackgroundColor3 = Theme.Panel_3
+            box_stroke.Color = Theme.Border
+        end
+    end)
+
+    self:refresh()
+    return manager
+end
+
+ModuleManager.create_toggle = ModuleManager.create_checkbox
+
+--=====================================================================
+--  Button
+--=====================================================================
+function ModuleManager:create_button(settings)
+    settings = settings or {}
+    local height = 30
+
+    local button = create('TextButton', {
+        Name = 'Button',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 11,
+        Text = settings.title or 'Button',
+        AutoButtonColor = false,
+        ZIndex = 5
+    }, self._body)
+    corner(button, 8)
+    local variant = settings.variant
+    if variant == 'ghost' then
+        button.BackgroundColor3 = Theme.Panel_3
+        button.TextColor3 = Theme.Text
+        local s = stroke(button, Theme.Border, 1, 0.3)
+        bind(button, 'BackgroundColor3', 'Panel_3')
+        bind(button, 'TextColor3', 'Text')
+        bind(s, 'Color', 'Border')
+    elseif variant == 'danger' then
+        button.BackgroundColor3 = Theme.Danger
+        bind(button, 'BackgroundColor3', 'Danger')
+    else
+        accent_gradient(button, 0)
+    end
+
+    local base = button.BackgroundColor3
+    local function base_color()
+        if variant == 'ghost' then return Theme.Panel_3 end
+        if variant == 'danger' then return Theme.Danger end
+        return Theme.Accent
+    end
+    button.MouseEnter:Connect(function()
+        tween(button, 0.18, { BackgroundColor3 = base_color():Lerp(Color3.new(1, 1, 1), 0.14) })
+    end)
+    button.MouseLeave:Connect(function()
+        tween(button, 0.18, { BackgroundColor3 = base_color() })
+    end)
+    button.MouseButton1Down:Connect(function()
+        tween(button, 0.08, { BackgroundColor3 = base_color():Lerp(Color3.new(0, 0, 0), 0.12) })
+    end)
+    button.MouseButton1Up:Connect(function()
+        tween(button, 0.14, { BackgroundColor3 = base_color():Lerp(Color3.new(1, 1, 1), 0.14) })
+    end)
+
+    button.MouseButton1Click:Connect(function()
+        if settings.callback then settings.callback() end
+        self._library:status(settings.title or 'Action', variant == 'danger' and 'error' or 'action')
+    end)
+
+    self:refresh()
+    return button
+end
+
+--=====================================================================
+--  Divider / section header
+--=====================================================================
+function ModuleManager:create_divider(settings)
+    settings = settings or {}
+    -- `disableline` (used by the original Stellar API) draws the topic label
+    -- on its own, without the hairline rule through it.
+    local height = settings.disableline and 16 or 20
+
+    local frame = create('Frame', {
+        Name = 'Divider',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, self._body)
+
+    local line
+    if not settings.disableline then
+        line = create('Frame', {
+            Size = UDim2.new(1, 0, 0, 1),
+            Position = UDim2.new(0, 0, 0.5, 0),
+            BackgroundColor3 = Theme.Border,
+            BorderSizePixel = 0,
+            ZIndex = 5
+        }, frame)
+        gradient(line, ColorSequence.new(Color3.fromRGB(255, 255, 255)), 0, NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.5, 0),
+            NumberSequenceKeypoint.new(1, 1)
+        }))
+        bind(line, 'BackgroundColor3', 'Border')
+    end
+
+    if settings.showtopic and settings.title then
+        local label = create('TextLabel', {
+            BackgroundColor3 = Theme.Panel_2,
+            BackgroundTransparency = 0,
+            FontFace = font(Enum.FontWeight.SemiBold),
+            TextColor3 = Theme.Muted,
+            TextSize = 10,
+            Text = settings.title,
+            Size = UDim2.new(0, 140, 0, 14),
+            Position = UDim2.new(0.5, 0, 0.5, 0),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            ZIndex = 6
+        }, frame)
+        bind(label, 'TextColor3', 'Muted')
+        bind(label, 'BackgroundColor3', 'Panel_2')
+    end
+
+    self:refresh()
+    return frame
+end
+
+function ModuleManager:create_section(settings)
+    settings = settings or {}
+    local height = 24
+
+    local frame = create('Frame', {
+        Name = 'Section',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, self._body)
+
+    local label = create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.Bold),
+        TextColor3 = Theme.Dim,
+        TextSize = 9,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = string.upper(settings.title or 'Section'),
+        Size = UDim2.new(1, -60, 0, 12),
+        Position = UDim2.fromOffset(0, 6),
+        ZIndex = 6
+    }, frame)
+    bind(label, 'TextColor3', 'Dim')
+
+    create('Frame', {
+        Size = UDim2.new(1, 0, 0, 1),
+        Position = UDim2.fromOffset(0, 20),
+        BackgroundColor3 = Theme.Border,
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        ZIndex = 5
+    }, frame)
+
+    self:refresh()
+    return frame
+end
+
+--=====================================================================
+--  Slider
+--=====================================================================
+function ModuleManager:create_slider(settings)
+    settings = settings or {}
+    local manager = {}
+    local minimum = settings.minimum_value or 0
+    local maximum = settings.maximum_value or 100
+    local height = 42
+
+    local frame = create('Frame', {
+        Name = 'Slider',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, self._body)
+
+    field_label(frame, settings.title or 'Slider', 10).Position = UDim2.fromOffset(0, 0)
+
+    local value_label = create('TextLabel', {
+        Name = 'Value',
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        Text = '0',
+        Size = UDim2.new(0, 70, 0, 13),
+        Position = UDim2.new(1, -70, 0, 0),
+        ZIndex = 6
+    }, frame)
+    bind(value_label, 'TextColor3', 'Text')
+
+    local track = create('Frame', {
+        Name = 'Track',
+        Size = UDim2.new(1, 0, 0, 4),
+        Position = UDim2.fromOffset(0, 30),
+        BackgroundColor3 = Theme.Panel_4,
+        BorderSizePixel = 0,
+        ZIndex = 5
+    }, frame)
+    corner(track, 1, 1)
+    bind(track, 'BackgroundColor3', 'Panel_4')
+
+    local fill = create('Frame', {
+        Name = 'Fill',
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 6
+    }, track)
+    corner(fill, 1, 1)
+    accent_gradient(fill, 0)
+
+    local knob = create('Frame', {
+        Name = 'Knob',
+        Size = UDim2.fromOffset(12, 12),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        ZIndex = 7
+    }, track)
+    corner(knob, 1, 1)
+    local knob_stroke = stroke(knob, Theme.Accent, 2, 0)
+    bind(knob_stroke, 'Color', 'Accent')
+
+    -- A plain Frame does not receive InputBegan in Roblox unless Active is
+    -- true. Use an invisible TextButton as the hit target instead: buttons
+    -- always sink input, and a taller strip makes the thin track easy to
+    -- grab on touch devices.
+    local hit = create('TextButton', {
+        Name = 'Hit',
+        Size = UDim2.new(1, 0, 0, 18),
+        Position = UDim2.fromOffset(0, 23),
+        BackgroundTransparency = 1,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 8
+    }, frame)
+
+    local dragging = false
+
+    local function format(value)
+        if settings.round_number then
+            return tostring(math.floor(value + 0.5))
+        end
+        return tostring(math.floor(value * 10 + 0.5) / 10)
+    end
+
+    local function apply(value, save, fire, defer)
+        value = math.clamp(value, minimum, maximum)
+        local percentage = 0
+        if maximum ~= minimum then
+            percentage = (value - minimum) / (maximum - minimum)
+        end
+        tween(fill, 0.1, { Size = UDim2.new(percentage, 0, 1, 0) }, Enum.EasingStyle.Linear)
+        knob.Position = UDim2.new(percentage, 0, 0.5, 0)
+        value_label.Text = format(value) .. (settings.suffix or '')
+
+        if settings.flag then
+            self._library._config._flags[settings.flag] = value
+            if save then self._library:autosave() end
+        end
+        manager._value = value
+        if fire and settings.callback then
+            if defer then
+                local callback = settings.callback
+                self._library:defer(function() callback(value) end)
+            else
+                settings.callback(value)
+            end
+        end
+    end
+
+    function manager:set_percentage(value)
+        apply(value, true, true)
+    end
+
+    function manager:get_value()
+        return manager._value
+    end
+
+    local function update_from_mouse(pixel_x)
+        -- `pixel_x` comes from InputObject.Position, which matches
+        -- AbsolutePosition. Fall back to GetMouseLocation only when needed.
+        if pixel_x == nil then
+            pixel_x = UserInputService:GetMouseLocation().X
+        end
+        local track_x = track.AbsolutePosition.X
+        local track_width = math.max(1, track.AbsoluteSize.X)
+        local alpha = math.clamp((pixel_x - track_x) / track_width, 0, 1)
+        apply(minimum + (maximum - minimum) * alpha, false, true)
+    end
+
+    local slider_id = 'slider_' .. tostring(uid())
+    local function cleanup_slider()
+        Connections:disconnect(slider_id .. '_move')
+        Connections:disconnect(slider_id .. '_end')
+    end
+
+    hit.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        dragging = true
+        tween(knob, 0.15, { Size = UDim2.fromOffset(15, 15) }, Enum.EasingStyle.Back)
+        update_from_mouse(input.Position.X)
+
+        cleanup_slider()
+        Connections[slider_id .. '_move'] = UserInputService.InputChanged:Connect(function(move_input)
+            if move_input.UserInputType == Enum.UserInputType.MouseMovement or move_input.UserInputType == Enum.UserInputType.Touch then
+                update_from_mouse(move_input.Position.X)
+            end
+        end)
+
+        Connections[slider_id .. '_end'] = UserInputService.InputEnded:Connect(function(end_input)
+            if end_input.UserInputType ~= Enum.UserInputType.MouseButton1 and end_input.UserInputType ~= Enum.UserInputType.Touch then
+                return
+            end
+            dragging = false
+            tween(knob, 0.15, { Size = UDim2.fromOffset(12, 12) })
+            cleanup_slider()
+            if not settings.ignoresaved and settings.flag then
+                self._library:autosave()
+            end
+            self._library:status(
+                (settings.title or 'Slider') .. ' set to ' .. format(manager._value or minimum) .. (settings.suffix or ''),
+                'info'
+            )
+        end)
+    end)
+
+    hit.MouseEnter:Connect(function()
+        if not dragging then tween(knob, 0.15, { Size = UDim2.fromOffset(14, 14) }) end
+    end)
+    hit.MouseLeave:Connect(function()
+        if not dragging then tween(knob, 0.15, { Size = UDim2.fromOffset(12, 12) }) end
+    end)
+
+    local initial = settings.value or minimum
+    if settings.flag and self._library:flag_type(settings.flag, 'number') and not settings.ignoresaved then
+        initial = self._library._config._flags[settings.flag]
+    end
+    -- `fire = true`: a restored slider must re-apply its value, not just draw
+    -- the knob at the saved position. `save = false` keeps construction quiet,
+    -- and `defer = true` queues the callback until the window is shown.
+    apply(initial, false, true, true)
+
+    if settings.flag and not settings.ignoresaved then
+        self._library:register(settings.flag, function(value)
+            if type(value) == 'number' then manager:set_percentage(value) end
+        end, initial, { kind = 'slider', widget = manager })
+    end
+
+    manager._frame = frame
+    manager._hit = hit
+    manager._track = track
+
+    self:refresh()
+    return manager
+end
+
+--=====================================================================
+--  Dropdown
+--=====================================================================
+function ModuleManager:create_dropdown(settings)
+    settings = settings or {}
+    local library = self._library
+    local manager = { _state = false, _module = self, _value = nil }
+    local options = {}
+    for _, option in ipairs(settings.options or {}) do
+        table.insert(options, option)
+    end
+
+    local option_height = 26
+    local option_gap = 2
+    local max_visible = settings.maximum_options or 7
+    local row_height = 48
+
+    local function list_height_for(count)
+        count = math.min(count, max_visible)
+        if count <= 0 then return 0 end
+        return count * option_height + (count - 1) * option_gap + 8
+    end
+
+    local frame = create('Frame', {
+        Name = 'Dropdown',
+        Size = UDim2.new(0, BODY_W, 0, row_height),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, self._body)
+
+    field_label(frame, settings.title or 'Dropdown', 10).Position = UDim2.fromOffset(0, 0)
+
+    local box = create('TextButton', {
+        Name = 'Box',
+        Size = UDim2.new(1, 0, 0, 30),
+        Position = UDim2.fromOffset(0, 16),
+        BackgroundColor3 = Theme.Panel_3,
+        BorderSizePixel = 0,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 6
+    }, frame)
+    corner(box, 8)
+    local box_stroke = stroke(box, Theme.Border, 1, 0.4)
+    bind(box, 'BackgroundColor3', 'Panel_3')
+    bind(box_stroke, 'Color', 'Border')
+
+    local current_label = create('TextLabel', {
+        Name = 'Current',
+        BackgroundTransparency = 1,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Muted,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = tr('DropdownNone', 'None'),
+        Size = UDim2.new(1, -44, 1, 0),
+        Position = UDim2.fromOffset(10, 0),
+        ZIndex = 7
+    }, box)
+    bind(current_label, 'TextColor3', 'Muted')
+
+    local chevron_holder = create('Frame', {
+        Size = UDim2.fromOffset(10, 10),
+        Position = UDim2.new(1, -20, 0.5, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ZIndex = 7
+    }, box)
+    local chevron = draw_chevron(chevron_holder, 10, Theme.Dim, 1.6)
+    bind_fn(function()
+        if not chevron.Parent then return end
+        for _, child in ipairs(chevron:GetDescendants()) do
+            if child:IsA('Frame') then child.BackgroundColor3 = Theme.Dim end
+        end
+    end)
+
+    -- Classic Stellar accordion: the option list expands *inside* the card,
+    -- directly under the box. The dropdown row grows and `refresh()` grows the
+    -- module card with it, so the list is never clipped and the cards below
+    -- slide down naturally.
+    local list = create('ScrollingFrame', {
+        Name = 'List',
+        Size = UDim2.new(1, 0, 0, 0),
+        Position = UDim2.fromOffset(0, row_height),
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 0.02,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        Visible = false,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Theme.Accent,
+        ScrollBarImageTransparency = 0.4,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Active = true,
+        ZIndex = 5
+    }, frame)
+    corner(list, 8)
+    local list_stroke = stroke(list, Theme.Border, 1, 0.35)
+    list_layout(list, { Padding = UDim.new(0, option_gap) })
+    padding(list, 4, 4, 4, 4)
+    bind(list, 'BackgroundColor3', 'Panel_3')
+    bind(list_stroke, 'Color', 'Border')
+
+    -- Exposed for introspection / tests.
+    manager._list = list
+    manager._box = box
+    manager._frame = frame
+    manager._box_stroke = box_stroke
+
+    local option_buttons = {}
+
+    local function display(value)
+        if settings.multi_dropdown then
+            local values = value or {}
+            if type(values) ~= 'table' then values = { values } end
+            if #values == 0 then return tr('DropdownNone', 'None') end
+            local names = {}
+            for _, item in ipairs(values) do
+                table.insert(names, typeof(item) == 'string' and item or item.Name)
+            end
+            return table.concat(names, ', ')
+        end
+        if value == nil then return tr('DropdownNone', 'None') end
+        return typeof(value) == 'string' and value or value.Name
+    end
+
+    local function refresh_selection(value)
+        local lookup = {}
+        if settings.multi_dropdown then
+            local values = value or {}
+            if type(values) ~= 'table' then values = { values } end
+            for _, item in ipairs(values) do lookup[item] = true end
+        end
+        for option_value, entry in pairs(option_buttons) do
+            local selected
+            if settings.multi_dropdown then
+                selected = lookup[option_value] == true
+            else
+                selected = option_value == value
+            end
+            entry.mark.Visible = selected
+            entry.button.TextColor3 = selected and Theme.Accent or Theme.Muted
+        end
+    end
+
+    function manager:update(value, silent)
+        manager._value = value
+        current_label.Text = display(value)
+        refresh_selection(value)
+        if settings.flag then
+            library._config._flags[settings.flag] = value
+            if not silent then library:autosave() end
+        end
+        -- The callback always runs: a restored selection has to be applied.
+        -- `silent` marks the construction restore, whose callback is queued
+        -- until the window is revealed instead of firing behind the loader.
+        if settings.callback then
+            if silent then
+                local callback = settings.callback
+                library:defer(function() callback(value) end)
+            else
+                settings.callback(value)
+            end
+        end
+        if not silent then
+            library:status((settings.title or 'Dropdown') .. ': ' .. display(value), 'info')
+        end
+    end
+
+    -- The row is `row_height` tall when closed; opening adds the list height.
+    -- The row size is applied instantly and `refresh()` animates the card, so
+    -- the card visibly unfolds to reveal the options.
+    local function apply_open_size()
+        local list_h = manager._state and list_height_for(#options) or 0
+        list.Size = UDim2.new(1, 0, 0, list_h)
+        frame.Size = UDim2.new(0, BODY_W, 0, row_height + list_h)
+        self:refresh()
+    end
+
+    local function close_list()
+        if not manager._state then return end
+        manager._state = false
+        if library._open_dropdown == manager then library._open_dropdown = nil end
+        list.Visible = false
+        apply_open_size()
+        tween(chevron_holder, 0.25, { Rotation = 0 })
+        tween(box_stroke, 0.2, { Color = Theme.Border, Transparency = 0.4 })
+    end
+
+    function manager:unfold_settings()
+        if manager._state then
+            close_list()
+            return
+        end
+        if library._open_dropdown and library._open_dropdown ~= manager then
+            library._open_dropdown:unfold_settings()
+        end
+        manager._state = true
+        library._open_dropdown = manager
+        list.Visible = true
+        apply_open_size()
+        tween(chevron_holder, 0.25, { Rotation = 180 })
+        tween(box_stroke, 0.2, { Color = Theme.Accent, Transparency = 0.2 })
+        -- the options cascade in one after another instead of appearing as a
+        -- single block, which keeps the unfold feeling deliberate
+        local index = 0
+        for _, child in ipairs(list:GetChildren()) do
+            if child:IsA('TextButton') then
+                index = index + 1
+                local option = child
+                local stagger = math.min(0.2, (index - 1) * 0.035)
+                option.TextTransparency = 1
+                task.delay(stagger, function()
+                    if option.Parent then
+                        tween(option, 0.2, { TextTransparency = 0 })
+                    end
+                end)
+            end
+        end
+    end
+
+    local function rebuild(new_options)
+        options = new_options or {}
+        for _, child in ipairs(list:GetChildren()) do
+            if child:IsA('TextButton') then child:Destroy() end
+        end
+        option_buttons = {}
+
+        for _, option_value in ipairs(options) do
+            local text = typeof(option_value) == 'string' and option_value or option_value.Name
+            local option = create('TextButton', {
+                Name = 'Option',
+                Size = UDim2.new(1, 0, 0, option_height),
+                BackgroundColor3 = Theme.Panel_4,
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                FontFace = body_font(Enum.FontWeight.Regular),
+                TextColor3 = Theme.Muted,
+                TextSize = 10,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Text = text,
+                AutoButtonColor = false,
+                ZIndex = 6
+            }, list)
+            corner(option, 6)
+            padding(option, 0, 8, 0, 8)
+            bind(option, 'BackgroundColor3', 'Panel_4')
+
+            local mark = create('Frame', {
+                Name = 'Mark',
+                Size = UDim2.fromOffset(10, 10),
+                Position = UDim2.new(1, -10, 0.5, 0),
+                AnchorPoint = Vector2.new(1, 0.5),
+                BackgroundTransparency = 1,
+                Visible = false,
+                ZIndex = 7
+            }, option)
+            draw_check(mark, Theme.Accent, 1.6)
+            bind_fn(function()
+                if not mark.Parent then return end
+                for _, child in ipairs(mark:GetDescendants()) do
+                    if child:IsA('Frame') then child.BackgroundColor3 = Theme.Accent end
+                end
+            end)
+
+            option.MouseEnter:Connect(function()
+                tween(option, 0.15, { BackgroundTransparency = 0.6 })
+            end)
+            option.MouseLeave:Connect(function()
+                tween(option, 0.15, { BackgroundTransparency = 1 })
+            end)
+            option.MouseButton1Click:Connect(function()
+                if settings.multi_dropdown then
+                    local current = settings.flag and library._config._flags[settings.flag] or manager._value
+                    if type(current) ~= 'table' then current = {} end
+                    local next_list = {}
+                    local found = false
+                    for _, item in ipairs(current) do
+                        if item == option_value then
+                            found = true
+                        else
+                            table.insert(next_list, item)
+                        end
+                    end
+                    if not found then table.insert(next_list, option_value) end
+                    manager:update(next_list)
+                else
+                    manager:update(option_value)
+                    close_list()
+                end
+            end)
+
+            option_buttons[option_value] = { mark = mark, button = option }
+        end
+    end
+
+    function manager:set_options(new_options)
+        rebuild(new_options)
+        if manager._state then apply_open_size() end
+    end
+
+    function manager:New(value)
+        if value and value.options then
+            manager:set_options(value.options)
+        end
+        return manager
+    end
+
+    box.MouseButton1Click:Connect(function()
+        manager:unfold_settings()
+    end)
+
+    rebuild(options)
+
+    local initial
+    if settings.flag and library._config._flags[settings.flag] ~= nil then
+        initial = library._config._flags[settings.flag]
+    elseif settings.multi_dropdown then
+        initial = {}
+    else
+        initial = settings.value or options[1]
+    end
+    -- Quiet restore: paints the label/selection, writes the flag, and fires
+    -- the callback (so a saved choice is re-applied) without an autosave.
+    manager:update(initial, true)
+
+    bind_fn(function()
+        if not frame.Parent then return end
+        local value = initial
+        if settings.flag then
+            value = library._config._flags[settings.flag]
+        end
+        refresh_selection(value)
+    end)
+
+    if settings.flag and not settings.ignoresaved then
+        library:register(settings.flag, function(value)
+            if settings.multi_dropdown and type(value) ~= 'table' then value = {} end
+            manager:update(value)
+        end, initial, { kind = 'dropdown', widget = manager })
+    end
+
+    self:refresh()
+    return manager
+end
+
+--=====================================================================
+--  Feature row (compact toggle + keybind)
+--=====================================================================
+function ModuleManager:create_feature(settings)
+    settings = settings or {}
+    local height = 26
+    local manager = { _state = false, _library = self._library }
+
+    local row = create('Frame', {
+        Name = 'Feature',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, self._body)
+
+    local title = create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Text = settings.title or 'Feature',
+        Size = UDim2.new(1, -100, 1, 0),
+        ZIndex = 6
+    }, row)
+    bind(title, 'TextColor3', 'Text')
+
+    local box
+    local check
+    if not settings.disablecheck then
+        box = create('TextButton', {
+            Name = 'Box',
+            Size = UDim2.fromOffset(18, 18),
+            Position = UDim2.new(1, -18, 0.5, 0),
+            AnchorPoint = Vector2.new(0, 0.5),
+            BackgroundColor3 = Theme.Panel_3,
+            BorderSizePixel = 0,
+            Text = '',
+            AutoButtonColor = false,
+            ZIndex = 6
+        }, row)
+        corner(box, 5)
+        local box_stroke = stroke(box, Theme.Border, 1, 0.3)
+        bind(box, 'BackgroundColor3', 'Panel_3')
+        bind(box_stroke, 'Color', 'Border')
+
+        local holder = create('Frame', {
+            Size = UDim2.fromOffset(0, 0),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundTransparency = 1,
+            ZIndex = 7
+        }, box)
+        check = draw_check(holder, Color3.fromRGB(255, 255, 255), 1.7)
+        check.Visible = false
+
+        function manager:change_state(state, initial, silent)
+            local library = self._library
+            if library and library._destroyed and not library._tearing_down then return end
+            self._state = state
+            if state then
+                tween(box, 0.2, { BackgroundColor3 = Theme.Accent })
+                tween(box_stroke, 0.2, { Color = Theme.Accent, Transparency = 0 })
+                holder.Size = UDim2.fromOffset(12, 12)
+                check.Visible = true
+            else
+                tween(box, 0.2, { BackgroundColor3 = Theme.Panel_3 })
+                tween(box_stroke, 0.2, { Color = Theme.Border, Transparency = 0.3 })
+                holder.Size = UDim2.fromOffset(0, 0)
+                check.Visible = false
+            end
+            if settings.flag and not (self._library and self._library._tearing_down) then
+                self._library._config._flags[settings.flag] = state
+                if not initial and not silent then self._library:autosave() end
+            end
+            if not silent and settings.callback then
+                if initial then
+                    local callback = settings.callback
+                    self._library:defer(function() callback(state) end)
+                else
+                    settings.callback(state)
+                end
+            end
+        end
+
+        bind_fn(function()
+            if not box.Parent then return end
+            if manager._state then
+                box.BackgroundColor3 = Theme.Accent
+                box_stroke.Color = Theme.Accent
+            else
+                box.BackgroundColor3 = Theme.Panel_3
+                box_stroke.Color = Theme.Border
+            end
+        end)
+    else
+        local action = create('TextButton', {
+            Name = 'Action',
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            Text = '',
+            AutoButtonColor = false,
+            ZIndex = 6
+        }, row)
+        action.MouseButton1Click:Connect(function()
+            if settings.button_callback then settings.button_callback() end
+        end)
+    end
+
+    if settings.flag then
+        local chip = make_keybind_chip(row, settings.flag, self._library, function(key)
+            if settings.keybind_callback then settings.keybind_callback(key) end
+        end)
+        chip.chip.Position = UDim2.new(1, -26 - 8 - 40, 0.5, 0)
+        chip.chip.AnchorPoint = Vector2.new(0, 0.5)
+        title.Size = UDim2.new(1, -132, 1, 0)
+    end
+
+    if box then
+        box.MouseButton1Click:Connect(function()
+            manager:change_state(not manager._state)
+        end)
+    end
+
+    if settings.flag then
+        local flag = settings.flag
+        Connections['feature_key_' .. flag] = UserInputService.InputBegan:Connect(function(input, processed)
+            if processed then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            local stored = self._library._config._keybinds[flag]
+            if stored and tostring(input.KeyCode) == stored then
+                if manager.change_state then manager:change_state(not manager._state) end
+            end
+        end)
+    end
+
+    if manager.change_state then
+        local flag = settings.flag
+        if flag and self._library:flag_type(flag, 'boolean') then
+            manager:change_state(self._library._config._flags[flag], true, false)
+        elseif type(settings.default) == 'boolean' then
+            -- Only a boolean `default` is an initial checked state. The
+            -- original library used `default` for the keybind label
+            -- ("Unknown"), so a string must never turn the feature on.
+            manager:change_state(settings.default, true, false)
+        end
+        if flag then
+            local default = type(settings.default) == 'boolean' and settings.default or false
+            self._library:register(flag, function(value)
+                manager:change_state(value and true or false, true, false)
+            end, default, {
+                kind = 'feature',
+                widget = manager,
+                sync = function(value)
+                    manager:change_state(value and true or false, true, true)
+                end,
+                off = function()
+                    if manager._state then manager:change_state(false) end
+                end
+            })
+        end
+    end
+
+    self:refresh()
+    return manager
+end
+
+--=====================================================================
+--  Standalone keybind row
+--=====================================================================
+function ModuleManager:create_keybind(settings)
+    settings = settings or {}
+    local height = 26
+
+    local row = create('Frame', {
+        Name = 'KeybindRow',
+        Size = UDim2.new(0, BODY_W, 0, height),
+        BackgroundTransparency = 1,
+        ZIndex = 5
+    }, self._body)
+
+    local title = create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Theme.Text,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = settings.title or 'Keybind',
+        Size = UDim2.new(1, -60, 1, 0),
+        ZIndex = 6
+    }, row)
+    bind(title, 'TextColor3', 'Text')
+
+    local manager = {}
+    if settings.flag then
+        local chip = make_keybind_chip(row, settings.flag, self._library, function(key)
+            if settings.callback then settings.callback(key) end
+        end)
+        chip.chip.Position = UDim2.new(1, -40, 0.5, 0)
+        chip.chip.AnchorPoint = Vector2.new(0, 0.5)
+        manager.set = chip.set_text
+    end
+
+    self:refresh()
+    return manager
+end
+
+--=====================================================================
+--  Color picker
+--=====================================================================
+function ModuleManager:create_colorpicker(settings)
+    settings = settings or {}
+    local manager = { _state = false, _module = self }
+    local height_closed = 30
+    local picker_height = 132
+
+    local frame = create('Frame', {
+        Name = 'ColorPicker',
+        Size = UDim2.new(0, BODY_W, 0, height_closed),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        ZIndex = 5
+    }, self._body)
+
+    field_label(frame, settings.title or 'Color', 10).Position = UDim2.fromOffset(0, 3)
+
+    local swatch = create('TextButton', {
+        Name = 'Swatch',
+        Size = UDim2.fromOffset(60, 22),
+        Position = UDim2.new(1, -60, 0, 0),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        Text = '',
+        AutoButtonColor = false,
+        ZIndex = 6
+    }, frame)
+    corner(swatch, 6)
+    local swatch_stroke = stroke(swatch, Theme.Border, 1, 0.2)
+    bind(swatch_stroke, 'Color', 'Border')
+
+    local swatch_hex = create('TextLabel', {
+        BackgroundTransparency = 1,
+        FontFace = font(Enum.FontWeight.SemiBold),
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 9,
+        Text = '#FFFFFF',
+        ZIndex = 7
+    }, swatch)
+
+    local panel = create('Frame', {
+        Name = 'Panel',
+        Size = UDim2.new(1, 0, 0, picker_height),
+        Position = UDim2.fromOffset(0, height_closed),
+        BackgroundColor3 = Theme.Panel_3,
+        BackgroundTransparency = 0.15,
+        BorderSizePixel = 0,
+        -- A Frame with ClipsDescendants still delivers input to children that
+        -- are visually clipped away in Roblox. The panel starts hidden so the
+        -- collapsed picker's invisible SV/hue drag zones cannot swallow
+        -- touches below the swatch; `set_panel_open` reveals it on expand.
+        Visible = false,
+        ZIndex = 6
+    }, frame)
+    corner(panel, 8)
+    local panel_stroke = stroke(panel, Theme.Border, 1, 0.5)
+    bind(panel, 'BackgroundColor3', 'Panel_3')
+    bind(panel_stroke, 'Color', 'Border')
+
+    local sv = create('Frame', {
+        Name = 'SV',
+        Size = UDim2.fromOffset(120, 84),
+        Position = UDim2.fromOffset(10, 10),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 7
+    }, panel)
+    corner(sv, 6)
+
+    local sv_white = create('Frame', {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        ZIndex = 8
+    }, sv)
+    corner(sv_white, 6)
+    gradient(sv_white, ColorSequence.new(Color3.fromRGB(255, 255, 255)), 0, NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    }))
+
+    local sv_black = create('Frame', {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BorderSizePixel = 0,
+        ZIndex = 9
+    }, sv)
+    corner(sv_black, 6)
+    gradient(sv_black, ColorSequence.new(Color3.fromRGB(0, 0, 0)), 90, NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0)
+    }))
+    -- A crisp hairline makes the square's real bounds obvious, so the touch
+    -- target reads as the box and not the panel around it.
+    local sv_stroke = stroke(sv_black, Theme.Border, 1, 0.25)
+    bind(sv_stroke, 'Color', 'Border')
+
+    local sv_marker = create('Frame', {
+        Size = UDim2.fromOffset(10, 10),
+        Position = UDim2.fromScale(1, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ZIndex = 10
+    }, sv)
+    corner(sv_marker, 1, 1)
+    create('UIStroke', {
+        Color = Color3.fromRGB(255, 255, 255),
+        Thickness = 1.5,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    }, sv_marker)
+
+    -- Buttons always receive InputBegan; a bare Frame does not unless it is
+    -- made Active. These transparent overlays make the picker draggable.
+    local sv_hit = create('TextButton', {
+        Name = 'SVHit',
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = '',
+        AutoButtonColor = false,
+        Visible = false,
+        ZIndex = 11
+    }, sv)
+
+    local hue_bar = create('Frame', {
+        Name = 'Hue',
+        Size = UDim2.fromOffset(120, 12),
+        Position = UDim2.fromOffset(10, 104),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        ZIndex = 7
+    }, panel)
+    corner(hue_bar, 1, 1)
+    gradient(hue_bar, ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 0)),
+        ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 255, 0)),
+        ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 255, 0)),
+        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(0, 255, 255)),
+        ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 0, 255)),
+        ColorSequenceKeypoint.new(0.83, Color3.fromRGB(255, 0, 255)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0))
+    }), 0)
+    local hue_stroke = stroke(hue_bar, Theme.Border, 1, 0.25)
+    bind(hue_stroke, 'Color', 'Border')
+
+    local hue_marker = create('Frame', {
+        Size = UDim2.fromOffset(4, 16),
+        Position = UDim2.new(0, 0, 0.5, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        ZIndex = 8
+    }, hue_bar)
+    corner(hue_marker, 2)
+
+    local hue_hit = create('TextButton', {
+        Name = 'HueHit',
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = '',
+        AutoButtonColor = false,
+        Visible = false,
+        ZIndex = 9
+    }, hue_bar)
+
+    local hex_box = create('TextBox', {
+        Name = 'Hex',
+        Size = UDim2.fromOffset(84, 26),
+        Position = UDim2.fromOffset(140, 10),
+        BackgroundColor3 = Theme.Panel_4,
+        BorderSizePixel = 0,
+        FontFace = body_font(Enum.FontWeight.Regular),
+        TextColor3 = Theme.Text,
+        TextSize = 10,
+        Text = '#FFFFFF',
+        ClearTextOnFocus = false,
+        ZIndex = 7
+    }, panel)
+    corner(hex_box, 6)
+    padding(hex_box, 0, 8, 0, 8)
+    bind(hex_box, 'BackgroundColor3', 'Panel_4')
+    bind(hex_box, 'TextColor3', 'Text')
+
+    local preview = create('Frame', {
+        Size = UDim2.fromOffset(84, 40),
+        Position = UDim2.fromOffset(140, 44),
+        BackgroundColor3 = Theme.Accent,
+        BorderSizePixel = 0,
+        ZIndex = 7
+    }, panel)
+    corner(preview, 6)
+
+    local presets = {
+        Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 100, 100), Color3.fromRGB(255, 170, 80),
+        Color3.fromRGB(255, 230, 90), Color3.fromRGB(110, 220, 140), Color3.fromRGB(80, 200, 230),
+        Color3.fromRGB(110, 140, 255), Color3.fromRGB(180, 120, 255), Color3.fromRGB(255, 120, 200),
+        Color3.fromRGB(150, 150, 165), Color3.fromRGB(90, 90, 105), Color3.fromRGB(30, 30, 40)
+    }
+    local preset_row = create('Frame', {
+        Size = UDim2.new(0, 84, 0, 24),
+        Position = UDim2.fromOffset(140, 92),
+        BackgroundTransparency = 1,
+        ZIndex = 7
+    }, panel)
+    create('UIGridLayout', {
+        CellSize = UDim2.fromOffset(12, 11),
+        CellPadding = UDim2.fromOffset(2, 2),
+        SortOrder = Enum.SortOrder.LayoutOrder
+    }, preset_row)
+
+    local function parse_hex(text)
+        text = tostring(text):gsub('#', '')
+        if #text ~= 6 then return nil end
+        local r = tonumber(text:sub(1, 2), 16)
+        local g = tonumber(text:sub(3, 4), 16)
+        local b = tonumber(text:sub(5, 6), 16)
+        if r and g and b then
+            return Color3.fromRGB(r, g, b)
+        end
+        return nil
+    end
+
+    local hue, sat, val = 0.6, 0.7, 1
+
+    local function paint(color, save, fire, defer)
+        local h, s, v = color:ToHSV()
+        hue, sat, val = h, s, v
+        sv.BackgroundColor3 = Color3.fromHSV(hue, 1, 1)
+        sv_marker.Position = UDim2.fromScale(sat, 1 - val)
+        hue_marker.Position = UDim2.new(hue, 0, 0.5, 0)
+        swatch.BackgroundColor3 = color
+        preview.BackgroundColor3 = color
+        hex_box.Text = hex(color)
+        swatch_hex.Text = hex(color)
+
+        local luminance = 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
+        swatch_hex.TextColor3 = luminance > 0.6 and Color3.fromRGB(20, 20, 25) or Color3.fromRGB(255, 255, 255)
+
+        if settings.flag then
+            self._library._config._flags[settings.flag] = hex(color)
+            if save then self._library:autosave() end
+        end
+        if fire ~= false and settings.callback then
+            if defer then
+                local callback = settings.callback
+                self._library:defer(function() callback(color) end)
+            else
+                settings.callback(color)
+            end
+        end
+    end
+
+    function manager:set_color(color)
+        paint(color, true, true)
+    end
+
+    function manager:get_color()
+        return Color3.fromHSV(hue, sat, val)
+    end
+
+    local function update_sv(mouse_x, mouse_y)
+        local position = sv.AbsolutePosition
+        local size = sv.AbsoluteSize
+        sat = math.clamp((mouse_x - position.X) / math.max(1, size.X), 0, 1)
+        val = 1 - math.clamp((mouse_y - position.Y) / math.max(1, size.Y), 0, 1)
+        paint(Color3.fromHSV(hue, sat, val), false)
+    end
+
+    local function update_hue(mouse_x)
+        local position = hue_bar.AbsolutePosition
+        local size = math.max(1, hue_bar.AbsoluteSize.X)
+        hue = math.clamp((mouse_x - position.X) / size, 0, 1)
+        paint(Color3.fromHSV(hue, sat, val), false)
+    end
+
+    sv_hit.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        -- Use the input's own position: it shares AbsolutePosition's coordinate
+        -- space. UserInputService:GetMouseLocation() is offset from the GUI by
+        -- the top-bar inset, which dragged the value straight to black.
+        update_sv(input.Position.X, input.Position.Y)
+        Connections['picker_sv'] = UserInputService.InputChanged:Connect(function(move)
+            if move.UserInputType == Enum.UserInputType.MouseMovement or move.UserInputType == Enum.UserInputType.Touch then
+                update_sv(move.Position.X, move.Position.Y)
+            end
+        end)
+        Connections['picker_sv_end'] = UserInputService.InputEnded:Connect(function()
+            Connections:disconnect('picker_sv')
+            Connections:disconnect('picker_sv_end')
+            paint(Color3.fromHSV(hue, sat, val), true)
+            self._library:status((settings.title or 'Colour') .. ' · ' .. hex(Color3.fromHSV(hue, sat, val)), 'info')
+        end)
+    end)
+
+    hue_hit.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        update_hue(input.Position.X)
+        Connections['picker_hue'] = UserInputService.InputChanged:Connect(function(move)
+            if move.UserInputType == Enum.UserInputType.MouseMovement or move.UserInputType == Enum.UserInputType.Touch then
+                update_hue(move.Position.X)
+            end
+        end)
+        Connections['picker_hue_end'] = UserInputService.InputEnded:Connect(function()
+            Connections:disconnect('picker_hue')
+            Connections:disconnect('picker_hue_end')
+            paint(Color3.fromHSV(hue, sat, val), true)
+            self._library:status((settings.title or 'Colour') .. ' · ' .. hex(Color3.fromHSV(hue, sat, val)), 'info')
+        end)
+    end)
+
+    hex_box.FocusLost:Connect(function()
+        local color = parse_hex(hex_box.Text)
+        if color then
+            paint(color, true)
+        else
+            hex_box.Text = hex(Color3.fromHSV(hue, sat, val))
+        end
+    end)
+
+    for _, preset_color in ipairs(presets) do
+        local button = create('TextButton', {
+            Size = UDim2.fromOffset(10, 20),
+            BackgroundColor3 = preset_color,
+            BorderSizePixel = 0,
+            Text = '',
+            AutoButtonColor = false,
+            ZIndex = 8
+        }, preset_row)
+        corner(button, 3)
+        button.MouseButton1Click:Connect(function()
+            paint(preset_color, true)
+        end)
+    end
+
+    -- Hide/show the expanded panel. The frame snaps to its collapsed height
+    -- (and clips) the instant the picker closes, so hiding the panel there is
+    -- visually free and guarantees the invisible drag zones stop eating input.
+    local function set_panel_open(open)
+        panel.Visible = open
+        sv_hit.Visible = open
+        hue_hit.Visible = open
+    end
+
+    function manager:unfold_settings()
+        self._state = not self._state
+        set_panel_open(self._state)
+        if self._state then
+            frame.Size = UDim2.new(0, BODY_W, 0, height_closed + picker_height)
+        else
+            frame.Size = UDim2.new(0, BODY_W, 0, height_closed)
+        end
+        self._module:refresh()
+    end
+
+    -- Allow callers (and tests) to open/close deterministically.
+    function manager:set_open(state)
+        state = state and true or false
+        if state ~= self._state then
+            self:unfold_settings()
+        end
+    end
+
+    swatch.MouseButton1Click:Connect(function()
+        manager:unfold_settings()
+    end)
+
+    local initial = Theme.Accent
+    if settings.flag then
+        local stored = self._library._config._flags[settings.flag]
+        if type(stored) == 'string' then
+            local parsed = parse_hex(stored)
+            if parsed then initial = parsed end
+        end
+    elseif settings.color then
+        initial = settings.color
+    end
+    -- Fire the callback so a restored colour is re-applied by the script;
+    -- `save = false` keeps construction from writing the file, and
+    -- `defer = true` queues the callback until the window is revealed.
+    paint(initial, false, true, true)
+
+    -- Let `library:load_config` push a saved profile back into the swatch.
+    -- A saved colour is a hex string; a live caller may hand us a Color3.
+    if settings.flag then
+        self._library:register(settings.flag, function(value)
+            local color
+            if typeof(value) == 'Color3' then
+                color = value
+            elseif type(value) == 'string' then
+                color = parse_hex(value)
+            end
+            -- Restoring must not re-save while a profile is being applied,
+            -- but the callback fires so a feature can re-apply the colour.
+            if color then paint(color, false, true) end
+        end, hex(initial), { kind = 'color', widget = manager })
+    end
+
+    manager._frame = frame
+    manager._panel = panel
+    manager._sv = sv
+    manager._sv_hit = sv_hit
+    manager._hue_bar = hue_bar
+    manager._hue_hit = hue_hit
+    manager._swatch = swatch
+
+    self:refresh()
+    return manager
+end
+
+--=====================================================================
+--  Aliases for convenience
+--=====================================================================
+ModuleManager.create_input = ModuleManager.create_textbox
+ModuleManager.create_label = ModuleManager.create_text
+
+--=====================================================================
+--  Custom window background
+--=====================================================================
 -- settings = {
---     image = 100228876632788,        -- a single asset id (number or string, with or without "rbxassetid://")
---            or {111, 222, 333},       -- a table of ids — one is picked at random each call
---            or someFolderInstance,    -- a Folder containing ImageLabels/Decals/StringValues — one child is picked at random
---     transparency = 0.2,              -- 0 = fully visible image, 1 = invisible (default 0)
---     scale_type = Enum.ScaleType.Crop -- optional, defaults to Crop (fills & crops like a wallpaper)
+--     image = 100228876632788,      -- id, table of ids, or a Folder of ImageLabels/Decals/StringValues
+--     transparency = 0.2,           -- 0 visible → 1 invisible
+--     scale_type = Enum.ScaleType.Crop
 -- }
 function Library:set_background(settings)
     settings = settings or {}
-
     local Stellar = CoreGui:FindFirstChild('Stellar')
-    if not Stellar then
-        warn('[Library] set_background called before create_ui/load — call library:load() first')
-        return nil
-    end
-
-    local Container = Stellar:FindFirstChild('Container')
+    local Container = Stellar and Stellar:FindFirstChild('Container')
     if not Container then
+        warn('[Stellar] set_background called before load()')
         return nil
     end
 
-    local Background = Container:FindFirstChild('CustomBackground')
-    if not Background then
-        Background = Instance.new('ImageLabel')
-        Background.Name = 'CustomBackground'
-        Background.AnchorPoint = Vector2.new(0, 0)
-        Background.Position = UDim2.new(0, 0, 0, 0)
-        Background.Size = UDim2.new(1, 0, 1, 0)
-        Background.BackgroundTransparency = 1
-        Background.BorderSizePixel = 0
-        Background.ScaleType = Enum.ScaleType.Crop
-        Background.ZIndex = 0
-        Background.Image = ''
-        Background.ImageTransparency = 1
-        Background.Parent = Container
-        Background:SetAttribute('gg_background_layer', true)
+    local background = Container:FindFirstChild('CustomBackground')
+    if not background then
+        background = create('ImageLabel', {
+            Name = 'CustomBackground',
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ScaleType = Enum.ScaleType.Crop,
+            Image = '',
+            ImageTransparency = 1,
+            ZIndex = 0
+        }, Container)
+        corner(background, 16)
     end
 
-    -- Resolve settings.image into a single usable id, whether it's a raw id,
-    -- a table of ids, or a Folder of image options.
     local source = settings.image
-    local resolved = nil
+    local resolved
 
     if typeof(source) == 'Instance' and source:IsA('Folder') then
         local options = source:GetChildren()
@@ -918,7 +6647,7 @@ function Library:set_background(settings)
                 resolved = pick.Value
             end
         end
-    elseif typeof(source) == 'table' then
+    elseif type(source) == 'table' then
         if #source > 0 then
             resolved = source[math.random(1, #source)]
         end
@@ -927,2496 +6656,93 @@ function Library:set_background(settings)
     end
 
     resolved = Util:resolve_asset_id(resolved)
-
     if not resolved then
-        Background.Image = ''
-        Background.ImageTransparency = 1
-        return Background
+        background.Image = ''
+        background.ImageTransparency = 1
+        return background
     end
 
-    Background.Image = resolved
-    Background.ScaleType = settings.scale_type or Enum.ScaleType.Crop
-    Background.ImageTransparency = settings.transparency or 0
-
-    return Background
+    background.Image = resolved
+    background.ScaleType = settings.scale_type or Enum.ScaleType.Crop
+    background.ImageTransparency = settings.transparency or 0
+    return background
 end
 
--- Removes/hides the custom background image, reverting to the plain fill + gradient.
 function Library:clear_background()
     local Stellar = CoreGui:FindFirstChild('Stellar')
     local Container = Stellar and Stellar:FindFirstChild('Container')
-    local Background = Container and Container:FindFirstChild('CustomBackground')
-
-    if Background then
-        Background.Image = ''
-        Background.ImageTransparency = 1
+    local background = Container and Container:FindFirstChild('CustomBackground')
+    if background then
+        background.Image = ''
+        background.ImageTransparency = 1
     end
 end
 
-function Library:create_ui()
-    local old_Stellar = CoreGui:FindFirstChild('Stellar')
+--=====================================================================
+--  Teardown
+--=====================================================================
+function Library:destroy()
+    -- `self` is the library instance when called as `library:destroy()`. It is
+    -- nil/Library when called statically (e.g. `Library.unload()` or
+    -- `pcall(library.unload)`), which still tears the shared GUI down.
+    local instance = (type(self) == 'table' and self ~= Library) and self or nil
 
-    if old_Stellar then
-        old_Stellar:Destroy()
+    if instance then
+        if instance._destroyed then return end
+        instance._destroyed = true
     end
 
-    local Stellar = Instance.new('ScreenGui')
-    Stellar.ResetOnSpawn = false
-    Stellar.Name = 'Stellar'
-    Stellar.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    Stellar.Parent = CoreGui
-    
-    local Container = Instance.new('Frame')
-    Container.ClipsDescendants = true
-    Container.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Container.AnchorPoint = Vector2.new(0.5, 0.5)
-    Container.Name = 'Container'
-    Container.BackgroundTransparency = 0 -- opaque container for solid dark gradient
-    Container.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-    Container.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Container.Size = UDim2.new(0, 0, 0, 0)
-    Container.Active = true
-    Container.BorderSizePixel = 0
-    Container.Parent = Stellar
+    Connections:disconnect_all()
 
-    -- (font injection removed; original FontFace assignments preserved)
-
-    -- Gradient fill for Container (inverted colors)
-    local ContainerGradient = Instance.new("UIGradient")
-    ContainerGradient.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(0, 0, 0)),    -- Top black
-        ColorSequenceKeypoint.new(0.60, Color3.fromRGB(0, 0, 0)),    -- Fade start
-        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(8, 8, 8)) -- Bottom dark
-    }
-    ContainerGradient.Rotation = 90
-    ContainerGradient.Parent = Container
-
-    -- Gradient side bar
-    local SideBar = Instance.new("Frame")
-    SideBar.Name = "GradientSide"
-    SideBar.Parent = Container
-    SideBar.Size = UDim2.new(0, 10, 1, 0)
-    SideBar.Position = UDim2.new(0, 0, 0, 0)
-    SideBar.BackgroundTransparency = 1
-
-    -- Side gradient (inverted colors)
-    local SideGradient = Instance.new("UIGradient")
-    SideGradient.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(0, 0, 0)),
-        ColorSequenceKeypoint.new(0.60, Color3.fromRGB(0, 0, 0)),
-        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(8, 8, 8))
-    }
-    SideGradient.Rotation = 90
-    SideGradient.Parent = SideBar
-
-    -- SideBar corner to keep rounded edge stable
-    local SideBarCorner = Instance.new('UICorner')
-    SideBarCorner.CornerRadius = UDim.new(0, 10)
-    SideBarCorner.Parent = SideBar
-
-    local UICorner = Instance.new('UICorner')
-    UICorner.CornerRadius = UDim.new(0, 10)
-    UICorner.Parent = Container
-    
-    local UIStroke = Instance.new('UIStroke')
-    UIStroke.Color = Color3.fromRGB(255, 185, 110)
-    UIStroke.Transparency = 0.15
-    UIStroke.Thickness = 1.5
-    UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    UIStroke.Parent = Container
-    
-    task.spawn(function()
-        while UIStroke and UIStroke.Parent do
-            TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.6}):Play()
-            task.wait(1.2)
-            if not (UIStroke and UIStroke.Parent) then break end
-            TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.15}):Play()
-            task.wait(1.2)
-        end
-    end)
-    
-    local Handler = Instance.new('Frame')
-    Handler.BackgroundTransparency = 1
-    Handler.Name = 'Handler'
-    Handler.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Handler.Size = UDim2.new(0, 698, 0, 479)
-    Handler.BorderSizePixel = 0
-    Handler.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-    Handler.Parent = Container
-    
-    local Tabs = Instance.new('ScrollingFrame')
-    Tabs.ScrollBarImageTransparency = 1
-    Tabs.ScrollBarThickness = 0
-    Tabs.Name = 'Tabs'
-    Tabs.Size = UDim2.new(0, 129, 0, 401)
-    Tabs.Selectable = false
-    Tabs.AutomaticCanvasSize = Enum.AutomaticSize.XY
-    Tabs.BackgroundTransparency = 1
-    Tabs.Position = UDim2.new(0.026097271591424942, 0, 0.1111111119389534, 0)
-    Tabs.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Tabs.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-    Tabs.BorderSizePixel = 0
-    Tabs.CanvasSize = UDim2.new(0, 0, 0.5, 0)
-    Tabs.Parent = Handler
-    
-    local UIListLayout = Instance.new('UIListLayout')
-    UIListLayout.Padding = UDim.new(0, 4)
-    UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    UIListLayout.Parent = Tabs
-    
-    local ClientName = Instance.new('TextLabel')
-    ClientName.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    ClientName.TextColor3 = Color3.fromRGB(255, 250, 250)
-    ClientName.TextTransparency = 0.20000000298023224
-    ClientName.Text = 'Stellar'
-    ClientName.Name = 'ClientName'
-    ClientName.Size = UDim2.new(0, 31, 0, 13)
-    ClientName.AnchorPoint = Vector2.new(0, 0.5)
-    ClientName.Position = UDim2.new(0.0560000017285347, 0, 0.054999999701976776, 0)
-    ClientName.BackgroundTransparency = 1
-    ClientName.TextXAlignment = Enum.TextXAlignment.Left
-    ClientName.BorderSizePixel = 0
-    ClientName.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    ClientName.TextSize = 13
-    ClientName.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-    ClientName.Parent = Handler
-    
-    local UIGradient = Instance.new('UIGradient')
-    UIGradient.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(155, 155, 155)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
-    }
-    UIGradient.Parent = ClientName
-    
-    local Pin = Instance.new('Frame')
-    Pin.Name = 'Pin'
-    Pin.Position = UDim2.new(0.026000000536441803, 0, 0.13600000739097595, 0)
-    Pin.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Pin.Size = UDim2.new(0, 2, 0, 16)
-    Pin.BorderSizePixel = 0
-    Pin.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-    Pin.Parent = Handler
-    
-    local UICorner2 = Instance.new('UICorner')
-    UICorner2.CornerRadius = UDim.new(1, 0)
-    UICorner2.Parent = Pin
-
-        
-local Icon = Instance.new('ImageLabel')
-Icon.Name = 'Icon'
-Icon.Parent = Handler
-Icon.ImageColor3 = Color3.fromRGB(255, 250, 250)
-Icon.ScaleType = Enum.ScaleType.Fit
-Icon.BorderColor3 = Color3.fromRGB(0, 0, 0)
-Icon.AnchorPoint = Vector2.new(0, 0.5)
-Icon.BackgroundTransparency = 1
-Icon.Position = UDim2.new(0.025, 0, 0.055, 0)
-Icon.Size = UDim2.new(0, 18, 0, 18)
-Icon.BorderSizePixel = 0
-Icon.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-
--- Animation function
-local function AnimateGif(ImageLabel, Width, Height, Rows, Columns, NumberOfFrames, ImageID, FPS)
-    if ImageID then ImageLabel.Image = ImageID end
-    local RobloxMaxImageSize = 2048
-    local RealWidth, RealHeight
-
-    if math.max(Width, Height) > RobloxMaxImageSize then
-        local Longest = Width > Height and "Width" or "Height"
-        if Longest == "Width" then
-            RealWidth = RobloxMaxImageSize
-            RealHeight = (RealWidth / Width) * Height
-        elseif Longest == "Height" then
-            RealHeight = RobloxMaxImageSize
-            RealWidth = (RealHeight / Height) * Width
-        end
-    else
-        RealWidth, RealHeight = Width, Height
-    end
-
-    local FrameSize = Vector2.new(RealWidth / Columns, RealHeight / Rows)
-    ImageLabel.ImageRectSize = FrameSize
-
-    local CurrentRow, CurrentColumn = 0, 0
-    local Offsets = {}
-
-    for i = 1, NumberOfFrames do
-        local CurrentX = CurrentColumn * FrameSize.X
-        local CurrentY = CurrentRow * FrameSize.Y
-        table.insert(Offsets, Vector2.new(CurrentX, CurrentY))
-        CurrentColumn += 1
-
-        if CurrentColumn >= Columns then
-            CurrentColumn = 0
-            CurrentRow += 1
-        end
-    end
-
-    local TimeInterval = FPS and 1 / FPS or 0.1
-    local Index = 0
-
-    task.spawn(function()
-        while task.wait(TimeInterval) and ImageLabel:IsDescendantOf(game) do
-            Index += 1
-            ImageLabel.ImageRectOffset = Offsets[Index]
-            if Index >= NumberOfFrames then
-                Index = 0
+    if instance then
+        -- Closing the window is not enough: every feature the player left
+        -- enabled must be told to stop. Firing each stateful widget's
+        -- callback with `false` is what actually kills the script's logic
+        -- (loops, connections, hooks it started when it was enabled).
+        -- Autosave and the status footer are suppressed during this pass so
+        -- the teardown neither rewrites the saved config nor floods the UI.
+        instance._tearing_down = true
+        for _, entry in ipairs(instance._registry or {}) do
+            if type(entry.off) == 'function' then
+                pcall(entry.off)
             end
         end
-    end)
+        instance._tearing_down = false
+    end
+
+    -- Tear down this instance's own window (not whichever ScreenGui happens
+    -- to share the name, so multiple windows can coexist).
+    if instance and instance._ui then
+        pcall(function() instance._ui:Destroy() end)
+    end
+
+    local stellar = CoreGui:FindFirstChild('Stellar')
+    if stellar then pcall(function() stellar:Destroy() end) end
+    local loader = CoreGui:FindFirstChild('StellarLoader')
+    if loader then loader:Destroy() end
+    local notifications = CoreGui:FindFirstChild('StellarNotifications')
+    if notifications then notifications:Destroy() end
+    local tooltip = CoreGui:FindFirstChild('StellarTooltip')
+    if tooltip then tooltip:Destroy() end
+
+    if instance then
+        instance._ui = nil
+        instance._refs = {}
+        instance._tabs = {}
+        instance._search_items = {}
+        instance._active_tab = nil
+        instance._search_text = ''
+        instance._open_dropdown = nil
+        instance._status_token = (instance._status_token or 0) + 1
+        instance._ui_open = false
+        instance._deferred = {}
+        instance._loader = nil
+    end
 end
 
-AnimateGif(Icon, 60, 40, 2, 3, 5, "rbxassetid://74080484918102", 10)
-    
-    local Divider = Instance.new('Frame')
-    Divider.Name = 'Divider'
-    Divider.BackgroundTransparency = 0.5
-    Divider.Position = UDim2.new(0.23499999940395355, 0, 0, 0)
-    Divider.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Divider.Size = UDim2.new(0, 1, 0, 479)
-    Divider.BorderSizePixel = 0
-    Divider.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
-    Divider.Parent = Handler
-    
-    local Sections = Instance.new('Folder')
-    Sections.Name = 'Sections'
-    Sections.Parent = Handler
-    
-    local Minimize = Instance.new('TextButton')
-    Minimize.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    Minimize.TextColor3 = Color3.fromRGB(0, 0, 0)
-    Minimize.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Minimize.Text = ''
-    Minimize.AutoButtonColor = false
-    Minimize.Name = 'Minimize'
-    Minimize.BackgroundTransparency = 1
-    Minimize.Position = UDim2.new(0.020057305693626404, 0, 0.02922755666077137, 0)
-    Minimize.Size = UDim2.new(0, 24, 0, 24)
-    Minimize.BorderSizePixel = 0
-    Minimize.TextSize = 14
-    Minimize.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-    Minimize.Parent = Handler
-    
-    local UIScale = Instance.new('UIScale')
-    UIScale.Parent = Container    
-    
-    self._ui = Stellar
-
-    local function on_drag(input: InputObject, process: boolean)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-            self._dragging = true
-            self._drag_start = input.Position
-            self._container_position = Container.Position
-
-            Connections['container_input_ended'] = input.Changed:Connect(function()
-                if input.UserInputState ~= Enum.UserInputState.End then
-                    return
-                end
-
-                Connections:disconnect('container_input_ended')
-                self._dragging = false
-            end)
-        end
-    end
-
-    local function update_drag(input: any)
-        local delta = input.Position - self._drag_start
-        local position = UDim2.new(self._container_position.X.Scale, self._container_position.X.Offset + delta.X, self._container_position.Y.Scale, self._container_position.Y.Offset + delta.Y)
-
-        TweenService:Create(Container, TweenInfo.new(0.2), {
-            Position = position
-        }):Play()
-    end
-
-    local function drag(input: InputObject, process: boolean)
-        if not self._dragging then
-            return
-        end
-
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            update_drag(input)
-        end
-    end
-
-    Connections['container_input_began'] = Container.InputBegan:Connect(on_drag)
-    Connections['input_changed'] = UserInputService.InputChanged:Connect(drag)
-
-    self:removed(function()
-        self._ui = nil
-        Connections:disconnect_all()
-    end)
-
-    function self:Update1Run(a)
-        if a == "nil" then
-            Container.BackgroundTransparency = 0.05000000074505806;
-        else
-            pcall(function()
-                Container.BackgroundTransparency = tonumber(a);
-            end);
-        end;
-    end;
-
-    function self:UIVisiblity()
-        Stellar.Enabled = not Stellar.Enabled;
-    end;
-
-    function self:change_visiblity(state: boolean)
-        if state then
-            TweenService:Create(Container, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                Size = UDim2.fromOffset(698, 479)
-            }):Play()
-        else
-            TweenService:Create(Container, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                Size = UDim2.fromOffset(104.5, 52)
-            }):Play()
-        end
-    end
-    
-
-    function self:load()
-        local content = {}
-    
-        for _, object in Stellar:GetDescendants() do
-            if not object:IsA('ImageLabel') then
-                continue
-            end
-    
-            table.insert(content, object)
-        end
-    
-        ContentProvider:PreloadAsync(content)
-        self:get_device()
-
-        if self._device == 'Mobile' or self._device == 'Unknown' then
-            self:get_screen_scale()
-            UIScale.Scale = self._ui_scale
-    
-            Connections['ui_scale'] = workspace.CurrentCamera:GetPropertyChangedSignal('ViewportSize'):Connect(function()
-                self:get_screen_scale()
-                UIScale.Scale = self._ui_scale
-            end)
-        end
-    
-        TweenService:Create(Container, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-            Size = UDim2.fromOffset(698, 479)
-        }):Play()
-
-        AcrylicBlur.new(Container)
-        self._ui_loaded = true
-    end
-
-    function self:update_tabs(tab: TextButton)
-        for index, object in Tabs:GetChildren() do
-            if object.Name ~= 'Tab' then
-                continue
-            end
-
-            if object == tab then
-                if object.BackgroundTransparency ~= 0.5 then
-                    local offset = object.LayoutOrder * (0.113 / 1.3)
-
-                    TweenService:Create(Pin, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        Position = UDim2.fromScale(0.026, 0.135 + offset)
-                    }):Play()    
-
-                    TweenService:Create(object, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundTransparency = 0.5
-                    }):Play()
-
-                    TweenService:Create(object.TextLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        TextTransparency = 0.2,
-                        TextColor3 = Color3.fromRGB(255, 250, 250)
-                    }):Play()
-
-                    TweenService:Create(object.TextLabel.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        Offset = Vector2.new(1, 0)
-                    }):Play()
-
-                    TweenService:Create(object.Icon, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        ImageTransparency = 0.2,
-                        ImageColor3 = Color3.fromRGB(255, 250, 250)
-                    }):Play()
-                end
-
-                continue
-            end
-
-            if object.BackgroundTransparency ~= 1 then
-                TweenService:Create(object, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                    BackgroundTransparency = 1
-                }):Play()
-                
-                TweenService:Create(object.TextLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                    TextTransparency = 0.7,
-                    TextColor3 = Color3.fromRGB(255, 255, 255)
-                }):Play()
-
-                TweenService:Create(object.TextLabel.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                    Offset = Vector2.new(0, 0)
-                }):Play()
-
-                TweenService:Create(object.Icon, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                    ImageTransparency = 0.8,
-                    ImageColor3 = Color3.fromRGB(255, 255, 255)
-                }):Play()
-            end
-        end
-    end
-
-    function self:update_sections(left_section: ScrollingFrame, right_section: ScrollingFrame)
-        for _, object in Sections:GetChildren() do
-            if object == left_section or object == right_section then
-                object.Visible = true
-
-                continue
-            end
-
-            object.Visible = false
-        end
-    end
-
-    function self:create_tab(title: string, icon: string)
-        local TabManager = {}
-
-        local LayoutOrder = 0;
-
-        local font_params = Instance.new('GetTextBoundsParams')
-        font_params.Text = title
-        font_params.Font = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-        font_params.Size = 13
-        font_params.Width = 10000
-
-        local font_size = TextService:GetTextBoundsAsync(font_params)
-        local first_tab = not Tabs:FindFirstChild('Tab')
-
-        local Tab = Instance.new('TextButton')
-        Tab.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-        Tab.TextColor3 = Color3.fromRGB(0, 0, 0)
-        Tab.BorderColor3 = Color3.fromRGB(0, 0, 0)
-        Tab.Text = ''
-        Tab.AutoButtonColor = false
-        Tab.BackgroundTransparency = 1
-        Tab.Name = 'Tab'
-        Tab.Size = UDim2.new(0, 129, 0, 38)
-        Tab.BorderSizePixel = 0
-        Tab.TextSize = 14
-        Tab.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
-        Tab.Parent = Tabs
-        Tab.LayoutOrder = self._tab
-        
-        local UICorner = Instance.new('UICorner')
-        UICorner.CornerRadius = UDim.new(0, 5)
-        UICorner.Parent = Tab
-        
-        local TextLabel = Instance.new('TextLabel')
-        TextLabel.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-        TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        TextLabel.TextTransparency = 0.7 -- 0.800000011920929
-        TextLabel.Text = title
-        TextLabel.Size = UDim2.new(0, font_size.X, 0, 16)
-        TextLabel.AnchorPoint = Vector2.new(0, 0.5)
-        TextLabel.Position = UDim2.new(0.2400001734495163, 0, 0.5, 0)
-        TextLabel.BackgroundTransparency = 1
-        TextLabel.TextXAlignment = Enum.TextXAlignment.Left
-        TextLabel.BorderSizePixel = 0
-        TextLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
-        TextLabel.TextSize = 13
-        TextLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        TextLabel.Parent = Tab
-        
-        local UIGradient = Instance.new('UIGradient')
-        UIGradient.Color = ColorSequence.new{
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-            ColorSequenceKeypoint.new(0.7, Color3.fromRGB(155, 155, 155)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(58, 58, 58))
-        }
-        UIGradient.Parent = TextLabel
-        
-        local Icon = Instance.new('ImageLabel')
-        Icon.ScaleType = Enum.ScaleType.Fit
-        Icon.ImageTransparency = 0.800000011920929
-        Icon.BorderColor3 = Color3.fromRGB(0, 0, 0)
-        Icon.AnchorPoint = Vector2.new(0, 0.5)
-        Icon.BackgroundTransparency = 1
-        Icon.Position = UDim2.new(0.10000000149011612, 0, 0.5, 0)
-        Icon.Name = 'Icon'
-        Icon.Image = icon
-        Icon.Size = UDim2.new(0, 12, 0, 12)
-        Icon.BorderSizePixel = 0
-        Icon.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        Icon.Parent = Tab
-
-        local LeftSection = Instance.new('ScrollingFrame')
-        LeftSection.Name = 'LeftSection'
-        LeftSection.AutomaticCanvasSize = Enum.AutomaticSize.XY
-        LeftSection.ScrollBarThickness = 0
-        LeftSection.Size = UDim2.new(0, 243, 0, 445)
-        LeftSection.Selectable = false
-        LeftSection.AnchorPoint = Vector2.new(0, 0.5)
-        LeftSection.ScrollBarImageTransparency = 1
-        LeftSection.BackgroundTransparency = 1
-        LeftSection.Position = UDim2.new(0.2594326436519623, 0, 0.5, 0)
-        LeftSection.BorderColor3 = Color3.fromRGB(0, 0, 0)
-        LeftSection.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-        LeftSection.BorderSizePixel = 0
-        LeftSection.CanvasSize = UDim2.new(0, 0, 0.5, 0)
-        LeftSection.Visible = false
-        LeftSection.Parent = Sections
-        
-        local UIListLayout = Instance.new('UIListLayout')
-        UIListLayout.Padding = UDim.new(0, 11)
-        UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        UIListLayout.Parent = LeftSection
-        
-        local UIPadding = Instance.new('UIPadding')
-        UIPadding.PaddingTop = UDim.new(0, 1)
-        UIPadding.Parent = LeftSection
-
-        local RightSection = Instance.new('ScrollingFrame')
-        RightSection.Name = 'RightSection'
-        RightSection.AutomaticCanvasSize = Enum.AutomaticSize.XY
-        RightSection.ScrollBarThickness = 0
-        RightSection.Size = UDim2.new(0, 243, 0, 445)
-        RightSection.Selectable = false
-        RightSection.AnchorPoint = Vector2.new(0, 0.5)
-        RightSection.ScrollBarImageTransparency = 1
-        RightSection.BackgroundTransparency = 1
-        RightSection.Position = UDim2.new(0.6290000081062317, 0, 0.5, 0)
-        RightSection.BorderColor3 = Color3.fromRGB(0, 0, 0)
-        RightSection.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-        RightSection.BorderSizePixel = 0
-        RightSection.CanvasSize = UDim2.new(0, 0, 0.5, 0)
-        RightSection.Visible = false
-        RightSection.Parent = Sections
-        
-        local UIListLayout = Instance.new('UIListLayout')
-        UIListLayout.Padding = UDim.new(0, 11)
-        UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        UIListLayout.Parent = RightSection
-        
-        local UIPadding = Instance.new('UIPadding')
-        UIPadding.PaddingTop = UDim.new(0, 1)
-        UIPadding.Parent = RightSection
-
-        self._tab += 1
-
-        if first_tab then
-            self:update_tabs(Tab, LeftSection, RightSection)
-            self:update_sections(LeftSection, RightSection)
-        end
-
-        Tab.MouseButton1Click:Connect(function()
-            self:update_tabs(Tab, LeftSection, RightSection)
-            self:update_sections(LeftSection, RightSection)
-        end)
-
-function TabManager:moduleparagraph(settings: any)
-
-    local LayoutOrderModule = 0;
-
-    local ModuleManager = {
-        _size = 0,
-        _multiplier = 0
-    }
-
-    if settings.section == 'right' then
-        settings.section = RightSection
-    else
-        settings.section = LeftSection
-    end
-
-    local Module = Instance.new('Frame')
-    Module.ClipsDescendants = true
-    Module.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Module.BackgroundTransparency = 0.5
-    Module.Position = UDim2.new(0.004115226212888956, 0, 0, 0)
-    Module.Name = 'ModuleParagraph'
-    Module.Size = UDim2.new(0, 241, 0, 70)
-    Module.BorderSizePixel = 0
-    Module.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
-    Module.Parent = settings.section
-
-    local UIListLayout = Instance.new('UIListLayout')
-    UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    UIListLayout.Parent = Module
-    
-    local UICorner = Instance.new('UICorner')
-    UICorner.CornerRadius = UDim.new(0, 5)
-    UICorner.Parent = Module
-    
-    local UIStroke = Instance.new('UIStroke')
-    UIStroke.Color = Color3.fromRGB(255, 185, 110)
-    UIStroke.Transparency = 0.15
-    UIStroke.Thickness = 1.5
-    UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    UIStroke.Parent = Module
-    
-    task.spawn(function()
-        while UIStroke and UIStroke.Parent do
-            TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.6}):Play()
-            task.wait(1.2)
-            if not (UIStroke and UIStroke.Parent) then break end
-            TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.15}):Play()
-            task.wait(1.2)
-        end
-    end)
-    
-    local Header = Instance.new('Frame')
-    Header.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Header.Name = 'Header'
-    Header.Size = UDim2.new(0, 241, 0, 70)
-    Header.BorderSizePixel = 0
-    Header.BackgroundTransparency = 1
-    Header.Parent = Module
-
-    local ModuleName = Instance.new('TextLabel')
-    ModuleName.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    ModuleName.TextColor3 = Color3.fromRGB(255, 250, 250)
-    ModuleName.TextTransparency = 0.20000000298023224
-    if not settings.rich then
-        ModuleName.Text = settings.title or "Paragraph Title"
-    else
-        ModuleName.RichText = true
-        ModuleName.Text = settings.richtext or "<font color='rgb(255,0,0)'>Frostware</font> Info"
-    end
-    ModuleName.Name = 'ModuleName'
-    ModuleName.Size = UDim2.new(0, 205, 0, 13)
-    ModuleName.AnchorPoint = Vector2.new(0, 0.5)
-    ModuleName.Position = UDim2.new(0.0729999989271164, 0, 0.23999999463558197, 0)
-    ModuleName.BackgroundTransparency = 1
-    ModuleName.TextXAlignment = Enum.TextXAlignment.Left
-    ModuleName.BorderSizePixel = 0
-    ModuleName.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    ModuleName.TextSize = 13
-    ModuleName.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    ModuleName.Parent = Header
-    
-    local Description = Instance.new('TextLabel')
-    Description.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    Description.TextColor3 = Color3.fromRGB(255, 250, 250)
-    Description.TextTransparency = 0.699999988079071
-    Description.Text = settings.description or "This is a description paragraph."
-    Description.Name = 'Description'
-    Description.Size = UDim2.new(0, 205, 0, 28)
-    Description.AnchorPoint = Vector2.new(0, 0.5)
-    Description.Position = UDim2.new(0.0729999989271164, 0, 0.55, 0)
-    Description.BackgroundTransparency = 1
-    Description.TextXAlignment = Enum.TextXAlignment.Left
-    Description.TextYAlignment = Enum.TextYAlignment.Top
-    Description.TextWrapped = true
-    Description.BorderSizePixel = 0
-    Description.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Description.TextSize = 10
-    Description.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    Description.Parent = Header
-
-    return ModuleManager
-end
-
-function TabManager:create_image(settings: any)
-
-    if settings.section == 'right' then
-        settings.section = RightSection
-    else
-        settings.section = LeftSection
-    end
-
-    local Module = Instance.new('Frame')
-    Module.ClipsDescendants = true
-    Module.BorderColor3 = Color3.fromRGB(0, 0, 0)
-    Module.BackgroundTransparency = 0.5
-    Module.Position = UDim2.new(0.004, 0, 0, 0)
-    Module.Name = 'ImageModule'
-    Module.Size = UDim2.new(0, 241, 0, 140) 
-    Module.BorderSizePixel = 0
-    Module.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
-    Module.Parent = settings.section
-
-    local UICorner = Instance.new('UICorner')
-    UICorner.CornerRadius = UDim.new(0, 5)
-    UICorner.Parent = Module
-    
-    local UIStroke = Instance.new('UIStroke')
-    UIStroke.Color = Color3.fromRGB(255, 185, 110)
-    UIStroke.Transparency = 0.15
-    UIStroke.Thickness = 1.5
-    UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    UIStroke.Parent = Module
-    
-    task.spawn(function()
-        while UIStroke and UIStroke.Parent do
-            TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.6}):Play()
-            task.wait(1.2)
-            if not (UIStroke and UIStroke.Parent) then break end
-            TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.15}):Play()
-            task.wait(1.2)
-        end
-    end)
-    
-    local Image = Instance.new("ImageLabel")
-    Image.Name = "GameImage"
-    Image.Parent = Module
-    Image.AnchorPoint = Vector2.new(0.5, 0.5) 
-    Image.Position = UDim2.new(0.5, 0, 0.5, 0) 
-    Image.Size = UDim2.new(0, 215, 0, 120)  
-    Image.BackgroundTransparency = 1
-    Image.Image = settings.image or "rbxassetid://123456789"
-
-    local ImageCorner = Instance.new("UICorner")
-    ImageCorner.CornerRadius = UDim.new(0, 7)  
-    ImageCorner.Parent = Image
-end
-
-        function TabManager:create_module(settings: any)
-
-            local LayoutOrderModule = 0;
-
-            local ModuleManager = {
-                _state = false,
-                _size = 0,
-                _multiplier = 0
-            }
-
-            if settings.section == 'right' then
-                settings.section = RightSection
-            else
-                settings.section = LeftSection
-            end
-
-            local Module = Instance.new('Frame')
-            Module.ClipsDescendants = true
-            Module.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Module.BackgroundTransparency = 0.5
-            Module.Position = UDim2.new(0.004115226212888956, 0, 0, 0)
-            Module.Name = 'Module'
-            Module.Size = UDim2.new(0, 241, 0, 93)
-            Module.BorderSizePixel = 0
-            Module.BackgroundColor3 = Color3.fromRGB(12, 7, 4)
-            Module.Parent = settings.section
-
-            local UIListLayout = Instance.new('UIListLayout')
-            UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-            UIListLayout.Parent = Module
-            
-            local UICorner = Instance.new('UICorner')
-            UICorner.CornerRadius = UDim.new(0, 5)
-            UICorner.Parent = Module
-            
-            local UIStroke = Instance.new('UIStroke')
-            UIStroke.Color = Color3.fromRGB(255, 185, 110)
-            UIStroke.Transparency = 0.15
-            UIStroke.Thickness = 1.5
-            UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            UIStroke.Parent = Module
-            
-            task.spawn(function()
-                while UIStroke and UIStroke.Parent do
-                    TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.6}):Play()
-                    task.wait(1.2)
-                    if not (UIStroke and UIStroke.Parent) then break end
-                    TweenService:Create(UIStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.15}):Play()
-                    task.wait(1.2)
-                end
-            end)
-            
-            local Header = Instance.new('TextButton')
-            Header.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-            Header.TextColor3 = Color3.fromRGB(0, 0, 0)
-            Header.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Header.Text = ''
-            Header.AutoButtonColor = false
-            Header.BackgroundTransparency = 1
-            Header.Name = 'Header'
-            Header.Size = UDim2.new(0, 241, 0, 93)
-            Header.BorderSizePixel = 0
-            Header.TextSize = 14
-            Header.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            Header.Parent = Module
-            
-            local Icon = Instance.new('ImageLabel')
-            Icon.ImageColor3 = Color3.fromRGB(255, 250, 250)
-            Icon.ScaleType = Enum.ScaleType.Fit
-            Icon.ImageTransparency = 0.699999988079071
-            Icon.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Icon.AnchorPoint = Vector2.new(0, 0.5)
-            Icon.Image = 'rbxassetid://79095934438045'
-            Icon.BackgroundTransparency = 1
-            Icon.Position = UDim2.new(0.07100000232458115, 0, 0.8199999928474426, 0)
-            Icon.Name = 'Icon'
-            Icon.Size = UDim2.new(0, 15, 0, 15)
-            Icon.BorderSizePixel = 0
-            Icon.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            Icon.Parent = Header
-            
-            local ModuleName = Instance.new('TextLabel')
-            ModuleName.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            ModuleName.TextColor3 = Color3.fromRGB(255, 250, 250)
-            ModuleName.TextTransparency = 0.20000000298023224
-            if not settings.rich then
-                ModuleName.Text = settings.title or "Skibidi"
-            else
-                ModuleName.RichText = true
-                ModuleName.Text = settings.richtext or "<font color='rgb(255,0,0)'>Frostware</font> user"
-            end;
-            ModuleName.Name = 'ModuleName'
-            ModuleName.Size = UDim2.new(0, 205, 0, 13)
-            ModuleName.AnchorPoint = Vector2.new(0, 0.5)
-            ModuleName.Position = UDim2.new(0.0729999989271164, 0, 0.23999999463558197, 0)
-            ModuleName.BackgroundTransparency = 1
-            ModuleName.TextXAlignment = Enum.TextXAlignment.Left
-            ModuleName.BorderSizePixel = 0
-            ModuleName.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            ModuleName.TextSize = 13
-            ModuleName.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            ModuleName.Parent = Header
-            
-            local Description = Instance.new('TextLabel')
-            Description.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            Description.TextColor3 = Color3.fromRGB(255, 250, 250)
-            Description.TextTransparency = 0.699999988079071
-            Description.Text = settings.description
-            Description.Name = 'Description'
-            Description.Size = UDim2.new(0, 205, 0, 13)
-            Description.AnchorPoint = Vector2.new(0, 0.5)
-            Description.Position = UDim2.new(0.0729999989271164, 0, 0.41999998688697815, 0)
-            Description.BackgroundTransparency = 1
-            Description.TextXAlignment = Enum.TextXAlignment.Left
-            Description.BorderSizePixel = 0
-            Description.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Description.TextSize = 10
-            Description.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            Description.Parent = Header
-            
-            local Toggle = Instance.new('Frame')
-            Toggle.Name = 'Toggle'
-            Toggle.BackgroundTransparency = 0.699999988079071
-            Toggle.Position = UDim2.new(0.8199999928474426, 0, 0.7570000290870667, 0)
-            Toggle.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Toggle.Size = UDim2.new(0, 25, 0, 12)
-            Toggle.BorderSizePixel = 0
-            Toggle.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            Toggle.Parent = Header
-            
-            local UICorner = Instance.new('UICorner')
-            UICorner.CornerRadius = UDim.new(1, 0)
-            UICorner.Parent = Toggle
-            
-            local Circle = Instance.new('Frame')
-            Circle.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Circle.AnchorPoint = Vector2.new(0, 0.5)
-            Circle.BackgroundTransparency = 0.20000000298023224
-            Circle.Position = UDim2.new(0, 0, 0.5, 0)
-            Circle.Name = 'Circle'
-            Circle.Size = UDim2.new(0, 12, 0, 12)
-            Circle.BorderSizePixel = 0
-            Circle.BackgroundColor3 = Color3.fromRGB(66, 80, 115)
-            Circle.Parent = Toggle
-            
-            local UICorner = Instance.new('UICorner')
-            UICorner.CornerRadius = UDim.new(1, 0)
-            UICorner.Parent = Circle
-            
-            local Keybind = Instance.new('Frame')
-            Keybind.Name = 'Keybind'
-            Keybind.BackgroundTransparency = 0.699999988079071
-            Keybind.Position = UDim2.new(0.15000000596046448, 0, 0.7350000143051147, 0)
-            Keybind.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Keybind.Size = UDim2.new(0, 33, 0, 15)
-            Keybind.BorderSizePixel = 0
-            Keybind.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-            Keybind.Parent = Header
-            
-            local UICorner = Instance.new('UICorner')
-            UICorner.CornerRadius = UDim.new(0, 3)
-            UICorner.Parent = Keybind
-            
-            local TextLabel = Instance.new('TextLabel')
-            TextLabel.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            TextLabel.TextColor3 = Color3.fromRGB(209, 222, 255)
-            TextLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            TextLabel.Text = 'None'
-            TextLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-            TextLabel.Size = UDim2.new(0, 25, 0, 13)
-            TextLabel.BackgroundTransparency = 1
-            TextLabel.TextXAlignment = Enum.TextXAlignment.Left
-            TextLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
-            TextLabel.BorderSizePixel = 0
-            TextLabel.TextSize = 10
-            TextLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            TextLabel.Parent = Keybind
-            
-            local Divider = Instance.new('Frame')
-            Divider.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Divider.AnchorPoint = Vector2.new(0.5, 0)
-            Divider.BackgroundTransparency = 0.5
-            Divider.Position = UDim2.new(0.5, 0, 0.6200000047683716, 0)
-            Divider.Name = 'Divider'
-            Divider.Size = UDim2.new(0, 241, 0, 1)
-            Divider.BorderSizePixel = 0
-            Divider.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
-            Divider.Parent = Header
-            
-            local Divider = Instance.new('Frame')
-            Divider.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Divider.AnchorPoint = Vector2.new(0.5, 0)
-            Divider.BackgroundTransparency = 0.5
-            Divider.Position = UDim2.new(0.5, 0, 1, 0)
-            Divider.Name = 'Divider'
-            Divider.Size = UDim2.new(0, 241, 0, 1)
-            Divider.BorderSizePixel = 0
-            Divider.BackgroundColor3 = Color3.fromRGB(255, 185, 110)
-            Divider.Parent = Header
-            
-            local Options = Instance.new('Frame')
-            Options.Name = 'Options'
-            Options.BackgroundTransparency = 1
-            Options.Position = UDim2.new(0, 0, 1, 0)
-            Options.BorderColor3 = Color3.fromRGB(0, 0, 0)
-            Options.Size = UDim2.new(0, 241, 0, 8)
-            Options.BorderSizePixel = 0
-            Options.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-            Options.Parent = Module
-
-            local UIPadding = Instance.new('UIPadding')
-            UIPadding.PaddingTop = UDim.new(0, 8)
-            UIPadding.Parent = Options
-
-            local UIListLayout = Instance.new('UIListLayout')
-            UIListLayout.Padding = UDim.new(0, 5)
-            UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-            UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-            UIListLayout.Parent = Options
-
-            function ModuleManager:change_state(state: boolean)
-                self._state = state
-
-                if self._state then
-                    TweenService:Create(Module, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        Size = UDim2.fromOffset(241, 93 + self._size + self._multiplier)
-                    }):Play()
-
-                    TweenService:Create(Toggle, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                    }):Play()
-
-                    TweenService:Create(Circle, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(255, 250, 250),
-                        Position = UDim2.fromScale(0.53, 0.5)
-                    }):Play()
-                else
-                    TweenService:Create(Module, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        Size = UDim2.fromOffset(241, 93)
-                    }):Play()
-
-                    TweenService:Create(Toggle, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                    }):Play()
-
-                    TweenService:Create(Circle, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(66, 80, 115),
-                        Position = UDim2.fromScale(0, 0.5)
-                    }):Play()
-                end
-
-                Library._config._flags[settings.flag] = self._state
-                Config:save(game.GameId, Library._config)
-
-                settings.callback(self._state)
-            end
-            
-            function ModuleManager:connect_keybind()
-                if not Library._config._keybinds[settings.flag] then
-                    return
-                end
-
-                Connections[settings.flag..'_keybind'] = UserInputService.InputBegan:Connect(function(input: InputObject, process: boolean)
-                    if process then
-                        return
-                    end
-                    
-                    if tostring(input.KeyCode) ~= Library._config._keybinds[settings.flag] then
-                        return
-                    end
-                    
-                    self:change_state(not self._state)
-                end)
-            end
-
-            function ModuleManager:scale_keybind(empty: boolean)
-                if Library._config._keybinds[settings.flag] and not empty then
-                    local keybind_string = string.gsub(tostring(Library._config._keybinds[settings.flag]), 'Enum.KeyCode.', '')
-
-                    local font_params = Instance.new('GetTextBoundsParams')
-                    font_params.Text = keybind_string
-                    font_params.Font = Font.new('rbxasset://fonts/families/Montserrat.json', Enum.FontWeight.Bold)
-                    font_params.Size = 10
-                    font_params.Width = 10000
-            
-                    local font_size = TextService:GetTextBoundsAsync(font_params)
-                    
-                    Keybind.Size = UDim2.fromOffset(font_size.X + 6, 15)
-                    TextLabel.Size = UDim2.fromOffset(font_size.X, 13)
-                else
-                    Keybind.Size = UDim2.fromOffset(31, 15)
-                    TextLabel.Size = UDim2.fromOffset(25, 13)
-                end
-            end
-
-            if Library:flag_type(settings.flag, 'boolean') then
-                ModuleManager._state = true
-                pcall(function()
-                    settings.callback(ModuleManager._state)
-                end)
-
-                Toggle.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Circle.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Circle.Position = UDim2.fromScale(0.53, 0.5)
-            end
-
-            if Library._config._keybinds[settings.flag] then
-                local keybind_string = string.gsub(tostring(Library._config._keybinds[settings.flag]), 'Enum.KeyCode.', '')
-                TextLabel.Text = keybind_string
-
-                ModuleManager:connect_keybind()
-                ModuleManager:scale_keybind()
-            end
-
-            Connections[settings.flag..'_input_began'] = Header.InputBegan:Connect(function(input: InputObject)
-                if Library._choosing_keybind then
-                    return
-                end
-
-                if input.UserInputType ~= Enum.UserInputType.MouseButton3 then
-                    return
-                end
-                
-                Library._choosing_keybind = true
-                
-                Connections['keybind_choose_start'] = UserInputService.InputBegan:Connect(function(input: InputObject, process: boolean)
-                    if process then
-                        return
-                    end
-                    
-                    if input == Enum.UserInputState or input == Enum.UserInputType then
-                        return
-                    end
-
-                    if input.KeyCode == Enum.KeyCode.Unknown then
-                        return
-                    end
-
-                    if input.KeyCode == Enum.KeyCode.Backspace then
-                        ModuleManager:scale_keybind(true)
-
-                        Library._config._keybinds[settings.flag] = nil
-                        Config:save(game.GameId, Library._config)
-
-                        TextLabel.Text = 'None'
-                        
-                        if Connections[settings.flag..'_keybind'] then
-                            Connections[settings.flag..'_keybind']:Disconnect()
-                            Connections[settings.flag..'_keybind'] = nil
-                        end
-
-                        Connections['keybind_choose_start']:Disconnect()
-                        Connections['keybind_choose_start'] = nil
-
-                        Library._choosing_keybind = false
-
-                        return
-                    end
-                    
-                    Connections['keybind_choose_start']:Disconnect()
-                    Connections['keybind_choose_start'] = nil
-                    
-                    Library._config._keybinds[settings.flag] = tostring(input.KeyCode)
-                    Config:save(game.GameId, Library._config)
-
-                    if Connections[settings.flag..'_keybind'] then
-                        Connections[settings.flag..'_keybind']:Disconnect()
-                        Connections[settings.flag..'_keybind'] = nil
-                    end
-
-                    ModuleManager:connect_keybind()
-                    ModuleManager:scale_keybind()
-                    
-                    Library._choosing_keybind = false
-
-                    local keybind_string = string.gsub(tostring(Library._config._keybinds[settings.flag]), 'Enum.KeyCode.', '')
-                    TextLabel.Text = keybind_string
-                end)
-            end)
-
-            Header.MouseButton1Click:Connect(function()
-                ModuleManager:change_state(not ModuleManager._state)
-            end)
-
-            function ModuleManager:create_paragraph(settings: any)
-                LayoutOrderModule = LayoutOrderModule + 1;
-
-                local ParagraphManager = {}
-                
-                if self._size == 0 then
-                    self._size = 11
-                end
-            
-                self._size += settings.customScale or 70
-            
-                if ModuleManager._state then
-                    Module.Size = UDim2.fromOffset(241, 93 + self._size)
-                end
-            
-                Options.Size = UDim2.fromOffset(241, self._size)
-            
-                -- Container Frame
-                local Paragraph = Instance.new('Frame')
-                Paragraph.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-                Paragraph.BackgroundTransparency = 0.1
-                Paragraph.Size = UDim2.new(0, 207, 0, 30) -- Initial size, auto-resized later
-                Paragraph.BorderSizePixel = 0
-                Paragraph.Name = "Paragraph"
-                Paragraph.AutomaticSize = Enum.AutomaticSize.Y -- Support auto-resizing height
-                Paragraph.Parent = Options
-                Paragraph.LayoutOrder = LayoutOrderModule;
-            
-                local UICorner = Instance.new('UICorner')
-                UICorner.CornerRadius = UDim.new(0, 4)
-                UICorner.Parent = Paragraph
-            
-                -- Title Label
-                local Title = Instance.new('TextLabel')
-                Title.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                Title.TextColor3 = Color3.fromRGB(210, 210, 210)
-                Title.Text = settings.title or "Title"
-                Title.Size = UDim2.new(1, -10, 0, 20)
-                Title.Position = UDim2.new(0, 5, 0, 5)
-                Title.BackgroundTransparency = 1
-                Title.TextXAlignment = Enum.TextXAlignment.Left
-                Title.TextYAlignment = Enum.TextYAlignment.Center
-                Title.TextSize = 12
-                Title.AutomaticSize = Enum.AutomaticSize.XY
-                Title.Parent = Paragraph
-            
-                -- Body Text
-                local Body = Instance.new('TextLabel')
-                Body.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                Body.TextColor3 = Color3.fromRGB(180, 180, 180)
-                
-                if not settings.rich then
-                    Body.Text = settings.text or "Skibidi"
-                else
-                    Body.RichText = true
-                    Body.Text = settings.richtext or "<font color='rgb(255,0,0)'>Frostware</font> user"
-                end
-                
-                Body.Size = UDim2.new(1, -10, 0, 20)
-                Body.Position = UDim2.new(0, 5, 0, 30)
-                Body.BackgroundTransparency = 1
-                Body.TextXAlignment = Enum.TextXAlignment.Left
-                Body.TextYAlignment = Enum.TextYAlignment.Top
-                Body.TextSize = 11
-                Body.TextWrapped = true
-                Body.AutomaticSize = Enum.AutomaticSize.XY
-                Body.Parent = Paragraph
-            
-                -- Hover effect for Paragraph (optional)
-                Paragraph.MouseEnter:Connect(function()
-                    TweenService:Create(Paragraph, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(42, 50, 66)
-                    }):Play()
-                end)
-            
-                Paragraph.MouseLeave:Connect(function()
-                    TweenService:Create(Paragraph, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-                    }):Play()
-                end)
-
-                return ParagraphManager
-            end
-
-            function ModuleManager:create_text(settings: any)
-                LayoutOrderModule = LayoutOrderModule + 1
-            
-                local TextManager = {}
-            
-                if self._size == 0 then
-                    self._size = 11
-                end
-            
-                self._size += settings.customScale or 50 -- Adjust the default height for text elements
-            
-                if ModuleManager._state then
-                    Module.Size = UDim2.fromOffset(241, 93 + self._size)
-                end
-            
-                Options.Size = UDim2.fromOffset(241, self._size)
-            
-                -- Container Frame
-                local TextFrame = Instance.new('Frame')
-                TextFrame.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-                TextFrame.BackgroundTransparency = 0.1
-                TextFrame.Size = UDim2.new(0, 207, 0, settings.CustomYSize) -- Initial size, auto-resized later
-                TextFrame.BorderSizePixel = 0
-                TextFrame.Name = "Text"
-                TextFrame.AutomaticSize = Enum.AutomaticSize.Y -- Support auto-resizing height
-                TextFrame.Parent = Options
-                TextFrame.LayoutOrder = LayoutOrderModule
-            
-                local UICorner = Instance.new('UICorner')
-                UICorner.CornerRadius = UDim.new(0, 4)
-                UICorner.Parent = TextFrame
-            
-                -- Body Text
-                local Body = Instance.new('TextLabel')
-                Body.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                Body.TextColor3 = Color3.fromRGB(180, 180, 180)
-            
-                if not settings.rich then
-                    Body.Text = settings.text or "Skibidi" -- Default text
-                else
-                    Body.RichText = true
-                    Body.Text = settings.richtext or "<font color='rgb(255,0,0)'>Frostware</font> user" -- Default rich text
-                end
-            
-                Body.Size = UDim2.new(1, -10, 1, 0)
-                Body.Position = UDim2.new(0, 5, 0, 5)
-                Body.BackgroundTransparency = 1
-                Body.TextXAlignment = Enum.TextXAlignment.Left
-                Body.TextYAlignment = Enum.TextYAlignment.Top
-                Body.TextSize = 10
-                Body.TextWrapped = true
-                Body.AutomaticSize = Enum.AutomaticSize.XY
-                Body.Parent = TextFrame
-            
-                -- Hover effect for TextFrame (optional)
-                TextFrame.MouseEnter:Connect(function()
-                    TweenService:Create(TextFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(42, 50, 66)
-                    }):Play()
-                end)
-            
-                TextFrame.MouseLeave:Connect(function()
-                    TweenService:Create(TextFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-                    }):Play()
-                end)
-
-                function TextManager:Set(new_settings)
-                    if not new_settings.rich then
-                        Body.Text = new_settings.text or "Skibidi" -- Default text
-                    else
-                        Body.RichText = true
-                        Body.Text = new_settings.richtext or "<font color='rgb(255,0,0)'>Frostware</font> user" -- Default rich text
-                    end
-                end;
-            
-                return TextManager
-            end
-            function ModuleManager:create_textbox(settings: any)
-                LayoutOrderModule = LayoutOrderModule + 1
-            
-                local TextboxManager = {
-                    _text = ""
-                }
-            
-                if self._size == 0 then
-                    self._size = 11
-                end
-            
-                self._size += 32
-            
-                if ModuleManager._state then
-                    Module.Size = UDim2.fromOffset(241, 93 + self._size)
-                end
-            
-                Options.Size = UDim2.fromOffset(241, self._size)
-            
-                local Label = Instance.new('TextLabel')
-                Label.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                Label.TextColor3 = Color3.fromRGB(255, 255, 255)
-                Label.TextTransparency = 0.2
-                Label.Text = settings.title or "Enter text"
-                Label.Size = UDim2.new(0, 207, 0, 13)
-                Label.AnchorPoint = Vector2.new(0, 0)
-                Label.Position = UDim2.new(0, 0, 0, 0)
-                Label.BackgroundTransparency = 1
-                Label.TextXAlignment = Enum.TextXAlignment.Left
-                Label.BorderSizePixel = 0
-                Label.Parent = Options
-                Label.TextSize = 10;
-                Label.LayoutOrder = LayoutOrderModule
-            
-                local Textbox = Instance.new('TextBox')
-                Textbox.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                Textbox.TextColor3 = Color3.fromRGB(255, 255, 255)
-                Textbox.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Textbox.PlaceholderText = settings.placeholder or "Enter text..."
-                Textbox.Text = Library._config._flags[settings.flag] or ""
-                Textbox.Name = 'Textbox'
-                Textbox.Size = UDim2.new(0, 207, 0, 15)
-                Textbox.BorderSizePixel = 0
-                Textbox.TextSize = 10
-                Textbox.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Textbox.BackgroundTransparency = 0.9
-                Textbox.ClearTextOnFocus = false
-                Textbox.Parent = Options
-                Textbox.LayoutOrder = LayoutOrderModule
-            
-                local UICorner = Instance.new('UICorner')
-                UICorner.CornerRadius = UDim.new(0, 4)
-                UICorner.Parent = Textbox
-            
-                function TextboxManager:update_text(text: string)
-                    self._text = text
-                    Library._config._flags[settings.flag] = self._text
-                    Config:save(game.GameId, Library._config)
-                    settings.callback(self._text)
-                end
-            
-                if Library:flag_type(settings.flag, 'string') then
-                    TextboxManager:update_text(Library._config._flags[settings.flag])
-                end
-            
-                Textbox.FocusLost:Connect(function()
-                    TextboxManager:update_text(Textbox.Text)
-                end)
-            
-                return TextboxManager
-            end   
-
-            function ModuleManager:create_checkbox(settings: any)
-                LayoutOrderModule = LayoutOrderModule + 1
-                local CheckboxManager = { _state = false }
-            
-                if self._size == 0 then
-                    self._size = 11
-                end
-                self._size += 20
-            
-                if ModuleManager._state then
-                    Module.Size = UDim2.fromOffset(241, 93 + self._size)
-                end
-                Options.Size = UDim2.fromOffset(241, self._size)
-            
-                local Checkbox = Instance.new("TextButton")
-                Checkbox.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                Checkbox.TextColor3 = Color3.fromRGB(0, 0, 0)
-                Checkbox.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Checkbox.Text = ""
-                Checkbox.AutoButtonColor = false
-                Checkbox.BackgroundTransparency = 1
-                Checkbox.Name = "Checkbox"
-                Checkbox.Size = UDim2.new(0, 207, 0, 15)
-                Checkbox.BorderSizePixel = 0
-                Checkbox.TextSize = 14
-                Checkbox.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                Checkbox.Parent = Options
-                Checkbox.LayoutOrder = LayoutOrderModule
-            
-                local TitleLabel = Instance.new("TextLabel")
-                TitleLabel.Name = "TitleLabel"
-                if SelectedLanguage == "th" then
-                    TitleLabel.FontFace = Font.new("rbxasset://fonts/families/NotoSansThai.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                    TitleLabel.TextSize = 13
-                else
-                    TitleLabel.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                    TitleLabel.TextSize = 11
-                end
-                TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                TitleLabel.TextTransparency = 0.2
-                TitleLabel.Text = settings.title or "Skibidi"
-                TitleLabel.Size = UDim2.new(0, 142, 0, 13)
-                TitleLabel.AnchorPoint = Vector2.new(0, 0.5)
-                TitleLabel.Position = UDim2.new(0, 0, 0.5, 0)
-                TitleLabel.BackgroundTransparency = 1
-                TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-                TitleLabel.Parent = Checkbox
-
-                local KeybindBox = Instance.new("Frame")
-                KeybindBox.Name = "KeybindBox"
-                KeybindBox.Size = UDim2.fromOffset(14, 14)
-                KeybindBox.Position = UDim2.new(1, -35, 0.5, 0)
-                KeybindBox.AnchorPoint = Vector2.new(0, 0.5)
-                KeybindBox.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                KeybindBox.BorderSizePixel = 0
-                KeybindBox.Parent = Checkbox
-            
-                local KeybindCorner = Instance.new("UICorner")
-                KeybindCorner.CornerRadius = UDim.new(0, 4)
-                KeybindCorner.Parent = KeybindBox
-            
-                local KeybindLabel = Instance.new("TextLabel")
-                KeybindLabel.Name = "KeybindLabel"
-                KeybindLabel.Size = UDim2.new(1, 0, 1, 0)
-                KeybindLabel.BackgroundTransparency = 1
-                KeybindLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
-                KeybindLabel.TextScaled = false
-                KeybindLabel.TextSize = 10
-                KeybindLabel.Font = Enum.Font.SourceSans
-                KeybindLabel.Text = Library._config._keybinds[settings.flag] 
-                    and string.gsub(tostring(Library._config._keybinds[settings.flag]), "Enum.KeyCode.", "") 
-                    or "..."
-                KeybindLabel.Parent = KeybindBox
-            
-                local Box = Instance.new("Frame")
-                Box.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Box.AnchorPoint = Vector2.new(1, 0.5)
-                Box.BackgroundTransparency = 0.9
-                Box.Position = UDim2.new(1, 0, 0.5, 0)
-                Box.Name = "Box"
-                Box.Size = UDim2.new(0, 15, 0, 15)
-                Box.BorderSizePixel = 0
-                Box.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Box.Parent = Checkbox
-            
-                local BoxCorner = Instance.new("UICorner")
-                BoxCorner.CornerRadius = UDim.new(0, 4)
-                BoxCorner.Parent = Box
-            
-                local Fill = Instance.new("Frame")
-                Fill.AnchorPoint = Vector2.new(0.5, 0.5)
-                Fill.BackgroundTransparency = 0.2
-                Fill.Position = UDim2.new(0.5, 0, 0.5, 0)
-                Fill.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Fill.Name = "Fill"
-                Fill.BorderSizePixel = 0
-                Fill.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Fill.Parent = Box
-            
-                local FillCorner = Instance.new("UICorner")
-                FillCorner.CornerRadius = UDim.new(0, 3)
-                FillCorner.Parent = Fill
-            
-                function CheckboxManager:change_state(state: boolean)
-                    self._state = state
-                    if self._state then
-                        TweenService:Create(Box, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            BackgroundTransparency = 0.7
-                        }):Play()
-                        TweenService:Create(Fill, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(9, 9)
-                        }):Play()
-                    else
-                        TweenService:Create(Box, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            BackgroundTransparency = 0.9
-                        }):Play()
-                        TweenService:Create(Fill, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(0, 0)
-                        }):Play()
-                    end
-                    Library._config._flags[settings.flag] = self._state
-                    Config:save(game.GameId, Library._config)
-                    settings.callback(self._state)
-                end
-            
-                if Library:flag_type(settings.flag, "boolean") then
-                    CheckboxManager:change_state(Library._config._flags[settings.flag])
-                end
-            
-                Checkbox.MouseButton1Click:Connect(function()
-                    CheckboxManager:change_state(not CheckboxManager._state)
-                end)
-            
-                Checkbox.InputBegan:Connect(function(input, gameProcessed)
-                    if gameProcessed then return end
-                    if input.UserInputType ~= Enum.UserInputType.MouseButton3 then return end
-                    if Library._choosing_keybind then return end
-            
-                    Library._choosing_keybind = true
-                    local chooseConnection
-                    chooseConnection = UserInputService.InputBegan:Connect(function(keyInput, processed)
-                        if processed then return end
-                        if keyInput.UserInputType ~= Enum.UserInputType.Keyboard then return end
-                        if keyInput.KeyCode == Enum.KeyCode.Unknown then return end
-            
-                        if keyInput.KeyCode == Enum.KeyCode.Backspace then
-                            ModuleManager:scale_keybind(true)
-                            Library._config._keybinds[settings.flag] = nil
-                            Config:save(game.GameId, Library._config)
-                            KeybindLabel.Text = "..."
-                            if Connections[settings.flag .. "_keybind"] then
-                                Connections[settings.flag .. "_keybind"]:Disconnect()
-                                Connections[settings.flag .. "_keybind"] = nil
-                            end
-                            chooseConnection:Disconnect()
-                            Library._choosing_keybind = false
-                            return
-                        end
-            
-                        chooseConnection:Disconnect()
-                        Library._config._keybinds[settings.flag] = tostring(keyInput.KeyCode)
-                        Config:save(game.GameId, Library._config)
-                        if Connections[settings.flag .. "_keybind"] then
-                            Connections[settings.flag .. "_keybind"]:Disconnect()
-                            Connections[settings.flag .. "_keybind"] = nil
-                        end
-                        ModuleManager:connect_keybind()
-                        ModuleManager:scale_keybind()
-                        Library._choosing_keybind = false
-            
-                        local keybind_string = string.gsub(tostring(Library._config._keybinds[settings.flag]), "Enum.KeyCode.", "")
-                        KeybindLabel.Text = keybind_string
-                    end)
-                end)
-            
-                local keyPressConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-                    if gameProcessed then return end
-                    if input.UserInputType == Enum.UserInputType.Keyboard then
-                        local storedKey = Library._config._keybinds[settings.flag]
-                        if storedKey and tostring(input.KeyCode) == storedKey then
-                            CheckboxManager:change_state(not CheckboxManager._state)
-                        end
-                    end
-                end)
-                Connections[settings.flag .. "_keypress"] = keyPressConnection
-            
-                return CheckboxManager
-            end
-
-function ModuleManager:create_button(settings: any)
-    LayoutOrderModule = LayoutOrderModule + 1
-    
-    if self._size == 0 then
-        self._size = 11
-    end
-    self._size += 20
-
-    if ModuleManager._state then
-        Module.Size = UDim2.fromOffset(241, 93 + self._size)
-    end
-    Options.Size = UDim2.fromOffset(241, self._size)
-
-    local Button = Instance.new("TextButton")
-    Button.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Button.TextTransparency = 0.2
-    Button.Text = settings.title or "Button"
-    Button.AutoButtonColor = true
-    Button.BackgroundTransparency = 0.2
-    Button.BackgroundColor3 = Color3.fromRGB(41, 49, 62)
-    Button.Name = "Button"
-    Button.Size = UDim2.new(0, 207, 0, 20)
-    Button.BorderSizePixel = 0
-    Button.TextSize = 11
-    Button.Parent = Options
-    Button.LayoutOrder = LayoutOrderModule
-
-    local ButtonCorner = Instance.new("UICorner")
-    ButtonCorner.CornerRadius = UDim.new(0, 4)
-    ButtonCorner.Parent = Button
-
-    Button.MouseButton1Click:Connect(function()
-        if settings.callback then
-            settings.callback()
-        end
-    end)
-
-    return Button
-end
-        
-        
-            function ModuleManager:create_divider(settings: any)
-                -- Layout order management
-                LayoutOrderModule = LayoutOrderModule + 1;
-            
-                if self._size == 0 then
-                    self._size = 11
-                end
-            
-                self._size += 27
-            
-                if ModuleManager._state then
-                    Module.Size = UDim2.fromOffset(241, 93 + self._size)
-                end
-
-                local dividerHeight = 1
-                local dividerWidth = 207 -- Adjust this to fit your UI width
-            
-                -- Create the outer frame to control spacing above and below
-                local OuterFrame = Instance.new('Frame')
-                OuterFrame.Size = UDim2.new(0, dividerWidth, 0, 20) -- Height here controls spacing above and below
-                OuterFrame.BackgroundTransparency = 1 -- Fully invisible
-                OuterFrame.Name = 'OuterFrame'
-                OuterFrame.Parent = Options
-                OuterFrame.LayoutOrder = LayoutOrderModule
-
-                if settings and settings.showtopic then
-                    local TextLabel = Instance.new('TextLabel')
-                    TextLabel.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                    TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- 154, 182, 255
-                    TextLabel.TextTransparency = 0
-                    TextLabel.Text = settings.title
-                    TextLabel.Size = UDim2.new(0, 153, 0, 13)
-                    TextLabel.Position = UDim2.new(0.5, 0, 0.501, 0)
-                    TextLabel.BackgroundTransparency = 1
-                    TextLabel.TextXAlignment = Enum.TextXAlignment.Center
-                    TextLabel.BorderSizePixel = 0
-                    TextLabel.AnchorPoint = Vector2.new(0.5,0.5)
-                    TextLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                    TextLabel.TextSize = 11
-                    TextLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                    TextLabel.ZIndex = 3;
-                    TextLabel.TextStrokeTransparency = 0;
-                    TextLabel.Parent = OuterFrame
-                end;
-                
-                if not settings or settings and not settings.disableline then
-                    -- Create the inner divider frame that will be placed in the middle of the OuterFrame
-                    local Divider = Instance.new('Frame')
-                    Divider.Size = UDim2.new(1, 0, 0, dividerHeight)
-                    Divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- White color
-                    Divider.BorderSizePixel = 0
-                    Divider.Name = 'Divider'
-                    Divider.Parent = OuterFrame
-                    Divider.ZIndex = 2;
-                    Divider.Position = UDim2.new(0, 0, 0.5, -dividerHeight / 2) -- Center the divider vertically in the OuterFrame
-                
-                    -- Add a UIGradient to the divider for left and right transparency
-                    local Gradient = Instance.new('UIGradient')
-                    Gradient.Parent = Divider
-                    Gradient.Color = ColorSequence.new({
-                        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),  -- Start with white
-                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)), -- Keep it white in the middle
-                        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255, 0))  -- Fade to transparent on the right side
-                    })
-                    Gradient.Transparency = NumberSequence.new({
-                        NumberSequenceKeypoint.new(0, 1),   
-                        NumberSequenceKeypoint.new(0.5, 0),
-                        NumberSequenceKeypoint.new(1, 1)
-                    })
-                    Gradient.Rotation = 0 -- Horizontal gradient (fade from left to right)
-                
-                    -- Optionally, you can add a corner radius for rounded ends
-                    local UICorner = Instance.new('UICorner')
-                    UICorner.CornerRadius = UDim.new(0, 2) -- Small corner radius for smooth edges
-                    UICorner.Parent = Divider
-
-                end;
-            
-                return true;
-            end
-            
-            function ModuleManager:create_slider(settings: any)
-
-                LayoutOrderModule = LayoutOrderModule + 1
-
-                local SliderManager = {}
-
-                if self._size == 0 then
-                    self._size = 11
-                end
-
-                self._size += 27
-
-                if ModuleManager._state then
-                    Module.Size = UDim2.fromOffset(241, 93 + self._size)
-                end
-
-                Options.Size = UDim2.fromOffset(241, self._size)
-
-                local Slider = Instance.new('TextButton')
-                Slider.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                Slider.TextSize = 14;
-                Slider.TextColor3 = Color3.fromRGB(0, 0, 0)
-                Slider.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Slider.Text = ''
-                Slider.AutoButtonColor = false
-                Slider.BackgroundTransparency = 1
-                Slider.Name = 'Slider'
-                Slider.Size = UDim2.new(0, 207, 0, 22)
-                Slider.BorderSizePixel = 0
-                Slider.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                Slider.Parent = Options
-                Slider.LayoutOrder = LayoutOrderModule
-                
-                local TextLabel = Instance.new('TextLabel')
-                if GG.SelectedLanguage == "th" then
-                    TextLabel.FontFace = Font.new("rbxasset://fonts/families/NotoSansThai.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                    TextLabel.TextSize = 13;
-                else
-                    TextLabel.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                    TextLabel.TextSize = 11;
-                end;
-                TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                TextLabel.TextTransparency = 0.20000000298023224
-                TextLabel.Text = settings.title
-                TextLabel.Size = UDim2.new(0, 153, 0, 13)
-                TextLabel.Position = UDim2.new(0, 0, 0.05000000074505806, 0)
-                TextLabel.BackgroundTransparency = 1
-                TextLabel.TextXAlignment = Enum.TextXAlignment.Left
-                TextLabel.BorderSizePixel = 0
-                TextLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                TextLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                TextLabel.Parent = Slider
-                
-                local Drag = Instance.new('Frame')
-                Drag.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Drag.AnchorPoint = Vector2.new(0.5, 1)
-                Drag.BackgroundTransparency = 0.8999999761581421
-                Drag.Position = UDim2.new(0.5, 0, 0.949999988079071, 0)
-                Drag.Name = 'Drag'
-                Drag.Size = UDim2.new(0, 207, 0, 4)
-                Drag.BorderSizePixel = 0
-                Drag.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Drag.Parent = Slider
-                
-                local UICorner = Instance.new('UICorner')
-                UICorner.CornerRadius = UDim.new(1, 0)
-                UICorner.Parent = Drag
-                
-                local Fill = Instance.new('Frame')
-                Fill.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Fill.AnchorPoint = Vector2.new(0, 0.5)
-                Fill.BackgroundTransparency = 0.5
-                Fill.Position = UDim2.new(0, 0, 0.5, 0)
-                Fill.Name = 'Fill'
-                Fill.Size = UDim2.new(0, 103, 0, 4)
-                Fill.BorderSizePixel = 0
-                Fill.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Fill.Parent = Drag
-                
-                local UICorner = Instance.new('UICorner')
-                UICorner.CornerRadius = UDim.new(0, 3)
-                UICorner.Parent = Fill
-                
-                local UIGradient = Instance.new('UIGradient')
-                UIGradient.Color = ColorSequence.new{
-                    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-                    ColorSequenceKeypoint.new(1, Color3.fromRGB(79, 79, 79))
-                }
-                UIGradient.Parent = Fill
-                
-                local Circle = Instance.new('Frame')
-                Circle.AnchorPoint = Vector2.new(1, 0.5)
-                Circle.Name = 'Circle'
-                Circle.Position = UDim2.new(1, 0, 0.5, 0)
-                Circle.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Circle.Size = UDim2.new(0, 6, 0, 6)
-                Circle.BorderSizePixel = 0
-                Circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                Circle.Parent = Fill
-                
-                local UICorner = Instance.new('UICorner')
-                UICorner.CornerRadius = UDim.new(1, 0)
-                UICorner.Parent = Circle
-                
-                local Value = Instance.new('TextLabel')
-                Value.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                Value.TextColor3 = Color3.fromRGB(255, 255, 255)
-                Value.TextTransparency = 0.20000000298023224
-                Value.Text = '50'
-                Value.Name = 'Value'
-                Value.Size = UDim2.new(0, 42, 0, 13)
-                Value.AnchorPoint = Vector2.new(1, 0)
-                Value.Position = UDim2.new(1, 0, 0, 0)
-                Value.BackgroundTransparency = 1
-                Value.TextXAlignment = Enum.TextXAlignment.Right
-                Value.BorderSizePixel = 0
-                Value.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Value.TextSize = 10
-                Value.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                Value.Parent = Slider
-
-                function SliderManager:set_percentage(percentage: number)
-                    local rounded_number = 0
-
-                    if settings.round_number then
-                        rounded_number = math.floor(percentage)
-                    else
-                        rounded_number = math.floor(percentage * 10) / 10
-                    end
-
-                    percentage = (percentage - settings.minimum_value) / (settings.maximum_value - settings.minimum_value)
-                    
-                    local slider_size = math.clamp(percentage, 0.02, 1) * (Drag.AbsoluteSize.X ~= 0 and Drag.AbsoluteSize.X or Drag.Size.X.Offset)
-                    local number_threshold = math.clamp(rounded_number, settings.minimum_value, settings.maximum_value)
-    
-                    Library._config._flags[settings.flag] = number_threshold
-                    Value.Text = number_threshold
-    
-                    TweenService:Create(Fill, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                        Size = UDim2.fromOffset(slider_size, (Drag.AbsoluteSize.Y ~= 0 and Drag.AbsoluteSize.Y or Drag.Size.Y.Offset))
-                    }):Play()
-    
-                    settings.callback(number_threshold)
-                end
-
-                function SliderManager:update()
-                    local success, mouse_location = pcall(function() return UserInputService:GetMouseLocation() end)
-                    local mouse_x = (success and mouse_location and mouse_location.X) or (Mouse and Mouse.X) or 0
-                    local drag_width = (Drag.AbsoluteSize and Drag.AbsoluteSize.X) or Drag.Size.X.Offset
-                    if drag_width == 0 then drag_width = Drag.Size.X.Offset end
-                    local mouse_position = (mouse_x - Drag.AbsolutePosition.X) / drag_width
-                    local percentage = settings.minimum_value + (settings.maximum_value - settings.minimum_value) * mouse_position
-
-                    self:set_percentage(percentage)
-                end
-
-                function SliderManager:input()
-                    SliderManager:update()
-    
-                    Connections['slider_drag_'..settings.flag] = UserInputService.InputChanged:Connect(function(input)
-                        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-                            SliderManager:update()
-                        end
-                    end)
-                    
-                    Connections['slider_input_'..settings.flag] = UserInputService.InputEnded:Connect(function(input: InputObject, process: boolean)
-                        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-                            return
-                        end
-    
-                        Connections:disconnect('slider_drag_'..settings.flag)
-                        Connections:disconnect('slider_input_'..settings.flag)
-
-                        if not settings.ignoresaved then
-                            Config:save(game.GameId, Library._config);
-                        end;
-                    end)
-                end
-
-
-                if Library:flag_type(settings.flag, 'number') then
-                    if not settings.ignoresaved then
-                        SliderManager:set_percentage(Library._config._flags[settings.flag]);
-                    else
-                        SliderManager:set_percentage(settings.value);
-                    end;
-                else
-                    SliderManager:set_percentage(settings.value);
-                end;
-    
-                Slider.MouseButton1Down:Connect(function()
-                    SliderManager:input()
-                end)
-
-                return SliderManager
-            end
-
-            function ModuleManager:create_dropdown(settings: any)
-
-                if not settings.Order then
-                    LayoutOrderModule = LayoutOrderModule + 1;
-                end;
-
-                local DropdownManager = {
-                    _state = false,
-                    _size = 0
-                }
-
-                if not settings.Order then
-                    if self._size == 0 then
-                        self._size = 11
-                    end
-
-                    self._size += 44
-                end;
-
-                if not settings.Order then
-                    if ModuleManager._state then
-                        Module.Size = UDim2.fromOffset(241, 93 + self._size)
-                    end
-                    Options.Size = UDim2.fromOffset(241, self._size)
-                end
-
-                local Dropdown = Instance.new('TextButton')
-                Dropdown.FontFace = Font.new('rbxasset://fonts/families/SourceSansPro.json', Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                Dropdown.TextColor3 = Color3.fromRGB(0, 0, 0)
-                Dropdown.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Dropdown.Text = ''
-                Dropdown.AutoButtonColor = false
-                Dropdown.BackgroundTransparency = 1
-                Dropdown.Name = 'Dropdown'
-                Dropdown.Size = UDim2.new(0, 207, 0, 39)
-                Dropdown.BorderSizePixel = 0
-                Dropdown.TextSize = 14
-                Dropdown.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                Dropdown.Parent = Options
-
-                if not settings.Order then
-                    Dropdown.LayoutOrder = LayoutOrderModule;
-                else
-                    Dropdown.LayoutOrder = settings.OrderValue;
-                end;
-
-                if not Library._config._flags[settings.flag] then
-                    Library._config._flags[settings.flag] = {};
-                end;
-                
-                local TextLabel = Instance.new('TextLabel')
-                if GG.SelectedLanguage == "th" then
-                    TextLabel.FontFace = Font.new("rbxasset://fonts/families/NotoSansThai.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                    TextLabel.TextSize = 13;
-                else
-                    TextLabel.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
-                    TextLabel.TextSize = 11;
-                end;
-                TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                TextLabel.TextTransparency = 0.20000000298023224
-                TextLabel.Text = settings.title
-                TextLabel.Size = UDim2.new(0, 207, 0, 13)
-                TextLabel.BackgroundTransparency = 1
-                TextLabel.TextXAlignment = Enum.TextXAlignment.Left
-                TextLabel.BorderSizePixel = 0
-                TextLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                TextLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                TextLabel.Parent = Dropdown
-                
-                local Box = Instance.new('Frame')
-                Box.ClipsDescendants = true
-                Box.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Box.AnchorPoint = Vector2.new(0.5, 0)
-                Box.BackgroundTransparency = 0.8999999761581421
-                Box.Position = UDim2.new(0.5, 0, 1.2000000476837158, 0)
-                Box.Name = 'Box'
-                Box.Size = UDim2.new(0, 207, 0, 22)
-                Box.BorderSizePixel = 0
-                Box.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                Box.Parent = TextLabel
-                
-                local UICorner = Instance.new('UICorner')
-                UICorner.CornerRadius = UDim.new(0, 4)
-                UICorner.Parent = Box
-                
-                local Header = Instance.new('Frame')
-                Header.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Header.AnchorPoint = Vector2.new(0.5, 0)
-                Header.BackgroundTransparency = 1
-                Header.Position = UDim2.new(0.5, 0, 0, 0)
-                Header.Name = 'Header'
-                Header.Size = UDim2.new(0, 207, 0, 22)
-                Header.BorderSizePixel = 0
-                Header.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                Header.Parent = Box
-                
-                local CurrentOption = Instance.new('TextLabel')
-                CurrentOption.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                CurrentOption.TextColor3 = Color3.fromRGB(255, 255, 255)
-                CurrentOption.TextTransparency = 0.20000000298023224
-                CurrentOption.Name = 'CurrentOption'
-                CurrentOption.Size = UDim2.new(0, 161, 0, 13)
-                CurrentOption.AnchorPoint = Vector2.new(0, 0.5)
-                CurrentOption.Position = UDim2.new(0.04999988153576851, 0, 0.5, 0)
-                CurrentOption.BackgroundTransparency = 1
-                CurrentOption.TextXAlignment = Enum.TextXAlignment.Left
-                CurrentOption.BorderSizePixel = 0
-                CurrentOption.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                CurrentOption.TextSize = 10
-                CurrentOption.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                CurrentOption.Parent = Header
-                local UIGradient = Instance.new('UIGradient')
-                UIGradient.Transparency = NumberSequence.new{
-                    NumberSequenceKeypoint.new(0, 0),
-                    NumberSequenceKeypoint.new(0.704, 0),
-                    NumberSequenceKeypoint.new(0.872, 0.36250001192092896),
-                    NumberSequenceKeypoint.new(1, 1)
-                }
-                UIGradient.Parent = CurrentOption
-                
-                local Arrow = Instance.new('ImageLabel')
-                Arrow.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Arrow.AnchorPoint = Vector2.new(0, 0.5)
-                Arrow.Image = 'rbxassetid://84232453189324'
-                Arrow.BackgroundTransparency = 1
-                Arrow.Position = UDim2.new(0.9100000262260437, 0, 0.5, 0)
-                Arrow.Name = 'Arrow'
-                Arrow.Size = UDim2.new(0, 8, 0, 8)
-                Arrow.BorderSizePixel = 0
-                Arrow.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                Arrow.Parent = Header
-                
-                local Options = Instance.new('ScrollingFrame')
-                Options.ScrollBarImageColor3 = Color3.fromRGB(0, 0, 0)
-                Options.Active = true
-                Options.ScrollBarImageTransparency = 1
-                Options.AutomaticCanvasSize = Enum.AutomaticSize.XY
-                Options.ScrollBarThickness = 0
-                Options.Name = 'Options'
-                Options.Size = UDim2.new(0, 207, 0, 0)
-                Options.BackgroundTransparency = 1
-                Options.Position = UDim2.new(0, 0, 1, 0)
-                Options.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                Options.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                Options.BorderSizePixel = 0
-                Options.CanvasSize = UDim2.new(0, 0, 0.5, 0)
-                Options.Parent = Box
-                
-                local UIListLayout = Instance.new('UIListLayout')
-                UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-                UIListLayout.Parent = Options
-                
-                local UIPadding = Instance.new('UIPadding')
-                UIPadding.PaddingTop = UDim.new(0, -1)
-                UIPadding.PaddingLeft = UDim.new(0, 10)
-                UIPadding.Parent = Options
-                
-                local UIListLayout = Instance.new('UIListLayout')
-                UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-                UIListLayout.Parent = Box
-
-                function DropdownManager:update(option: string)
-                    -- If multi-dropdown is enabled
-                    if settings.multi_dropdown then
-                        -- Split the CurrentOption.Text by commas into a table
-
-                        if not Library._config._flags[settings.flag] then
-                            Library._config._flags[settings.flag] = {};
-                        end;
-
-                        local CurrentTargetValue = nil;
-                        
-                        if #Library._config._flags[settings.flag] > 0 then
-
-                            CurrentTargetValue = convertTableToString(Library._config._flags[settings.flag]);
-
-                        end;
-
-                        local selected = {}
-
-                        if CurrentTargetValue then
-                            for value in string.gmatch(CurrentTargetValue, "([^,]+)") do
-                                -- Trim spaces around the option using string.match
-                                local trimmedValue = value:match("^%s*(.-)%s*$")  -- Trim leading and trailing spaces
-                                
-                                -- Exclude any unwanted labels (e.g. "Label")
-                                if trimmedValue ~= "Label" then
-                                    table.insert(selected, trimmedValue)
-                                end
-                            end
-                        else
-                            for value in string.gmatch(CurrentOption.Text, "([^,]+)") do
-                                -- Trim spaces around the option using string.match
-                                local trimmedValue = value:match("^%s*(.-)%s*$")  -- Trim leading and trailing spaces
-                                
-                                -- Exclude any unwanted labels (e.g. "Label")
-                                if trimmedValue ~= "Label" then
-                                    table.insert(selected, trimmedValue)
-                                end
-                            end
-                        end;
-                
-                        local CurrentTextGet = convertStringToTable(CurrentOption.Text);
-
-                        optionSkibidi = "nil";
-                        if typeof(option) ~= 'string' then
-                            optionSkibidi = option.Name;
-                        else
-                            optionSkibidi = option;
-                        end;
-
-                        local found = false
-                        for i, v in pairs(CurrentTextGet) do
-                            if v == optionSkibidi then
-                                table.remove(CurrentTextGet, i);
-                                break;
-                            end
-                        end
-
-                        CurrentOption.Text = table.concat(selected, ", ")
-                        local OptionsChild = {}
-                        -- Update the transparent effect of each option
-                        for _, object in Options:GetChildren() do
-                            if object.Name == "Option" then
-                                table.insert(OptionsChild, object.Text)
-                                if table.find(selected, object.Text) then
-                                    object.TextTransparency = 0.2
-                                else
-                                    object.TextTransparency = 0.6
-                                end
-                            end
-                        end
-
-                        CurrentTargetValue = convertStringToTable(CurrentOption.Text);
-
-                        for _, v in CurrentTargetValue do
-                            if not table.find(OptionsChild, v) and table.find(selected, v) then
-                                table.remove(selected, _)
-                            end;
-                        end;
-
-                        CurrentOption.Text = table.concat(selected, ", ");
-                
-                        Library._config._flags[settings.flag] = convertStringToTable(CurrentOption.Text);
-                    else
-                        -- For single dropdown, just set the CurrentOption.Text to the selected option
-                        CurrentOption.Text = (typeof(option) == "string" and option) or option.Name
-                        for _, object in Options:GetChildren() do
-                            if object.Name == "Option" then
-                                -- Only update transparency for actual option text buttons
-                                if object.Text == CurrentOption.Text then
-                                    object.TextTransparency = 0.2
-                                else
-                                    object.TextTransparency = 0.6
-                                end
-                            end
-                        end
-                        Library._config._flags[settings.flag] = option
-                    end
-                
-                    -- Save the configuration state
-                    Config:save(game.GameId, Library._config)
-                
-                    -- Callback with the updated option(s)
-                    settings.callback(option)
-                end
-                
-                local CurrentDropSizeState = 0;
-
-                function DropdownManager:unfold_settings()
-                    self._state = not self._state
-
-                    if self._state then
-                        ModuleManager._multiplier += self._size
-
-                        CurrentDropSizeState = self._size;
-
-                        TweenService:Create(Module, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(241, 93 + ModuleManager._size + ModuleManager._multiplier)
-                        }):Play()
-
-                        TweenService:Create(Module.Options, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(241, ModuleManager._size + ModuleManager._multiplier)
-                        }):Play()
-
-                        TweenService:Create(Dropdown, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(207, 39 + self._size)
-                        }):Play()
-
-                        TweenService:Create(Box, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(207, 22 + self._size)
-                        }):Play()
-
-                        TweenService:Create(Arrow, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Rotation = 180
-                        }):Play()
-                    else
-                        ModuleManager._multiplier -= self._size
-
-                        CurrentDropSizeState = 0;
-
-                        TweenService:Create(Module, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(241, 93 + ModuleManager._size + ModuleManager._multiplier)
-                        }):Play()
-
-                        TweenService:Create(Module.Options, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(241, ModuleManager._size + ModuleManager._multiplier)
-                        }):Play()
-
-                        TweenService:Create(Dropdown, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(207, 39)
-                        }):Play()
-
-                        TweenService:Create(Box, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(207, 22)
-                        }):Play()
-
-                        TweenService:Create(Arrow, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                            Rotation = 0
-                        }):Play()
-                    end
-                end
-
-                if #settings.options > 0 then
-                    DropdownManager._size = 3
-
-                    for index, value in settings.options do
-                        local Option = Instance.new('TextButton')
-                        Option.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-                        Option.Active = false
-                        Option.TextTransparency = 0.6000000238418579
-                        Option.AnchorPoint = Vector2.new(0, 0.5)
-                        Option.TextSize = 10
-                        Option.Size = UDim2.new(0, 186, 0, 16)
-                        Option.TextColor3 = Color3.fromRGB(255, 255, 255)
-                        Option.BorderColor3 = Color3.fromRGB(0, 0, 0)
-                        Option.Text = (typeof(value) == "string" and value) or value.Name;
-                        Option.AutoButtonColor = false
-                        Option.Name = 'Option'
-                        Option.BackgroundTransparency = 1
-                        Option.TextXAlignment = Enum.TextXAlignment.Left
-                        Option.Selectable = false
-                        Option.Position = UDim2.new(0.04999988153576851, 0, 0.34210526943206787, 0)
-                        Option.BorderSizePixel = 0
-                        Option.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-                        Option.Parent = Options
-                        
-                        local UIGradient = Instance.new('UIGradient')
-                        UIGradient.Transparency = NumberSequence.new{
-                            NumberSequenceKeypoint.new(0, 0),
-                            NumberSequenceKeypoint.new(0.704, 0),
-                            NumberSequenceKeypoint.new(0.872, 0.36250001192092896),
-                            NumberSequenceKeypoint.new(1, 1)
-                        }
-                        UIGradient.Parent = Option
-
-                        Option.MouseButton1Click:Connect(function()
-                            if not Library._config._flags[settings.flag] then
-                                Library._config._flags[settings.flag] = {};
-                            end;
-
-                            if settings.multi_dropdown then
-                                if table.find(Library._config._flags[settings.flag], value) then
-                                    Library:remove_table_value(Library._config._flags[settings.flag], value)
-                                else
-                                    table.insert(Library._config._flags[settings.flag], value)
-                                end
-                            end
-
-                            DropdownManager:update(value)
-                        end)
-    
-                        if index > settings.maximum_options then
-                            continue
-                        end
-    
-                        DropdownManager._size += 16
-                        Options.Size = UDim2.fromOffset(207, DropdownManager._size)
-                    end
-                end
-
-                function DropdownManager:New(value)
-                    Dropdown:Destroy(true);
-                    value.OrderValue = Dropdown.LayoutOrder
-                    ModuleManager._multiplier -= CurrentDropSizeState
-                    return ModuleManager:create_dropdown(value)
-                end;
-
-                if Library:flag_type(settings.flag, 'string') then
-                    DropdownManager:update(Library._config._flags[settings.flag])
-                else
-                    DropdownManager:update(settings.options[1])
-                end
-    
-                Dropdown.MouseButton1Click:Connect(function()
-                    DropdownManager:unfold_settings()
-                end)
-
-                return DropdownManager
-            end
-
-            function ModuleManager:create_feature(settings)
-
-                local checked = false;
-                
-                LayoutOrderModule = LayoutOrderModule + 1
-            
-                if self._size == 0 then
-                    self._size = 11
-                end
-            
-                self._size += 20
-            
-                if ModuleManager._state then
-                    Module.Size = UDim2.fromOffset(241, 93 + self._size);
-                end
-            
-                Options.Size = UDim2.fromOffset(241, self._size);
-            
-                local FeatureContainer = Instance.new("Frame")
-                FeatureContainer.Size = UDim2.new(0, 207, 0, 16)
-                FeatureContainer.BackgroundTransparency = 1
-                FeatureContainer.Parent = Options
-                FeatureContainer.LayoutOrder = LayoutOrderModule
-            
-                local UIListLayout = Instance.new("UIListLayout")
-                UIListLayout.FillDirection = Enum.FillDirection.Horizontal
-                UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-                UIListLayout.Parent = FeatureContainer
-            
-                local FeatureButton = Instance.new("TextButton")
-                FeatureButton.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
-                FeatureButton.TextSize = 11;
-                FeatureButton.Size = UDim2.new(1, -35, 0, 16)
-                FeatureButton.BackgroundColor3 = Color3.fromRGB(58, 32, 18)
-                FeatureButton.TextColor3 = Color3.fromRGB(210, 210, 210)
-                FeatureButton.Text = "    " .. settings.title or "    " .. "Feature"
-                FeatureButton.AutoButtonColor = false
-                FeatureButton.TextXAlignment = Enum.TextXAlignment.Left
-                FeatureButton.TextTransparency = 0.2
-                FeatureButton.Parent = FeatureContainer
-            
-                local RightContainer = Instance.new("Frame")
-                RightContainer.Size = UDim2.new(0, 45, 0, 16)
-                RightContainer.BackgroundTransparency = 1
-                RightContainer.Parent = FeatureContainer
-            
-                local RightLayout = Instance.new("UIListLayout")
-                RightLayout.Padding = UDim.new(0.1, 0)
-                RightLayout.FillDirection = Enum.FillDirection.Horizontal
-                RightLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-                RightLayout.SortOrder = Enum.SortOrder.LayoutOrder
-                RightLayout.Parent = RightContainer
-            
-                local KeybindBox = Instance.new("TextLabel")
-                KeybindBox.FontFace = Font.new('rbxasset://fonts/families/GothamSSm.json', Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
-                KeybindBox.Size = UDim2.new(0, 15, 0, 15)
-                KeybindBox.BackgroundColor3 = Color3.fromRGB(255, 250, 250)
-                KeybindBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-                KeybindBox.TextSize = 11
-                KeybindBox.BackgroundTransparency = 1
-                KeybindBox.LayoutOrder = 2;
-                KeybindBox.Parent = RightContainer
-            
-                local KeybindButton = Instance.new("TextButton")
-                KeybindButton.Size = UDim2.new(1, 0, 1, 0)
-                KeybindButton.BackgroundTransparency = 1
-                KeybindButton.TextTransparency = 1
-                KeybindButton.Parent = KeybindBox
-
-                local CheckboxCorner = Instance.new("UICorner", KeybindBox)
-                CheckboxCorner.CornerRadius = UDim.new(0, 3)
-
-                local UIStroke = Instance.new("UIStroke", KeybindBox)
-                UIStroke.Color = Color3.fromRGB(255, 250, 250)
-                UIStroke.Thickness = 1
-                UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            
-                if not Library._config._flags then
-                    Library._config._flags = {}
-                end
-            
-                if not Library._config._flags[settings.flag] then
-                    Library._config._flags[settings.flag] = {
-                        checked = false,
-                        BIND = settings.default or "Unknown"
-                    }
-                end
-            
-                checked = Library._config._flags[settings.flag].checked
-                KeybindBox.Text = Library._config._flags[settings.flag].BIND
-
-                if KeybindBox.Text == "Unknown" then
-                    KeybindBox.Text = "...";
-                end;
-
-                local UseF_Var = nil;
-
-                if not settings.disablecheck then
-                   task.defer(function()
-                      if settings.callback then
-                         settings.callback(checked)
-                       end
-                    end)
-                end
-            
-                if not settings.disablecheck then
-                    local Checkbox = Instance.new("TextButton")
-                    Checkbox.Size = UDim2.new(0, 15, 0, 15)
-                    Checkbox.BackgroundColor3 = checked and Color3.fromRGB(255, 250, 250) or Color3.fromRGB(58, 32, 18)
-                    Checkbox.Text = ""
-                    Checkbox.Parent = RightContainer
-                    Checkbox.LayoutOrder = 1;
-
-                    local UIStroke = Instance.new("UIStroke", Checkbox)
-                    UIStroke.Color = Color3.fromRGB(255, 250, 250)
-                    UIStroke.Thickness = 1
-                    UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-                
-                    local CheckboxCorner = Instance.new("UICorner")
-                    CheckboxCorner.CornerRadius = UDim.new(0, 3)
-                    CheckboxCorner.Parent = Checkbox
-            
-                    local function toggleState()
-                        checked = not checked
-                        Checkbox.BackgroundColor3 = checked and Color3.fromRGB(255, 250, 250) or Color3.fromRGB(58, 32, 18)
-                        Library._config._flags[settings.flag].checked = checked
-                        Config:save(game.GameId, Library._config)
-                        if settings.callback then
-                            settings.callback(checked)
-                        end
-                    end
-
-                    UseF_Var = toggleState
-                
-                    Checkbox.MouseButton1Click:Connect(toggleState)
-
-                else
-
-                    UseF_Var = function()
-                        settings.button_callback();
-                    end;
-
-                end;
-            
-                KeybindButton.MouseButton1Click:Connect(function()
-        KeybindBox.Text = "..."
-        local inputConnection
-        inputConnection = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
-            if gameProcessed then return end
-            if input.UserInputType == Enum.UserInputType.Keyboard then
-                local newKey = input.KeyCode.Name
-                Library._config._flags[settings.flag].BIND = newKey
-                if newKey ~= "Unknown" then
-                    KeybindBox.Text = newKey;
-                end;
-                Config:save(game.GameId, Library._config)
-                inputConnection:Disconnect()
-                -- 🔧 FIX: Notify main script of new keybind
-                if settings.keybind_callback then
-                    settings.keybind_callback(newKey)
-                end
-            elseif input.UserInputType == Enum.UserInputType.MouseButton3 then
-                Library._config._flags[settings.flag].BIND = "Unknown"
-                KeybindBox.Text = "..."
-                Config:save(game.GameId, Library._config)
-                inputConnection:Disconnect()
-                -- 🔧 FIX: Notify main script keybind was cleared
-                if settings.keybind_callback then
-                    settings.keybind_callback("Unknown")
-                end
-            end
-        end)
-        Connections["keybind_input_" .. settings.flag] = inputConnection
-    end)
-            
-                local keyPressConnection
-                keyPressConnection = game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
-                    if gameProcessed then return end
-                    if input.UserInputType == Enum.UserInputType.Keyboard then
-                        if input.KeyCode.Name == Library._config._flags[settings.flag].BIND then
-                            UseF_Var();
-                        end
-                    end
-                end)
-                Connections["keybind_press_" .. settings.flag] = keyPressConnection
-            
-                FeatureButton.MouseButton1Click:Connect(function()
-                    if settings.button_callback then
-                        settings.button_callback()
-                    end
-                end)
-
-                if not settings.disablecheck then
-                    settings.callback(checked);
-                end;
-            
-                return FeatureContainer
-            end                    
-
-            return ModuleManager
-        end
-
-        return TabManager
-    end
-
-    Connections['library_visiblity'] = UserInputService.InputBegan:Connect(function(input: InputObject, process: boolean)
-        if input.KeyCode ~= Enum.KeyCode.LeftControl then
-                return
-            end
-
-        self._ui_open = not self._ui_open
-        self:change_visiblity(self._ui_open)
-    end)
-
-    self._ui.Container.Handler.Minimize.MouseButton1Click:Connect(function()
-        self._ui_open = not self._ui_open
-        self:change_visiblity(self._ui_open)
-    end)
-
-    return self
-end
+-- The original Stellar API exposed `Library.unload`. Keep it as an alias so
+-- existing scripts that call `library:unload()` / `pcall(library.unload)`
+-- keep working against the redesign.
+Library.unload = Library.destroy
 
 return Library
